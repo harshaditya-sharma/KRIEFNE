@@ -348,6 +348,73 @@ function suiteUpgradePool() {
   try { give(fresh, u.id, u.max); } catch (e) { }
   ok(u.id + ' capped at max=' + u.max, fresh.pool().indexOf(u.id) < 0);
  }
+
+ // -- draft gating, through the real draft: 60 runs x 40 drafts, half of them
+ // taking anything and half refusing dash + recall forever. No card may ever be
+ // offered for a system the ship does not own.
+ const refuse = u => u.id !== 'spd' && u.id !== 'pcell';
+ const bad = new Set();
+ let drafts = 0, backs = 0, backShort = 0, dup = 0;
+ const gaps = { spd: 0, pcell: 0 };
+ for (let run = 0; run < 60; run++) {
+  const a = boot(); seedRandom(a, 5000 + run);
+  a.startRun(); a.loadSector(0); a.forceState('playing');
+  const refusing = run % 2 === 1, since = { spd: 0, pcell: 0 };
+  // Observe EVERY draft: with XP-bonus cards one grant can cross two levels,
+  // and the second draft would otherwise be picked through unseen.
+  for (let k = 0; k < 40; k++) {
+   if (a.state !== 'levelup') a.gainXp(a.player.xpNeed + 1);
+   if (a.state !== 'levelup') break;
+   const p = a.player, ch = a.choices;
+   drafts++;
+   if (new Set(ch.map(u => u.id)).size !== ch.length) dup++;
+   for (const u of ch) {
+    if (u.req && !u.req(p)) bad.add(u.id + ' offered with its requirement unmet');
+    if ((u.id === 'gatecd' || u.id === 'transit') && !p.recallUnlocked) bad.add(u.id + ' before recall');
+    if (u.id === 'slip' && !p.dashUnlocked) bad.add('slip before dash');
+    if (/^shock(cap|amp|rad)$/.test(u.id) && !p.shockOn) bad.add(u.id + ' before Kinetic Discharge');
+   }
+   if (a.levelBack) { backs++; if (ch.length < 4 && a.pool().length >= 4) backShort++; }
+   if (refusing) for (const id of ['spd', 'pcell']) {
+    if (ch.some(u => u.id === id)) since[id] = 0; else since[id]++;
+    gaps[id] = Math.max(gaps[id], since[id]);
+   }
+   const opts = refusing ? ch.filter(refuse) : ch;
+   a.pickUpgrade(opts.length ? opts[(run * 7 + k * 3) % opts.length] : ch[0]);
+  }
+ }
+ atLeast('gating fuzz ran real drafts', drafts, 1500);
+ ok('no card is ever offered for a system you do not own', bad.size === 0, [...bad].join('; '));
+ eq('a draft never shows the same card twice', dup, 0);
+ // A skipped core ability keeps coming back: absent from at most PITY_DRAFTS
+ // (3) drafts in a row, plus one when both fall due together, because only one
+ // returns per draft.
+ atMost('refused dash comes back within 4 drafts', gaps.spd, 4);
+ atMost('refused recall comes back within 4 drafts', gaps.pcell, 4);
+ atLeast('the return path actually fired', backs, 20);
+ eq('a returning card is added, never swapped in for a regular one', backShort, 0);
+
+ // Once owned, a core unlock is never pushed back into the draft.
+ {
+  const a = boot(); seedRandom(a, 6060);
+  a.startRun(); a.loadSector(0); a.forceState('playing');
+  give(a, 'spd', 1); give(a, 'pcell', 1); a.forceState('playing');
+  let back = 0;
+  for (let k = 0; k < 30; k++) {
+   if (a.state !== 'levelup') a.gainXp(a.player.xpNeed + 1);
+   if (a.levelBack) back++;
+   a.pickUpgrade(a.choices[0]);
+  }
+  eq('owned dash and recall are never offered back', back, 0);
+ }
+ // The recall unlock reads as one, like dash does.
+ {
+  const a = boot(); a.startRun(); a.loadSector(0); a.forceState('playing');
+  const pc = a.upgrades.find(u => u.id === 'pcell');
+  ok('Portal Cell says UNLOCK while recall is locked', /UNLOCK/.test(pc.dyn(a.player).desc));
+  give(a, 'pcell', 1);
+  ok('and reads as charges once recall is owned', pc.dyn(a.player) === null);
+ }
  return api;
 }
 
@@ -1050,6 +1117,24 @@ function huntStep(api, speed) {
  const dx = e.x - p.x, dy = e.y - p.y, d = Math.hypot(dx, dy) || 1;
  p.x += dx / d * (speed || 3); p.y += dy / d * (speed || 3);
 }
+// Fly the ship over every gem still on the field, the way a player collects.
+// The EXIT is parked out of reach for the sweep so touching it can never end the
+// sector mid-collection, and the default magnet is restored so a gem resting
+// against an obstacle is still pulled in.
+function collectAll(api) {
+ const p = api.player, pt = api.portal, px = pt && pt.x, py = pt && pt.y;
+ if (pt) { pt.x = -1e5; pt.y = -1e5; }
+ p.magnet = Math.max(p.magnet, 90); p.pull = Math.max(p.pull || 0, 430);
+ let guard = 0;
+ while (api.gems.length && guard++ < 4000) {
+  if (api.state === 'levelup') { api.pickUpgrade(api.choices[0]); continue; }
+  const g = api.gems[0];
+  p.x = g.x; p.y = g.y;
+  api.update(DT);
+ }
+ if (pt) { pt.x = px; pt.y = py; }
+}
+function fieldValue(api) { return api.gems.reduce((a, g) => a + g.v, 0); }
 function suiteXp() {
  section('xp conservation');
 
@@ -1076,12 +1161,37 @@ function suiteXp() {
   const L = 'S' + (sector + 1);
   atLeast(L + ' produced gems to account for', led.created, 1);
   ok(L + ' portal opened (sector actually cleared)', !!api.portal);
-  eq(L + ' no gems left stranded on the field', api.gems.length, 0);
+  // XP is collected, never handed out: clearing the sector leaves the field alone.
+  ok(L + ' clearing leaves every gem on the field (no auto-vacuum)',
+   Math.abs(fieldValue(api) - led.created) < 0.01, 'on field ' + fieldValue(api) + ' of ' + led.created);
+  eq(L + ' clearing banks no XP by itself', p.xp, x0);
+  collectAll(api);
+  eq(L + ' flying over the field picks every gem up', api.gems.length, 0);
   const absorbed = p.xp - x0, expected = led.created * bonus;
   ok(L + ' every point of gem value became XP',
    Math.abs(absorbed - expected) < 0.01,
    'absorbed ' + absorbed.toFixed(1) + ' of ' + expected.toFixed(1) +
    ' (lost ' + (expected - absorbed).toFixed(1) + ')');
+ }
+
+ // -- A2: gems left behind when you exit are gone for good -------------------
+ {
+  const api = boot();
+  seedRandom(api, 31777);
+  api.startRun(); api.loadSector(1); api.forceState('playing');
+  const p = api.player;
+  p.magnet = 0; p.pull = 0; p.xpNeed = 1e9;
+  api.queue.length = 0;
+  let guard = 0;
+  while (api.enemies.length && guard++ < 800) api.killEnemy(0);
+  for (let i = 0; i < 30; i++) { if (api.state === 'levelup') { api.pickUpgrade(api.choices[0]); continue; } api.update(DT); }
+  ok('exit opened with gems still on the field', !!api.portal && api.gems.length > 0, 'gems ' + api.gems.length);
+  const xp = p.xp;
+  api.nextArena();
+  eq('uncollected XP is not credited on exit', api.player.xp, xp);
+  api.loadSector(2);
+  eq('uncollected gems do not follow you into the next sector', api.gems.length, 0);
+  eq('and are not credited on entry either', api.player.xp, xp);
  }
 
  // -- B: every level crossed hands out exactly one draft ---------------------
@@ -1179,9 +1289,16 @@ function suiteXp() {
   }
   const tag = magnetStacks ? 'with magnet x3' : 'no magnet';
   ok(tag + ': run reached the exit', !!api.portal, 'foes left ' + api.hostiles());
-  eq(tag + ': no gems stranded after a real clear', api.gems.length, 0);
+  // Nothing is destroyed inside the sector: every gem is either banked or
+  // still lying where it fell.
+  const banked = p.xp - x0, left = fieldValue(api) * bonus;
+  ok(tag + ': every gem is banked or still on the field',
+   Math.abs(banked + left - led.created * bonus) < 0.01,
+   'banked ' + banked.toFixed(1) + ' + field ' + left.toFixed(1) + ' of ' + (led.created * bonus).toFixed(1));
+  collectAll(api);
+  eq(tag + ': the whole field can be collected', api.gems.length, 0);
   const absorbed = p.xp - x0, expected = led.created * bonus;
-  ok(tag + ': real playthrough loses no XP',
+  ok(tag + ': real playthrough loses no XP that was collected',
    Math.abs(absorbed - expected) < 0.01,
    'absorbed ' + absorbed.toFixed(1) + ' of ' + expected.toFixed(1) +
    ' (lost ' + (expected - absorbed).toFixed(1) + ')');
@@ -1250,6 +1367,7 @@ function suiteXp() {
    }
    if (!api.portal) { led.detach(); continue; }   // didn't finish; not a conservation claim
    cleared++; checked++;
+   collectAll(api);
    const absorbed = p.xp - x0, expected = led.created * bonus;
    ok('fuzz run ' + run + ' (S' + (sector + 1) + ') conserves XP',
     Math.abs(absorbed - expected) < 0.01,
@@ -1258,6 +1376,122 @@ function suiteXp() {
    led.detach();
   }
   atLeast('fuzz actually cleared sectors', cleared, 8);
+ }
+ return null;
+}
+
+// ======================================================================
+//  SUITE -- run save / resume
+// ======================================================================
+// A run ends only when the ship dies. Each check boots a SECOND game against
+// the storage the first one wrote, which is exactly a closed tab coming back.
+function suiteSave() {
+ section('run save / resume');
+ const RUN = 'kriefne_run';
+ {
+  const api = boot();
+  ok('a fresh install has no saved run', !api.__store[RUN] && !api.readRun());
+  api.handleKeyPress('Enter');
+  eq('Enter on a fresh title starts a run', api.state, 'galaxy');
+  ok('a new run is saved immediately', !!api.__store[RUN]);
+ }
+ // play one sector, bank some progress, reach the hub, "close the tab"
+ const a = boot();
+ seedRandom(a, 2468);
+ a.startRun(); a.loadSector(0); a.forceState('playing');
+ give(a, 'dmg', 3); give(a, 'spd', 1); give(a, 'pcell', 1); a.forceState('playing');
+ a.gainXp(a.player.xpNeed + 5);
+ while (a.state === 'levelup') a.pickUpgrade(a.choices[0]);
+ a.queue.length = 0;
+ let guard = 0;
+ while (a.enemies.length && guard++ < 800) a.killEnemy(0);
+ for (let i = 0; i < 30; i++) { if (a.state === 'levelup') { a.pickUpgrade(a.choices[0]); continue; } a.update(DT); }
+ ok('sector 1 cleared', !!a.portal);
+ a.nextArena();
+ eq('back on the hub', a.state, 'galaxy');
+ const want = {
+  seed: a.runSeed, level: a.player.level, xp: a.player.xp, maxhp: a.player.maxhp, dmg: a.player.dmgMult,
+  dash: a.player.dashUnlocked, recall: a.player.recallUnlocked, charges: a.player.charges,
+  counts: JSON.stringify(a.upgradeCounts), cleared: a.cleared, sel: a.galaxySel
+ };
+ {
+  const b = boot(a.__store);
+  eq('reopening lands on the title', b.state, 'title');
+  ok('the title finds the saved run', !!b.readRun());
+  b.handleKeyPress('Enter');
+  eq('Enter continues the run onto the hub', b.state, 'galaxy');
+  eq('resume keeps the run seed', b.runSeed, want.seed);
+  eq('resume keeps the level', b.player.level, want.level);
+  eq('resume keeps banked xp', b.player.xp, want.xp);
+  eq('resume keeps max HP', b.player.maxhp, want.maxhp);
+  eq('resume keeps the damage multiplier', b.player.dmgMult, want.dmg);
+  eq('resume keeps dash', b.player.dashUnlocked, want.dash);
+  eq('resume keeps recall', b.player.recallUnlocked, want.recall);
+  eq('resume keeps recall charges', b.player.charges, want.charges);
+  eq('resume keeps every drafted card', JSON.stringify(b.upgradeCounts), want.counts);
+  eq('resume keeps cleared sectors', b.cleared, want.cleared);
+  eq('resume selects the sector you were on', b.galaxySel, want.sel);
+  b.loadSector(b.galaxySel);
+  eq('the resumed run plays the next sector', b.state, 'playing');
+  // progress inside a sector is not saved: quitting replays it from its start
+  const xpIn = b.player.xp;
+  b.gainXp(b.player.xpNeed * 0.5);
+  b.forceState('paused');
+  b.handleKeyPress('KeyQ');
+  eq('Q on the pause menu quits to the title', b.state, 'title');
+  const c = boot(b.__store);
+  ok('quitting mid-sector keeps the run', !!c.readRun());
+  c.handleKeyPress('Enter');
+  eq('mid-sector quit resumes on the hub', c.state, 'galaxy');
+  eq('at the sector it was in', c.galaxySel, want.sel);
+  eq('with the state it had entering that sector', c.player.xp, xpIn);
+  // the hub's Esc no longer ends the run
+  c.handleKeyPress('Escape');
+  eq('Esc on the hub goes to the title', c.state, 'title');
+  ok('and the run is still saved', !!c.readRun());
+  // starting over asks twice
+  c.handleKeyPress('KeyN');
+  eq('N once only arms NEW RUN', c.state, 'title');
+  ok('the saved run survives one press', c.readRun() && c.readRun().runSeed === want.seed);
+  c.handleKeyPress('KeyN');
+  eq('N twice starts a new run', c.state, 'galaxy');
+  ok('the new run replaced the old save', c.readRun() && c.readRun().runSeed !== want.seed);
+  // death ends the run for good
+  c.loadSector(0); c.forceState('playing');
+  const p = c.player; p.invuln = 0; p.dashT = 0; p.stasisN = 0; p.secondWind = false;
+  c.hurtPlayer(1e6, false);
+  eq('lethal damage ends the run', c.state, 'gameover');
+  ok('death deletes the saved run', !c.__store[RUN]);
+  const d = boot(c.__store);
+  ok('after a death the title has nothing to continue', !d.readRun());
+ }
+ // a damaged save is ignored, never fatal
+ {
+  const e = boot({ kriefne_run: '{not json' });
+  let threw = null;
+  try { e.render(); e.handleKeyPress('Enter'); } catch (err) { threw = err; }
+  ok('a corrupt save does not crash the title', !threw, threw && threw.message);
+  eq('and Enter simply starts a fresh run', e.state, 'galaxy');
+  const f = boot({ kriefne_run: JSON.stringify({ v: 999, player: { hp: 50 } }) });
+  ok('a save from another version is ignored', !f.readRun());
+ }
+ // pity counters ride along with the run
+ {
+  const g = boot(); seedRandom(g, 1357);
+  g.startRun(); g.loadSector(0); g.forceState('playing');
+  g.gainXp(g.player.xpNeed + 1);
+  g.pickUpgrade(g.choices.find(u => u.id !== 'spd' && u.id !== 'pcell'));
+  g.gainXp(g.player.xpNeed + 1); g.pickUpgrade(g.choices.find(u => u.id !== 'spd' && u.id !== 'pcell') || g.choices[0]);
+  const pity = JSON.stringify(g.pity);
+  g.forceState('playing'); g.nextArena();
+  const h = boot(g.__store); h.continueRun();
+  eq('the draft pity counters survive a resume', JSON.stringify(h.pity), pity);
+ }
+ {
+  const r = boot(); r.startRun();
+  let threw = null;
+  try { r.forceState('title'); r.render(); r.forceState('paused'); r.render(); } catch (err) { threw = err; }
+  ok('title with CONTINUE and pause with QUIT render', !threw, threw && threw.message);
  }
  return null;
 }
@@ -1283,7 +1517,8 @@ const SUITES = [
  ['combos', suiteCombos],
  ['codex', suiteCodex],
  ['endless', suitePoolExhaustion],
- ['cascades', suiteCascades]
+ ['cascades', suiteCascades],
+ ['save', suiteSave]
 ];
 
 // Importable so ad-hoc diagnostics can drive the same stubs without running the

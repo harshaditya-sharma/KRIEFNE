@@ -22,7 +22,7 @@ function circleHit(a,b){ const dx=a.x-b.x, dy=a.y-b.y, r=a.r+b.r; return dx*dx+d
 function circleRect(cx,cy,cr,r){ const nx=clamp(cx,r.x,r.x+r.w), ny=clamp(cy,r.y,r.y+r.h); const dx=cx-nx, dy=cy-ny; return dx*dx+dy*dy < cr*cr; }
 function resolveCircleRect(e,r){ const nx=clamp(e.x,r.x,r.x+r.w), ny=clamp(e.y,r.y,r.y+r.h); let dx=e.x-nx, dy=e.y-ny; let d=Math.sqrt(dx*dx+dy*dy); if(d < e.r){ if(d<0.001){ e.x=r.x-e.r-0.5; return; } const push=(e.r-d); e.x+=dx/d*push; e.y+=dy/d*push; } }
 // ---------- convex polygon obstacles ----------
-// A third obstacle kind beside rect and circle, so districts can be built from
+// A third obstacle kind beside rect and circle, so debris fields can be built from
 // hex pylons, wedges, octagon bunkers and chevrons instead of the same two
 // shapes every sector. Stored as {kind:'poly', x, y, pts:[[dx,dy],..], r} where
 // pts are local offsets and r is the bounding radius used for broad-phase.
@@ -176,6 +176,7 @@ try{
 // ---------- persistence ----------
 function lsGet(k){ try{ return localStorage.getItem('kriefne_'+k); }catch(e){ return null; } }
 function lsSet(k,v){ try{ localStorage.setItem('kriefne_'+k,v); }catch(e){} }
+function lsDel(k){ try{ localStorage.removeItem('kriefne_'+k); }catch(e){} }
 let best=0, depth=0, bosses=0; // best score, deepest sector, total boss kills (banks +2% dmg each)
 try{ best=parseInt(lsGet('best')||'0',10)||0; depth=parseInt(lsGet('depth')||'0',10)||0; bosses=parseInt(lsGet('bosses')||'0',10)||0; }catch(e){}
 function saveMeta(){ try{ lsSet('best',String(best)); lsSet('depth',String(depth)); lsSet('bosses',String(bosses)); }catch(e){} }
@@ -189,12 +190,12 @@ function codexKnown(id){ return !!codexKills[id]; }
 
 // ---------- data ----------
 const THEMES=[
- {name:'Neon Alley', bg:'#0a0e1a', grid:'rgba(0,255,255,0.13)', wall:'#f0f', obs:'#101426', obsEdge:'#0ff', bass:[55,0,55,65.41,0,55,49,58.27], tempo:190, lwave:'square', lead:[440,0,523.25,0,587.33,0,523.25,392,440,0,523.25,659.25,0,587.33,523.25,0]},
- {name:'Data Market', bg:'#0c0a1c', grid:'rgba(255,0,255,0.13)', wall:'#0ff', obs:'#141026', obsEdge:'#f0f', bass:[49,0,49,58.27,0,49,43.65,51.91], tempo:180, lwave:'square', lead:[392,0,440,0,493.88,587.33,0,493.88,440,0,392,0,329.63,0,392,0]},
- {name:'Overpass', bg:'#081411', grid:'rgba(0,255,150,0.12)', wall:'#ff0', obs:'#0e1a14', obsEdge:'#0f6', bass:[65.41,0,65.41,73.42,0,65.41,55,62.23], tempo:200, lwave:'sawtooth', lead:[523.25,659.25,0,783.99,0,659.25,523.25,0,440,523.25,0,659.25,783.99,0,659.25,0]},
- {name:'Server Pit', bg:'#120812', grid:'rgba(255,150,0,0.12)', wall:'#0f6', obs:'#1c1018', obsEdge:'#fa0', bass:[43.65,0,43.65,49,0,55,43.65,41.2], tempo:175, lwave:'square', lead:[349.23,0,349.23,415.3,0,349.23,311.13,293.66,349.23,0,415.3,0,466.16,415.3,349.23,0]},
- {name:'Black Plaza', bg:'#05050f', grid:'rgba(150,150,255,0.14)', wall:'#f44', obs:'#0c0c1c', obsEdge:'#88f', bass:[36.71,0,36.71,43.65,0,36.71,34.65,38.89], tempo:205, lwave:'sawtooth', lead:[369.99,0,440,0,554.37,0,493.88,440,369.99,0,415.3,440,0,493.88,440,0]},
- {name:'Rooftop', bg:'#0a0616', grid:'rgba(255,0,150,0.16)', wall:'#ff2fb3', obs:'#160a20', obsEdge:'#f0f', bass:[55,55,0,65.41,55,0,49,58.27], tempo:185, lwave:'square', lead:[440,440,0,523.25,0,587.33,0,659.25,587.33,0,523.25,440,392,440,0,0]}
+ {name:'Relay Drift', bg:'#0a0e1a', grid:'rgba(0,255,255,0.13)', wall:'#f0f', obs:'#101426', obsEdge:'#0ff', bass:[55,0,55,65.41,0,55,49,58.27], tempo:190, lwave:'square', lead:[440,0,523.25,0,587.33,0,523.25,392,440,0,523.25,659.25,0,587.33,523.25,0]},
+ {name:'Archive Reef', bg:'#0c0a1c', grid:'rgba(255,0,255,0.13)', wall:'#0ff', obs:'#141026', obsEdge:'#f0f', bass:[49,0,49,58.27,0,49,43.65,51.91], tempo:180, lwave:'square', lead:[392,0,440,0,493.88,587.33,0,493.88,440,0,392,0,329.63,0,392,0]},
+ {name:'Broken Ring', bg:'#081411', grid:'rgba(0,255,150,0.12)', wall:'#ff0', obs:'#0e1a14', obsEdge:'#0f6', bass:[65.41,0,65.41,73.42,0,65.41,55,62.23], tempo:200, lwave:'sawtooth', lead:[523.25,659.25,0,783.99,0,659.25,523.25,0,440,523.25,0,659.25,783.99,0,659.25,0]},
+ {name:'Slag Belt', bg:'#120812', grid:'rgba(255,150,0,0.12)', wall:'#0f6', obs:'#1c1018', obsEdge:'#fa0', bass:[43.65,0,43.65,49,0,55,43.65,41.2], tempo:175, lwave:'square', lead:[349.23,0,349.23,415.3,0,349.23,311.13,293.66,349.23,0,415.3,0,466.16,415.3,349.23,0]},
+ {name:'Hull Ossuary', bg:'#05050f', grid:'rgba(150,150,255,0.14)', wall:'#f44', obs:'#0c0c1c', obsEdge:'#88f', bass:[36.71,0,36.71,43.65,0,36.71,34.65,38.89], tempo:205, lwave:'sawtooth', lead:[369.99,0,440,0,554.37,0,493.88,440,369.99,0,415.3,440,0,493.88,440,0]},
+ {name:'Rose Veil', bg:'#0a0616', grid:'rgba(255,0,150,0.16)', wall:'#ff2fb3', obs:'#160a20', obsEdge:'#f0f', bass:[55,55,0,65.41,55,0,49,58.27], tempo:185, lwave:'square', lead:[440,440,0,523.25,0,587.33,0,659.25,587.33,0,523.25,440,392,440,0,0]}
 ];
 const TITLE_MUS={ bass:[110,0,0,0,130.81,0,0,0,98,0,0,0,146.83,0,0,0], tempo:300, lwave:'sine', lead:[220,0,0,261.63,0,0,329.63,0,0,293.66,0,261.63,0,246.94,0,0] };
 const PAUSE_MUS={ bass:[110,0,0,0,0,0,0,0,98,0,0,0,0,0,0,0], tempo:340, lwave:'triangle', lead:[220,0,0,0,174.61,0,0,0,196,0,0,0,164.81,0,0,0] };
@@ -257,18 +258,18 @@ function sectorName(s){ return 'S'+String(s+1).padStart(2,'0'); }
 // teaches the chain of command you are climbing, one rung at a time. Codex field
 // notes are separate and longer; these are the headline.
 const DEBUT_LORE={
- overlord:'AN ENFORCER GUARDS THE GATE — OVERLORD has never once withdrawn. End the legend.',
- warden:'A CAPTAIN HOLDS THE LINE — WARDEN outlived the wall it guarded. It still guards the gap.',
- phantom:'A CAPTAIN WITHOUT A POST — PHANTOM runs dispatches for commanders you have not met.',
+ overlord:'AN ENFORCER BARS THE TRAIL — OVERLORD, the Berserk, has never yielded a holmgang. End the saga.',
+ warden:'A CAPTAIN HOLDS THE BRIDGE — WARDEN guards a lane that leads nowhere now. It still guards it.',
+ phantom:'A CAPTAIN WITHOUT A POST — PHANTOM carries a reply that no one is left to read.',
  leviathan:'A LORD OF THE DEEP LANE — LEVIATHAN answers to Sovereigns. Past here, nests call for help.',
- oracle:'A LORD WHO KEEPS THE BOOKS — ORACLE has already calculated this fight. Break its wards.',
- archon:'THE FIRST SOVEREIGN — ARCHON never fires first in a battle it wins. Its Lords fire for it.',
- basilisk:'A LORD OF QUARANTINE — do not meet BASILISK\'s eye. The survey team is still standing there.',
- harbinger:'A LORD WHO ANNOUNCES — HARBINGER wants you to see it coming. Read the walls; find the gap.',
+ oracle:'A LORD WHO KEEPS THE LEDGER — ORACLE has already calculated this fight. Break its wards.',
+ archon:'THE FIRST SOVEREIGN — ARCHON the Lawspeaker wrote the holmgang you fight under.',
+ basilisk:'A LORD OF QUARANTINE — do not meet BASILISK\'s eye. Its last visitor is still held there.',
+ harbinger:'A LORD WHO SOUNDS THE HORN — HARBINGER wants you to see it coming. Read the walls; find the gap.',
  juggernaut:'A SOVEREIGN THAT CANNOT STEER — JUGGERNAUT commands by momentum alone. Get behind it.',
  nullifier:'A SOVEREIGN OF SILENCE — NULLIFIER needs you ordinary for four seconds. Keep moving.',
- chorus:'A SOVEREIGN IN THREE VOICES — CHORUS argues with itself, and every echo tells the truth.',
- singularity:'THE APEX — every rank you have fought answers to SINGULARITY. It answers to no one.'
+ chorus:'A SOVEREIGN IN THREE VOICES — CHORUS was a people once. Every echo tells the truth.',
+ singularity:'THE APEX — SINGULARITY, the One-Eyed. Every rank you have fought answers to it alone.'
 };
 function nestLore(s){
  const n=s+1, kinds=bossKindsFor(s), lead=kinds[0], d=BOSSDEF[lead];
@@ -281,14 +282,16 @@ function nestLore(s){
 }
 function galaxyLore(s,thName){
  if(isBossSector(s)) return nestLore(s);
- if(s<=clearedMax) return 'Sector pacified. Salvage crews thank you — replay to farm, or push deeper.';
+ if(s<=clearedMax) return 'Sector pacified. Salvage logged — replay to strip it, or push deeper.';
  const pools=[
   'Static on the fringe channels. Something out there is counting your kills.',
   'The trail bends through '+thName+'. The locals stopped transmitting.',
   'Drift and static. The gate ahead has swallowed better pilots than you.',
   'Old maps call this stretch the Throat. It swallowed the cartographers too.',
   'Your hull still pings with the last fight. The next one is already listening.',
-  'Neon ahead, silence behind. That is the whole job description.'];
+  'Neon ahead, silence behind. That is the whole job description.',
+  'Home channel open. Incoming: nothing. Logged, again.',
+  'Dead relays on every band. Somebody built all this to be heard.'];
  return pools[(s+runSeed)%pools.length];
 }
 // normal-sector composition: totals rise with depth, new species unlock along the way.
@@ -338,7 +341,8 @@ const UPGRADES=[
  {id:'surge', name:'Kill Surge', desc:'Kills: +25% spd/rate 2.5s', max:2, r:1, apply(p){ p.surgeLvl++; }},
  {id:'tract', name:'Tractor Core', desc:'+70% magnet, +10% XP', max:2, r:0, apply(p){ p.magnet*=1.7; p.xpBonus*=1.1; }},
  {id:'magnet', name:'Magnet Core', desc:'+120% pickup radius, faster gems', max:3, r:0, dyn(p){ return (p.magnet>90||p.pull>430)?{name:'Magnet Core',desc:'Vacuum EVERY gem + wider pickup'}:null; }, apply(p){ p.magnet*=2.2; p.pull=(p.pull||430)*1.4; collectGems(); }},
- {id:'pcell', name:'Portal Cell', desc:'ITEM: +2 recall charges (max 5)', req(p){ return p.charges<5; }, apply(p){ p.recallUnlocked=true; p.charges=Math.min(5,p.charges+2); }},
+ {id:'pcell', name:'Portal Cell', desc:'ITEM: +2 recall charges (max 5)', req(p){ return p.charges<5; },
+  dyn(p){ return p.recallUnlocked?null:{name:'Portal Cell',desc:'UNLOCK recall (E): +2 gate charges'}; }, apply(p){ p.recallUnlocked=true; p.charges=Math.min(5,p.charges+2); }},
  {id:'gatecd', name:'Gate Overdrive', desc:'-25% recall cooldown', max:3, r:1, req(p){ return p.recallUnlocked; }, apply(p){ p.recallCdMax=Math.max(2,p.recallCdMax*0.75); }},
  {id:'transit', name:'Instant Transit', desc:'-0.2s blink channel time', max:3, r:1, req(p){ return p.recallUnlocked; }, apply(p){ p.channelMax=Math.max(0.1,p.channelMax-0.2); }},
  {id:'orbit', name:'Guardian Orbit', desc:'+1 orbiting blade (contact dmg)', max:2, r:1, apply(p){ p.orbs+=1; }},
@@ -403,6 +407,14 @@ let galaxySel=0, clearedMax=-1; // level selector: highest cleared sector idx, n
 let shake=0, levelChoices=[], upgradeCounts={}, starterOffered=false;
 let sectorCleared=false; // clear bonus fires once per sector, not per empty field
 let pendingLevels=0;     // level-ups earned but not yet drafted (see gainXp)
+// Dash and recall are the two abilities that make the game move. Passing on
+// them early must not lock a run out of them for good: while one is still
+// locked, each draft it is missing from counts up, and once it has been
+// absent for PITY_DRAFTS drafts in a row it is forced into the next one.
+const CORE_UNLOCKS=[{id:'spd',locked:p=>!p.dashUnlocked},{id:'pcell',locked:p=>!p.recallUnlocked}];
+const PITY_DRAFTS=3;
+let pity={spd:0,pcell:0};
+let levelBack=null; // the core unlock offered again as a fourth card, if any
 let nestLtLeft=0;        // boss-class lieutenants this nest may still field (shared by all bosses)
 
 function newPlayer(dmgBonus){
@@ -432,7 +444,7 @@ function xpNeedFor(L){ return Math.round(14+(L-1)*30+Math.pow(L-1,1.7)); }
 // Rules (playability contract): all spawns + portal reachable from player via BFS
 // on a 40px grid with obstacles inflated by 16px; open-space ratio >= 0.55;
 // obstacle density scales with map area (~1 per 55k px², capped); 40 seed retries.
-// Layouts are structured districts (jittered city-grid blocks + a pylon landmark),
+// Layouts are structured debris fields (a jittered grid of hull plates + a pylon landmark),
 // with a boosted-scatter variant for variety — never the old 5-obstacle void.
 const CELL=40;
 function pointBlocked(x,y,m,obs){
@@ -545,11 +557,11 @@ function place(obs,C,cand,pad){
  obs.push(cand); return true;
 }
 // ---------- layout archetypes ----------
-// Six recognisable district types instead of one grid and one scatter, so two
+// Six recognisable layout types instead of one grid and one scatter, so two
 // sectors at the same depth no longer look like the same map with the blocks
 // shuffled. Every one is still BFS-validated downstream.
-const LAYOUTS=['districts','arena','corridors','plaza','spokes','scatter'];
-function layoutDistricts(R,obs,C,idx){
+const LAYOUTS=['debris','arena','corridors','bastion','spokes','scatter'];
+function layoutDebris(R,obs,C,idx){
  const early=idx<3;
  const cellW=early?160:200, cellH=early?150:180;
  const cols=Math.max(2,Math.floor((PX1-PX0)/cellW)), rows=Math.max(2,Math.floor((PY1-PY0)/cellH));
@@ -614,7 +626,7 @@ function layoutCorridors(R,obs,C,idx){
   if(place(obs,C,{kind:'circle',x,y,r:(24+R()*20)*sz},26)) break;
  }
 }
-function layoutPlaza(R,obs,C,idx){
+function layoutBastion(R,obs,C,idx){
  // Heavy octagonal bunkers with lighter scatter filling the gaps between them.
  const sz=C.sizeJ, big=3+((R()*3)|0);
  for(let k=0;k<big;k++) for(let t=0;t<24;t++){
@@ -664,10 +676,10 @@ function layoutScatter(R,obs,C,idx){
 function buildLayout(kind,R,obs,C,idx){
  if(kind==='arena') layoutArena(R,obs,C,idx);
  else if(kind==='corridors') layoutCorridors(R,obs,C,idx);
- else if(kind==='plaza') layoutPlaza(R,obs,C,idx);
+ else if(kind==='bastion') layoutBastion(R,obs,C,idx);
  else if(kind==='spokes') layoutSpokes(R,obs,C,idx);
  else if(kind==='scatter') layoutScatter(R,obs,C,idx);
- else layoutDistricts(R,obs,C,idx);
+ else layoutDebris(R,obs,C,idx);
  // density floor: a small early map, or an archetype whose geometry mostly fell
  // outside the bounds, must still offer real cover rather than an empty void
  const minObs=idx<3?8:6;
@@ -708,8 +720,8 @@ function genArenaValidated(baseSeed, idx, spawnTypes){
   const chk=bfsCheck(px,py,spawns.concat([port]),obs);
   if(chk.ok&&chk.ratio>=0.55&&chk.openFrac>=0.45) return {seed:s, obs, theme, layout:layoutKind, spawns, port, validated:true, ratio:chk.ratio, openFrac:chk.openFrac};
  }
- // fallback: open plaza (always playable)
- return {seed:baseSeed>>>0, obs:[], theme, layout:'plaza-fallback', spawns:spawnTypes.map((_,i)=>({x:PX0+80+(i%4)*((PX1-PX0-160)/3),y:PY0+70})), port:{x:PX1-90,y:PY1-90}, validated:true, ratio:1, openFrac:1};
+ // fallback: open field (always playable)
+ return {seed:baseSeed>>>0, obs:[], theme, layout:'open-fallback', spawns:spawnTypes.map((_,i)=>({x:PX0+80+(i%4)*((PX1-PX0-160)/3),y:PY0+70})), port:{x:PX1-90,y:PY1-90}, validated:true, ratio:1, openFrac:1};
 }
 
 // ---------- enemies ----------
@@ -904,12 +916,56 @@ function startRun(){
  spawnQueue=[]; spawnT=0;
  upgradeCounts={};
  player=newPlayer(1+0.02*bosses);
- starterOffered=false; pendingLevels=0;
+ starterOffered=false; pendingLevels=0; pity={spd:0,pcell:0};
  loadArena(0); // live world behind the hub; entering S1 reloads it fresh
  galaxySel=0; clearedMax=-1;
  setMusicCfg(TITLE_MUS);
  state='galaxy'; autoPaused=false;
+ saveRun();
 }
+// ---------- run save / resume ----------
+// A run ends only when the ship dies. It is checkpointed to localStorage every
+// time it reaches the galaxy hub and every time it enters a sector, so closing
+// the tab, reloading, or quitting to the title never loses it. Resuming lands on
+// the hub with that sector selected. What happens INSIDE a sector after entering
+// it is not saved: quitting mid-sector replays the sector from its start, so a
+// reload can never duplicate XP, drafts or kills.
+const RUN_V=1;
+function saveRun(){
+ if(!player) return;
+ const snap={ v:RUN_V, runSeed, arenaIdx, kills, arenasCleared, timeSec, upgradeCounts,
+  starterOffered, pendingLevels, clearedMax, galaxySel, pity,
+  player:Object.assign({},player,{recall:null,channel:null}) };
+ lsSet('run',JSON.stringify(snap));
+}
+function clearRun(){ lsDel('run'); }
+function readRun(){
+ try{
+  const r=JSON.parse(lsGet('run')||'null');
+  if(!r||r.v!==RUN_V||!r.player||typeof r.player!=='object') return null;
+  if(!isFinite(r.player.hp)||r.player.hp<=0||!isFinite(r.clearedMax)||!isFinite(r.galaxySel)) return null;
+  return r;
+ }catch(e){ return null; }
+}
+function continueRun(){
+ const r=readRun(); if(!r){ startRun(); return; }
+ runSeed=r.runSeed>>>0;
+ titleMusOk=false;
+ kills=r.kills|0; arenasCleared=r.arenasCleared|0; timeSec=+r.timeSec||0;
+ bullets=[]; ebullets=[]; gems=[]; parts=[]; floaters=[]; rings=[]; hazards=[]; strikes=[]; beams=[]; portal=null;
+ spawnQueue=[]; spawnT=0;
+ upgradeCounts=Object.assign({},r.upgradeCounts);
+ // Merge onto fresh defaults, so a save written before a field existed still loads.
+ player=Object.assign(newPlayer(1),r.player,{recall:null,channel:null});
+ starterOffered=!!r.starterOffered; pendingLevels=r.pendingLevels|0;
+ pity=Object.assign({spd:0,pcell:0},r.pity);
+ loadArena(0); // live world behind the hub, as in startRun
+ clearedMax=Math.max(-1,r.clearedMax|0); galaxySel=clamp(r.galaxySel|0,0,clearedMax+1);
+ arenaIdx=r.arenaIdx|0;
+ setMusicCfg(TITLE_MUS);
+ state='galaxy'; autoPaused=false; titleConfirm=false;
+}
+let titleConfirm=false; // NEW RUN over a saved run asks twice
 function loadArena(i){
  arenaIdx=i;
  const s=i, boss=isBossSector(s);
@@ -991,12 +1047,11 @@ function gainXp(v){
  }
  if(pendingLevels>0&&state==='playing'){ pendingLevels--; openLevelUp(); }
 }
-// Sector-clear / Magnet Core vacuum: bank every gem on the field at once.
-// The credit is instantaneous and conservation is covered by tests, but it used
-// to be completely SILENT — the field just emptied, and if the lump crossed a
-// level the XP bar reset to a small remainder. That reads as "my XP vanished",
-// which is exactly what was reported. So show the collection: a streak from each
-// gem toward the ship, and a running total.
+// Magnet Core vacuum: bank every gem on the field at once. This is the ONLY way
+// gems reach the ship without being flown over or pulled in — clearing a sector
+// no longer vacuums the field. The credit is instantaneous, so show it: a streak
+// from each gem toward the ship, and a running total, or it reads as "my XP
+// vanished".
 function collectGems(){
  let t=0;
  for(const g of gems){
@@ -1032,14 +1087,24 @@ function openLevelUp(){
    while(ix<cp.length-1&&r>rarityW(cp[ix])){ r-=rarityW(cp[ix]); ix++; }
    picks.push(cp.splice(ix,1)[0]);
   }
-  openDraft(picks);
+  // The most overdue locked core ability comes back as a FOURTH card, under the
+  // usual three — never in place of one, so passing on it costs nothing.
+  const due=CORE_UNLOCKS.filter(c=>c.locked(player)&&pity[c.id]>=PITY_DRAFTS&&!picks.some(u=>u.id===c.id)).sort((a,b)=>pity[b.id]-pity[a.id]);
+  const back=due.length?pool.find(u=>u.id===due[0].id):null;
+  if(back) picks.push(back);
+  openDraft(picks,back);
 }
 // Single exit for every draft, starter included. Endless runs eventually exhaust
 // a capped pool; without a repeatable filler the draft opens with zero cards and
 // the 1/2/3 handler throws on undefined — a hard softlock at the exact moment a
 // run is going well.
-function openDraft(picks){
+function openDraft(picks,back){
  if(!picks.length) picks=[REFIT];
+ levelBack=back||null;
+ for(const c of CORE_UNLOCKS){
+  if(!c.locked(player)) pity[c.id]=0;
+  else pity[c.id]=picks.some(u=>u.id===c.id)?0:pity[c.id]+1;
+ }
  levelChoices=picks; state='levelup'; SFX.levelup();
 }
 function pickUpgrade(u){
@@ -1051,7 +1116,7 @@ function pickUpgrade(u){
  if(pendingLevels>0){ pendingLevels--; openLevelUp(); } // drain queued level-ups
 }
 function scoreCalc(){ return kills*50+arenasCleared*250+player.level*100+Math.max(0,1800-Math.floor(timeSec)*5); }
-function die(){ state='gameover'; const s=scoreCalc(); if(s>best) best=s; depth=Math.max(depth,arenaIdx+1); saveMeta(); SFX.lose(); stopMusic(); spawnBurst(player.x,player.y,40,'#f0f',260,0.8,4); }
+function die(){ state='gameover'; clearRun(); const s=scoreCalc(); if(s>best) best=s; depth=Math.max(depth,arenaIdx+1); saveMeta(); SFX.lose(); stopMusic(); spawnBurst(player.x,player.y,40,'#f0f',260,0.8,4); }
 
 // WARDEN retreat: fall back with guards — recovers only while unpressured,
 // so chase it down and keep shooting to cut the recovery short.
@@ -1504,7 +1569,10 @@ function killEnemy(j){
   player.hp=Math.min(player.maxhp,player.hp+(e.lieutenant?10:30));
   const left=enemies.filter(o=>o.type==='boss').length;
   if(left>0){ addFloater(player.x,player.y-34,'BOSS DOWN — '+left+' LEFT','#ff0'); SFX.win(); }
-  else { addFloater(player.x,player.y-34,'NEST CLEARED! bonus draft','#ff0'); SFX.win(); openLevelUp(); }
+  else { addFloater(player.x,player.y-34,'NEST CLEARED! bonus draft','#ff0'); SFX.win();
+   // A draft already on screen must not be replaced by the bonus: queue it
+   // behind the open one and pickUpgrade drains it next.
+   if(state==='levelup') pendingLevels++; else openLevelUp(); }
   return; }
  // Sector-clear bonus, ONCE per sector. The field empties repeatedly between
  // reinforcement batches, so the old unguarded `enemies.length===0` test paid
@@ -1516,8 +1584,8 @@ function killEnemy(j){
  }
 }
 // clearing a sector returns to the galaxy hub with the next sector unlocked
-function nextArena(){ if(state!=='playing') return; SFX.portal(); arenasCleared=Math.max(arenasCleared,arenaIdx+1); clearedMax=Math.max(clearedMax,arenaIdx); galaxySel=arenaIdx+1; setMusicCfg(TITLE_MUS); state='galaxy'; }
-function loadSector(i){ loadArena(i); galaxySel=i; state='playing'; autoPaused=false; }
+function nextArena(){ if(state!=='playing') return; SFX.portal(); arenasCleared=Math.max(arenasCleared,arenaIdx+1); clearedMax=Math.max(clearedMax,arenaIdx); galaxySel=arenaIdx+1; setMusicCfg(TITLE_MUS); state='galaxy'; saveRun(); }
+function loadSector(i){ loadArena(i); galaxySel=i; state='playing'; autoPaused=false; saveRun(); }
 function galaxyConfirm(){ if(galaxySel<=clearedMax+1){ SFX.click(); loadSector(galaxySel); } else SFX.brk(); }
 // node layout shared by draw + click hit-testing: 9-node scrolling window.
 // Node y is clamped to a band so the S-labels (drawn below each node) can
@@ -1923,15 +1991,17 @@ function update(dt){
   }
   if(enemies.length===0&&spawnQueue.length===0&&!portal){
    // exit lands near the player (250-550px) so the flight out is short but never
-   // on top of them; leftover gems vacuum in — nothing sits out of magnet range.
-   // The pre-validated arena.port is the fallback if no near spot is free.
+   // on top of them. Leftover gems STAY where they fell: XP is collected, never
+   // handed out. Fly over it, pull it in with Magnet/Tractor, or lose it when you
+   // leave — loadArena clears the field. The pre-validated arena.port is the
+   // fallback if no near spot is free.
    let q=null;
    for(let t=0;t<40&&!q;t++){ const a=Math.random()*6.283, d=250+Math.random()*300;
     const x=clamp(p.x+Math.cos(a)*d,PX0+30,PX1-30), y=clamp(p.y+Math.sin(a)*d,PY0+30,PY1-30);
     if(Math.hypot(x-p.x,y-p.y)<230) continue;
     if(pointBlocked(x,y,26,arena.obs)) continue;
     q={x,y}; }
-   portal={x:(q||arena.port).x,y:(q||arena.port).y,r:20,t:0}; SFX.portal(); collectGems();
+   portal={x:(q||arena.port).x,y:(q||arena.port).y,r:20,t:0}; SFX.portal();
   }
   if(portal){ portal.t+=dt; if(dist2(p.x,p.y,portal.x,portal.y)<(p.r+portal.r)*(p.r+portal.r)) nextArena(); }
   updateFx(dt);
@@ -1951,7 +2021,9 @@ function handleKeyPress(code){
  if(code==='KeyM'){ muted=!muted; applyVol(); return; }
   if(state==='title'){
    ensureTitleMusic();
-   if(code==='Enter'||code==='Space'){ SFX.click(); startRun(); }
+   if(code==='Enter'||code==='Space'){ SFX.click(); if(readRun()) continueRun(); else startRun(); return; }
+   if(code==='KeyN'){ SFX.click(); titleNewRun(); return; }
+   titleConfirm=false;
   if(code==='KeyO') openSettings('title');
   if(code==='KeyH'||code==='F1') openHelp('title');
   if(code==='KeyC') openCodex('title');
@@ -1976,11 +2048,11 @@ function handleKeyPress(code){
   }
   else if(code==='Escape'||code==='KeyH'||code==='Enter') closeHelp();
   return; }
-  if(state==='levelup'){ if(code==='Digit1'&&levelChoices[0]) pickUpgrade(levelChoices[0]); if(code==='Digit2'&&levelChoices[1]) pickUpgrade(levelChoices[1]); if(code==='Digit3'&&levelChoices[2]) pickUpgrade(levelChoices[2]); return; }
+  if(state==='levelup'){ const d=['Digit1','Digit2','Digit3','Digit4'].indexOf(code); if(d>=0&&levelChoices[d]) pickUpgrade(levelChoices[d]); return; }
   if(state==='galaxy'){
    if(code==='Enter'||code==='Space'){ galaxyConfirm(); return; }
    if(code==='ArrowRight'||code==='ArrowLeft'){ const ns=clamp(galaxySel+(code==='ArrowRight'?1:-1),0,clearedMax+1); if(ns!==galaxySel){ galaxySel=ns; SFX.click(); } else SFX.brk(); return; }
-   if(code==='Escape'){ state='title'; ensureTitleMusic(); SFX.click(); return; }
+   if(code==='Escape'){ quitToTitle(); return; }
    if(code==='KeyO'){ openSettings('galaxy'); return; }
    if(code==='KeyH'||code==='F1'){ openHelp('galaxy'); return; }
    if(code==='KeyC'){ openCodex('galaxy'); return; }
@@ -1995,7 +2067,7 @@ function handleKeyPress(code){
   if(code==='KeyE'){ doPortalKey(); return; }
   return;
  }
- if(state==='paused'){ if(code==='Escape'||code==='KeyP'){ toPlaying(); SFX.click(); } if(code==='KeyR'){ startRun(); } if(code==='KeyO') openSettings('paused'); if(code==='KeyH') openHelp('paused'); if(code==='KeyC') openCodex('paused'); return; }
+ if(state==='paused'){ if(code==='Escape'||code==='KeyP'){ toPlaying(); SFX.click(); } if(code==='KeyR'){ startRun(); } if(code==='KeyQ'){ quitToTitle(); return; } if(code==='KeyO') openSettings('paused'); if(code==='KeyH') openHelp('paused'); if(code==='KeyC') openCodex('paused'); return; }
 }
 function tryDash(){
  const p=player; if(!p||state!=='playing') return;
@@ -2045,89 +2117,89 @@ const CODEX_FOES=[
  {id:'drone', type:'drone', name:'DRONE', role:'Chaser', threat:'Low',
   tell:'Weaves as it closes, then accelerates inside 160px.',
   counter:'Strafe and let it commit. Never let three stack on one line.',
-  lore:'Municipal sweeper frames with the compliance governor cut out. They still run the old civic pathing, which is why they wobble — half the routine is avoiding pedestrians who left this district years ago.'},
+  lore:'Lane sweepers. They were built to clear debris from a shipping lane that stopped carrying ships a few hundred million years ago. They still weave around traffic that is no longer there, which is why they wobble. You count as debris.'},
  {id:'mite', type:'mite', name:'MITE', role:'Splitter', threat:'Low',
   tell:'Fastest thing on the field. Comes in straight and reckless.',
   counter:'Kill it at range — death spawns two drones on the spot.',
-  lore:'Not a machine so much as a budget. Someone worked out that two cheap chassis delivered later beat one good chassis delivered now, and shipped the maths as a weapon.'},
+  lore:'Not a machine so much as a budget. Someone worked out that two cheap hulls delivered later beat one good hull delivered now, and shipped the maths as a weapon. The someone has been gone for a billion years. The maths has not.'},
  {id:'stalker', type:'stalker', name:'STALKER', role:'Duellist', threat:'Medium',
   tell:'Orbits at range, then FLASHES WHITE and holds still for half a second.',
   counter:'The flash is the commitment. Move perpendicular — it cannot correct mid-dash.',
-  lore:'Salvaged duelling stock. The flash is not a targeting laser, it is a courtesy: the frames were built for arena bouts where striking an unready opponent voided the purse.'},
+  lore:'Holmgang duellists. The flash is not a targeting laser, it is a courtesy: under the holmgang, striking an unready opponent voids the contest. They salute before every lunge, and no one has ever saluted back.'},
  {id:'sniper', type:'sniper', name:'SNIPER', role:'Artillery', threat:'Medium',
   tell:'A RED LINE from it to you, half a second before a HEAVY bolt.',
   counter:'Break the line — put a pylon between you, or dash through it.',
-  lore:'It relocates after every shot because the doctrine says so, and the doctrine was written for a war against people who shot back with artillery. Against one pilot it is simply a nervous habit.'},
+  lore:'It relocates after every shot because the doctrine says so, and the doctrine was written for a war between two fleets that shot back with artillery. Both fleets are gone. Against one ship it is simply a nervous habit.'},
  {id:'tempest', type:'tempest', name:'TEMPEST', role:'Suppression', threat:'Medium',
   tell:'Rotor blades glow ORANGE, then a spread of HEAVY bolts.',
   counter:'Close or leave — the spread is widest at range. Five bolts past S7.',
-  lore:'Crowd-control stock from the market riots. The spread pattern is still calibrated for a street forty metres wide, which is why so much of it goes nowhere.'},
+  lore:'Suppression rotors from a blockade that ended when the world it was blockading did. The spread is still calibrated for a fleet forty hulls wide, which is why so much of it goes nowhere.'},
  {id:'brute', type:'brute', name:'BRUTE', role:'Zone control', threat:'High',
   tell:'A red ring previews the blast radius while it winds up.',
   counter:'The wave is DODGEABLE — it is a ring, not a sphere. Step over the band or dash it.',
-  lore:'Demolition plant. It has no opinion about you at all; you are simply standing inside a volume scheduled for clearance, and the schedule does not have a field for that.'}
+  lore:'Mining hull. It has no opinion about you at all; you are simply inside a volume of asteroid scheduled for extraction, and the schedule does not have a field for that.'}
 ];
 const CODEX_BOSSES=[
  {id:'overlord',
   role:'Brawler', threat:'Never recovers',
   tell:'Cycles BURST / SUMMON / CHARGE / SWEEP on a three-second clock.',
   counter:'Pure aggression with no escape. Learn the cycle and out-damage it.',
-  lore:'The first thing down the trail that was built to win rather than to hold. It has never withdrawn from an engagement, which its handlers call discipline and its victims called a design flaw they did not live to file.'},
+  lore:'The Berserk. The youngest of the gods, which out here means a few hundred million years old. Its makers built it to win rather than to hold, and it has never yielded a holmgang. They called this discipline. There is no one left to call it anything.'},
  {id:'warden',
   role:'Siege fortress', threat:'Retreats once or twice',
   tell:'Slow. Spirals, guards, seismic slams, twin staggered waves.',
   counter:'Stay off the rings. When it RETREATS, chase — damage stops its healing.',
-  lore:'Gate authority. It was never meant to advance, only to make advancing expensive, and it has kept that contract long after the gate it guarded stopped existing.'},
+  lore:'Bridge-Warden. Lane authority, built to stand at the one crossing between two dead empires. It was never meant to advance, only to make advancing expensive, and it has kept that contract long after the lane stopped leading anywhere.'},
  {id:'phantom',
   role:'Skirmisher', threat:'Phases, briefly',
   tell:'A locked RED LINE that holds still — the beam comes down exactly there.',
   counter:'Step off the line. When it PHASES it still takes 30% damage — kill the minions to end it early.',
-  lore:'A courier that learned its cargo was itself. The blink hardware was for outrunning interdiction; the beam was improvised later, from the part that did the outrunning.'},
+  lore:'The Undelivered. A courier that learned its cargo was itself. It crossed eleven thousand years to deliver a reply and arrived at an empty star. The blink hardware was for outrunning interdiction; the beam was improvised later, from the part that did the outrunning.'},
  {id:'leviathan',
   role:'Serpent', threat:'Body damages on contact',
   tell:'BURROWS with a telegraph, resurfaces underneath you with a shockwave.',
   counter:'Watch the ground, not the head. Segments hurt — never stand in the trail.',
-  lore:'Deep-lane infrastructure that kept growing after the contract lapsed. The segments are not armour, they are the original tunnelling string, still following the head out of habit.'},
+  lore:'The Lane-Wyrm. Lane-boring infrastructure that kept growing after the contract lapsed, tunnelling debris fields for a trade that ended before home\'s star was lit. The segments are not armour; they are the original boring string, still following the head out of habit.'},
  {id:'oracle',
   role:'Zone controller', threat:'Warded until broken',
   tell:'Three shards orbit it. Rotating twin beams; damaging fields parked on you.',
   counter:'Break all three WARDS first — until then it soaks 75% of every round.',
-  lore:'It computes where you will be, which is a harder problem than it sounds and a cheaper one than aiming. The wards are not protection; they are the working memory it cannot afford to lose mid-calculation.'},
+  lore:'The Rememberer. It computes where you will be, which is a harder problem than it sounds and a cheaper one than aiming. It has run the same sum on every species it ever heard, and kept the answers. The wards are its working memory, and it cannot afford to lose them mid-calculation.'},
  {id:'harbinger',
   role:'Bullet-hell caster', threat:'Never recovers',
   tell:'Dense rotating walls with ONE gap, plus targeted meteors.',
   counter:'Find the gap and travel with it. Do not try to out-run the wall.',
-  lore:'An announcement, not a soldier. Everything it does is legible from a distance, because the point was always that you would see it coming and understand what it meant.'},
+  lore:'The Horn. An announcement, not a warship: it was built so that a species could be seen from far away. Everything it does is legible from a distance, because the point was always that you would see it coming and understand what it meant.'},
  {id:'basilisk',
   role:'Controller', threat:'Roots you in place',
   tell:'A green CONE opens before the gaze fires. Lunges leave spikes behind.',
   counter:'Leave the cone — being PETRIFIED next to a lunge is how this fight ends.',
-  lore:'Quarantine enforcement. It does not kill so much as file you in place pending review, and the review queue has not moved in a very long time.'},
+  lore:'Keeper of the Held. A dying world built it to keep visitors away, so that whatever was killing them would not leave. It does not kill so much as hold you pending review. The reviewers ended nine hundred million years ago. The queue has not moved.'},
  {id:'juggernaut',
   role:'Ram', threat:'Armoured prow',
   tell:'RAM! then a straight commit, shockwave on impact. Facing LOCKS while charging.',
   counter:'The prow takes 40%, the REAR VENT takes 190%. Flank every charge.',
-  lore:'Built around a single engine too large to be steered and too valuable to be wasted, so they put armour on the front and filed the exhaust problem as acceptable.'},
+  lore:'The Unsteered. A colony ark built around one engine too large to be steered and too valuable to be wasted. The colonists never boarded. They put armour on the prow and filed the exhaust problem as acceptable.'},
  {id:'nullifier',
   role:'Disruptor', threat:'Jams your abilities',
   tell:'A violet DISRUPTOR FIELD drops on your position.',
   counter:'Walk out. It locks dash and recall — never your guns. Sniper escorts punish standing still.',
-  lore:'Counter-insurgency hardware from a campaign against pilots who relied on their gear. It cannot shoot especially well. It does not need to; it only needs you to be ordinary for four seconds.'},
+  lore:'The Silent. Counter-insurgency hardware from a war against ships that relied on their gear. It cannot shoot especially well. It does not need to; it only needs you to be ordinary for four seconds. The holmgang lets it take your wings, never your guns, and it resents the clause.'},
  {id:'chorus',
   role:'Splitter', threat:'Fractures twice',
   tell:'At 66% and 33% it FRACTURES into smaller synced echoes.',
   counter:'Burst through the thresholds fast, or fight three at once. Echoes are fragile.',
-  lore:'One intelligence that decided redundancy was cheaper than survival. Each echo believes it is the original and is, in every sense that has ever been tested, correct.'},
+  lore:'The Norn-Choir. Not built by a people; it is one: the last of a species that copied itself into machines so it would not end. Three copies were made, to be safe. Each echo believes it is the original and is, in every sense that has ever been tested, correct.'},
  {id:'archon',
   role:'Commander', threat:'Calls LORDS twice as often',
   tell:'Rotating cross-beams, and "ARCHON CALLS LORD …" — a weakened Lord arrives beside it.',
   counter:'Deep down the trail, its Lords call Captains of their own. Kill the ARCHON to stop the calls.',
-  lore:'Rank, rendered as a machine. It has never fired the first shot in any engagement it has won, and regards this as the entire point of the office.'},
+  lore:'The Lawspeaker. Rank, rendered as a machine. It wrote the holmgang every god fights under, it has never fired the first shot in any holmgang it has won, and it regards this as the entire point of the office.'},
  {id:'singularity',
   role:'Apex', threat:'Commands three links deep',
   tell:'GRAVITY drags you inward while debris arcs outward, and SOVEREIGNS answer its call.',
   counter:'Thrust against the pull. Its Sovereigns call Lords, and those Lords call Captains — kill fast or drown in rank.',
-  lore:'The end of the trail, and the reason there is a trail. Everything you have fought since the first sector was, in some documented sense, subcontracted from here.'}
+  lore:'The One-Eyed. The first machine any species ever sent into the dark. It gave its eye to a black hole and lives at the lip of it, where time runs slow: the oldest thing in the universe, and the one that has lived through the least of it. Everything you have fought since the first sector was, in some documented sense, subcontracted from here.'}
 ];
 function codexList(){ return codexTab==='bosses'?CODEX_BOSSES:CODEX_FOES; }
 function codexId(entry){ return codexTab==='bosses'?entry.id:entry.type; }
@@ -2199,36 +2271,43 @@ arsenal:[
 '  Orbital Cannon calls telegraphed strikes. Prism Lance fires a piercing beam.',
 '  Guardian Orbit, Frost Nova, Tesla Arc ★, Kill Surge, Shrapnel Core.',
 'MAPS: every arena is validated — all spawns and the EXIT are always reachable,',
-'  and at least 45% of the floor is open. Six district types, six themes.'],
+'  and at least 45% of the field is open. Six layout types, six themes.'],
 lore:[
-'You are flying a salvaged interceptor down a trail nobody finished mapping.',
-'Each sector was something once — a market, an overpass, a server pit — and each',
-'has been repurposed by whatever moved in after the people left.',
+'You are KRIEFNE: an exploration ship sent from home, long ago, to find life.',
+'Home has not answered once in all that time.',
+'Out here are machines older than stars, ranked like the old northern gods.',
+'They catch every signal that crosses their space — even the ones meant for you.',
 '',
-'Every fifth sector is a NEST, and the things in them keep a chain of command:',
+'Every fifth sector is a NEST. The gods keep a chain of command:',
 '  APEX  >  SOVEREIGN  >  LORD  >  CAPTAIN  >  ENFORCER  >  chaff.',
-'Each boss is met alone the first time. After that it returns as a commander',
-'holding court, or as an escort serving someone who outranks it.',
+'Each god is met alone the first time. After that it returns as a commander',
+'holding court, or as an escort serving a god who outranks it.',
+'They fight by holmgang: every blow shown first, your guns never taken.',
 '',
-'Past S30 a boss can CALL one rank below it — a weakened lieutenant. Past S60 a',
+'Past S30 a god can CALL one rank below it — a weakened lieutenant. Past S60 a',
 'lieutenant can call one of its own. The Apex at S100 commands three links deep.',
 'Kill the one giving orders and the calls stop.',
 '',
-'Beyond S100 the trail repeats, and every court runs deeper than the last.',
-'Every boss killed banks +2% damage permanently. The CODEX [C] fills as you kill.']
+'Lose your ship and the Wake restores you. Each god slain: +2% damage, for good.']
 };
 function openHelp(from){ helpFrom=from; helpTab='controls'; state='help'; if(from==='paused'||from==='playing-paused') setMusicCfg(PAUSE_MUS); SFX.click(); }
 function closeHelp(){ SFX.click(); if(helpFrom==='paused'){ toPaused(autoPaused); } else if(helpFrom==='playing-paused'){ toPaused(autoPaused); } else if(helpFrom==='galaxy'){ state='galaxy'; } else { state='title'; } }
 function inBtn(x,y,b){ return x>b.x&&x<b.x+b.w&&y>b.y&&y<b.y+b.h; }
-const BTN={ titleStart:{x:330,y:400,w:300,h:52}, titleSet:{x:330,y:460,w:96,h:42}, titleCodex:{x:432,y:460,w:96,h:42}, titleHelp:{x:534,y:460,w:96,h:42},
- pauseResume:{x:330,y:296,w:300,h:46}, pauseSet:{x:330,y:350,w:300,h:46}, pauseHelp:{x:330,y:404,w:300,h:46}, pauseCodex:{x:330,y:458,w:300,h:46}, pauseRestart:{x:330,y:512,w:300,h:46},
+// Starting over while a run is saved throws that run away, so it takes a
+// second press: the first only arms the button.
+function titleNewRun(){ if(readRun()&&!titleConfirm){ titleConfirm=true; return; } titleConfirm=false; startRun(); }
+function quitToTitle(){ state='title'; autoPaused=false; titleConfirm=false; parts=[]; floaters=[]; clearInputs(); ensureTitleMusic(); SFX.click(); }
+const BTN={ titleContinue:{x:330,y:340,w:300,h:52}, titleStart:{x:330,y:400,w:300,h:52}, titleSet:{x:330,y:460,w:96,h:42}, titleCodex:{x:432,y:460,w:96,h:42}, titleHelp:{x:534,y:460,w:96,h:42},
+ pauseResume:{x:330,y:296,w:300,h:46}, pauseSet:{x:330,y:350,w:300,h:46}, pauseHelp:{x:330,y:404,w:300,h:46}, pauseCodex:{x:330,y:458,w:300,h:46}, pauseRestart:{x:330,y:512,w:300,h:46}, pauseQuit:{x:330,y:566,w:300,h:46},
  galCodex:{x:W-156,y:20,w:136,h:34},
  endRestart:{x:330,y:440,w:300,h:52}, endTitle:{x:330,y:500,w:300,h:40},
  back:{x:330,y:560,w:300,h:44} };
 function handleClick(x,y){
  if(state==='title'){
   ensureTitleMusic();
-  if(inBtn(x,y,BTN.titleStart)){ SFX.click(); startRun(); }
+  const saved=readRun();
+  if(saved&&inBtn(x,y,BTN.titleContinue)){ SFX.click(); continueRun(); }
+  else if(inBtn(x,y,BTN.titleStart)){ SFX.click(); if(saved) titleNewRun(); else startRun(); }
   else if(inBtn(x,y,BTN.titleSet)) openSettings('title');
   else if(inBtn(x,y,BTN.titleCodex)) openCodex('title');
   else if(inBtn(x,y,BTN.titleHelp)) openHelp('title');
@@ -2256,7 +2335,7 @@ function handleClick(x,y){
    return;
   }
   if(state==='levelup'){
-   for(let i=0;i<levelChoices.length;i++){ const bx=130+i*240, by=220, bw=220, bh=200; if(x>bx&&x<bx+bw&&y>by&&y<by+bh) pickUpgrade(levelChoices[i]); }
+   for(let i=0;i<levelChoices.length;i++){ const r=draftRect(i); if(x>r.x&&x<r.x+r.w&&y>r.y&&y<r.y+r.h){ pickUpgrade(levelChoices[i]); return; } }
    return;
   }
   if(state==='galaxy'){
@@ -2270,6 +2349,7 @@ function handleClick(x,y){
   else if(inBtn(x,y,BTN.pauseHelp)) openHelp('paused');
   else if(inBtn(x,y,BTN.pauseCodex)) openCodex('paused');
   else if(inBtn(x,y,BTN.pauseRestart)){ SFX.click(); startRun(); }
+  else if(inBtn(x,y,BTN.pauseQuit)) quitToTitle();
   return;
  }
   if(state==='playing'){
@@ -2742,7 +2822,11 @@ function drawHUD(){
  if(p.jamT>0){ ctx.fillStyle='#c8f'; ctx.font='bold 12px monospace'; ctx.textAlign='left'; ctx.fillText('JAMMED',410,43); }
  else if(p.rootT>0){ ctx.fillStyle='#9f4'; ctx.font='bold 12px monospace'; ctx.textAlign='left'; ctx.fillText('PETRIFIED',410,43); }
  ctx.textAlign='right'; ctx.fillStyle='#0ff'; ctx.font='bold 13px monospace';
-  const an=sectorName(arenaIdx)+' · '+(arena?arena.theme.name:'')+' · FOES '+hostiles();
+  // Once the foes are gone, the counter becomes the XP still lying on the field:
+  // it is lost on exit, so the HUD says how much is left to collect.
+  let fieldXp=0; for(const g of gems) fieldXp+=g.v;
+  const tally=hostiles()>0?'FOES '+hostiles():(gems.length?'XP ON FIELD '+Math.round(fieldXp*p.xpBonus):'FIELD CLEAR');
+  const an=sectorName(arenaIdx)+' · '+(arena?arena.theme.name:'')+' · '+tally;
   ctx.fillText(an,W-12,18);
   ctx.fillStyle='#fff'; ctx.font='12px monospace';
   ctx.fillText('Kills '+kills+'  Score '+scoreCalc()+'  Best '+best+'  Depth '+depth,W-12,34);
@@ -2753,7 +2837,7 @@ function drawHUD(){
  extra+='  Recall:'+(!p.recallUnlocked?'LOCKED':(p.charges+'chg '+(p.recall?(p.recallCd>0?Math.ceil(p.recallCd)+'s':'READY'):'—')));
  if(settings.showSeed&&arena) extra+='  Seed '+arena.seed;
  ctx.fillText(extra,W-12,48);
-  if(portal&&state==='playing'){ ctx.textAlign='center'; ctx.fillStyle='#0ff'; ctx.font='bold 14px monospace'; ctx.fillText('Sector clear! Enter the EXIT portal [E]',W/2,HUD_H+18); }
+  if(portal&&state==='playing'){ ctx.textAlign='center'; ctx.fillStyle='#0ff'; ctx.font='bold 14px monospace'; ctx.fillText(gems.length?'Sector clear! Collect your XP — anything left is lost at the EXIT [E]':'Sector clear! Enter the EXIT portal [E]',W/2,HUD_H+18); }
  if(player.hp<=player.maxhp*0.3&&state==='playing'){ const a=0.25+0.2*Math.sin(performance.now()/180); ctx.strokeStyle='rgba(255,0,0,'+a.toFixed(3)+')'; ctx.lineWidth=10; ctx.strokeRect(5,HUD_H+5,W-10,H-HUD_H-10); }
 }
 // pill-backed label: dark plate + thin border + centered text. measureText is
@@ -2787,7 +2871,12 @@ function drawTitle(){
   { const pr=codexProgress(); ctx.fillText('46 stackable upgrades · 12 bosses in a chain of command · codex '+pr.n+'/'+pr.tot+' [C]',W/2,258); }
   ctx.fillStyle='#ff0'; ctx.font='13px monospace';
   ctx.fillText('Sniper lasers are telegraphed — dash through them. Brute rings: stay out of the band.',W/2,282);
- btn(BTN.titleStart.x,BTN.titleStart.y,BTN.titleStart.w,BTN.titleStart.h,'START  [Enter]');
+ const saved=readRun();
+ if(saved){
+  btn(BTN.titleContinue.x,BTN.titleContinue.y,BTN.titleContinue.w,BTN.titleContinue.h,'CONTINUE '+sectorName(saved.galaxySel|0)+'  [Enter]');
+  if(titleConfirm){ ctx.fillStyle='#2a0610'; ctx.fillRect(BTN.titleStart.x,BTN.titleStart.y,BTN.titleStart.w,BTN.titleStart.h); ctx.strokeStyle='#f44'; ctx.lineWidth=2; ctx.strokeRect(BTN.titleStart.x,BTN.titleStart.y,BTN.titleStart.w,BTN.titleStart.h); ctx.fillStyle='#f88'; ctx.font='bold 16px monospace'; ctx.textAlign='center'; ctx.fillText('ABANDON SAVED RUN? [N]',W/2,BTN.titleStart.y+32); }
+  else btn(BTN.titleStart.x,BTN.titleStart.y,BTN.titleStart.w,BTN.titleStart.h,'NEW RUN  [N]');
+ } else btn(BTN.titleStart.x,BTN.titleStart.y,BTN.titleStart.w,BTN.titleStart.h,'START  [Enter]');
  btn(BTN.titleSet.x,BTN.titleSet.y,BTN.titleSet.w,BTN.titleSet.h,'SET [O]',true);
  btn(BTN.titleCodex.x,BTN.titleCodex.y,BTN.titleCodex.w,BTN.titleCodex.h,'CODEX [C]',true);
  btn(BTN.titleHelp.x,BTN.titleHelp.y,BTN.titleHelp.w,BTN.titleHelp.h,'HELP [H]',true);
@@ -3073,12 +3162,28 @@ function drawIcon(id,cx,cy,s){
  }
  ctx.restore();
 }
+// Card rects shared by drawing and click hit-testing. The returning core unlock
+// is a wide strip under the three cards rather than a fourth column.
+function draftRect(i){ return levelChoices[i]===levelBack?{x:250,y:440,w:460,h:62}:{x:130+i*240,y:220,w:220,h:200}; }
+function drawBackOffer(u,i){
+ const r=draftRect(i), dn=(typeof u.dyn==='function')?u.dyn(player):null;
+ ctx.fillStyle='#14140a'; ctx.fillRect(r.x,r.y,r.w,r.h);
+ ctx.strokeStyle='#ff0'; ctx.lineWidth=2; ctx.setLineDash([6,4]); ctx.strokeRect(r.x,r.y,r.w,r.h); ctx.setLineDash([]);
+ drawIcon(u.id,r.x+34,r.y+r.h/2,14);
+ ctx.textAlign='left'; ctx.fillStyle='#ff0'; ctx.font='bold 12px monospace';
+ ctx.fillText('['+(i+1)+'] BACK ON OFFER',r.x+64,r.y+20);
+ ctx.fillStyle='#fff'; ctx.font='bold 14px monospace'; ctx.fillText((dn&&dn.name)||u.name,r.x+64,r.y+38);
+ ctx.fillStyle='#8affff'; ctx.font='12px monospace'; ctx.fillText((dn&&dn.desc)||u.desc,r.x+64,r.y+54);
+ ctx.textAlign='center';
+}
 function drawLevelUp(){
  ctx.fillStyle='rgba(0,0,10,0.72)'; ctx.fillRect(0,0,W,H);
  ctx.textAlign='center'; ctx.fillStyle='#ff0'; ctx.font='bold 28px monospace';
  ctx.fillText('LEVEL '+player.level+' — CHOOSE UPGRADE',W/2,170);
- ctx.fillStyle='#fff'; ctx.font='14px monospace'; ctx.fillText('press 1 / 2 / 3 or click',W/2,194);
-  levelChoices.forEach((u,i)=>{ const bx=130+i*240, by=220, bw=220, bh=200;
+ ctx.fillStyle='#fff'; ctx.font='14px monospace'; ctx.fillText('press '+levelChoices.map((_,i)=>i+1).join(' / ')+' or click',W/2,194);
+  levelChoices.forEach((u,i)=>{
+   if(u===levelBack){ drawBackOffer(u,i); return; }
+   const r=draftRect(i), bx=r.x, by=r.y, bw=r.w, bh=r.h;
    ctx.fillStyle='#0a1420'; ctx.fillRect(bx,by,bw,bh);
    const bc=u.id==='pcell'?'#ff0':(u.r===2?'#f0f':(u.r===1?'#0f6':'#0ff'));
    ctx.strokeStyle=bc; ctx.lineWidth=u.r===2?3:2; ctx.strokeRect(bx,by,bw,bh);
@@ -3097,12 +3202,14 @@ function wrapText(t,x,y,mw){ const words=t.split(' '); let line='', yy=y; ctx.te
 function drawPaused(){
  ctx.fillStyle='rgba(0,0,0,0.65)'; ctx.fillRect(0,0,W,H);
  ctx.textAlign='center'; ctx.fillStyle='#0ff'; ctx.font='bold 38px monospace'; ctx.fillText(autoPaused?'AUTO-PAUSED':'PAUSED',W/2,220);
- ctx.fillStyle='#fff'; ctx.font='14px monospace'; ctx.fillText(autoPaused?'tab hidden — ESC / click resume':'ESC resume · H help · C codex · O settings · R restart',W/2,252);
+ ctx.fillStyle='#fff'; ctx.font='14px monospace'; ctx.fillText(autoPaused?'tab hidden — ESC / click resume':'ESC resume · H help · C codex · O settings · R restart · Q quit',W/2,252);
+ ctx.fillStyle='#8affff'; ctx.font='12px monospace'; ctx.fillText('The run is saved. Quitting replays this sector from its start.',W/2,274);
  btn(BTN.pauseResume.x,BTN.pauseResume.y,BTN.pauseResume.w,BTN.pauseResume.h,'RESUME [ESC]',true);
  btn(BTN.pauseSet.x,BTN.pauseSet.y,BTN.pauseSet.w,BTN.pauseSet.h,'SETTINGS [O]',true);
  btn(BTN.pauseHelp.x,BTN.pauseHelp.y,BTN.pauseHelp.w,BTN.pauseHelp.h,'HELP [H]',true);
  btn(BTN.pauseCodex.x,BTN.pauseCodex.y,BTN.pauseCodex.w,BTN.pauseCodex.h,'CODEX [C]',true);
  btn(BTN.pauseRestart.x,BTN.pauseRestart.y,BTN.pauseRestart.w,BTN.pauseRestart.h,'RESTART [R]',true);
+ btn(BTN.pauseQuit.x,BTN.pauseQuit.y,BTN.pauseQuit.w,BTN.pauseQuit.h,'QUIT TO TITLE [Q]',true);
 }
 function drawEnd(){
  ctx.fillStyle='rgba(0,0,0,0.7)'; ctx.fillRect(0,0,W,H);
@@ -3123,7 +3230,7 @@ function drawEnd(){
 let last=performance.now(), acc=0; const STEP=1000/60;
 function frame(now){ requestAnimationFrame(frame); let dt=now-last; last=now; if(dt>250) dt=250; acc+=dt; let n=0; while(acc>=STEP&&n<5){ update(STEP/1000); acc-=STEP; n++; } if(n===5) acc=0; render(); }
 arena={seed:1337, obs:[], theme:THEMES[0], spawns:[], port:{x:800,y:500}, validated:true, ratio:1};
-  try{ window.__kriefne={ startRun, loadArena, loadSector, killEnemy, nextArena, gainXp, pickUpgrade, hurtPlayer, doPortalKey, tryDash, update, render, focusWatch, xpNeedFor, openHelp, handleKeyPress, handleClick,
+  try{ window.__kriefne={ startRun, continueRun, saveRun, readRun, loadArena, loadSector, killEnemy, nextArena, gainXp, pickUpgrade, hurtPlayer, doPortalKey, tryDash, update, render, focusWatch, xpNeedFor, openHelp, handleKeyPress, handleClick,
    spawnEnemy, steer, hostiles, collectGems, isBossSector, bossKindsFor, compFor, sectorName, sectorWorld, galNodes, reflectBullet, bulletBlocked,
    forceState(s){ state=s; }, get upgrades(){ return UPGRADES; }, get helpTab(){ return helpTab; },
    get bossdefs(){ return BOSSDEF; }, get hazards(){ return hazards; }, get signatureNests(){ return SIGNATURE_NESTS; },
@@ -3136,7 +3243,8 @@ arena={seed:1337, obs:[], theme:THEMES[0], spawns:[], port:{x:800,y:500}, valida
    get codexTab(){ return codexTab; }, setCodexTab(t){ codexTab=t; codexSel=0; }, get codexSel(){ return codexSel; },
   pool(){ return UPGRADES.filter(u=>(!u.req||u.req(player))&&(!u.max||(upgradeCounts[u.id]||0)<u.max)).map(u=>u.id); },
   get autoPaused(){ return autoPaused; }, get queue(){ return spawnQueue; }, get cam(){ return cam; },
-  get pendingLevels(){ return pendingLevels; },
+  get pendingLevels(){ return pendingLevels; }, get pity(){ return pity; }, get runSeed(){ return runSeed; }, get upgradeCounts(){ return upgradeCounts; },
+  get titleConfirm(){ return titleConfirm; }, get levelBack(){ return levelBack; },
   get depth(){ return depth; }, get bosses(){ return bosses; }, get best(){ return best; },
   get cleared(){ return clearedMax; }, get galaxySel(){ return galaxySel; }, get time(){ return timeSec; },
    get state(){return state;}, get player(){return player;}, get enemies(){return enemies;}, get gems(){return gems;}, get settings(){return settings;}, get arena(){return arena;}, get portal(){return portal;}, get choices(){return levelChoices;}, keys, mouse }; }catch(e){}

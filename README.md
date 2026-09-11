@@ -1,6 +1,8 @@
 # KRIEFNE — Neon Roguelite (endless)
 
-Small polished top-down action roguelite. Tech-noir city. Vanilla JS Canvas, zero dependencies, zero assets, zero API keys.
+Small polished top-down action roguelite, set in deep space: you are KRIEFNE, a machine exploration ship,
+fighting alien machine ships ranked like Norse gods. Vanilla JS Canvas, zero dependencies, zero assets, zero API keys.
+The story and setting live in [`LORE.md`](LORE.md).
 Endless: fight down a galaxy trail of sectors that grow larger, denser and meaner forever, through a
 twelve-boss chain of command that tops out at the Apex in S100 — and a run that is meant to end not long after.
 
@@ -28,9 +30,12 @@ python -m http.server 8000
   **E** with no gate drops one (1 charge). **E** far from the gate channels a blink
   (cast bar ring, cancellable with **E**, 520px max range shown by the tether, then cooldown).
   **E** next to your gate moves it for free. Gates reset each arena; charges persist.
-- The first level-up of every run **always offers both unlocks** (thrusters + portal core + one random).
-- **1 / 2 / 3 or Click** — choose upgrade · **Esc / P** — pause
-- **C** — codex (title, galaxy hub, pause, or mid-fight) · **H** — help · **O** — settings · **M** — mute · **R** — restart · **Enter** — start
+- The first level-up of every run **always offers both unlocks** (thrusters + portal cell + one random).
+  Pass on either and it keeps coming back: once it has been missing from 3 drafts in a row it returns
+  as a **fourth card** marked BACK ON OFFER, under the usual three, never replacing one of them.
+- **1 / 2 / 3 (4) or Click** — choose upgrade · **Esc / P** — pause · **Q** (paused) — quit to title
+- **C** — codex (title, galaxy hub, pause, or mid-fight) · **H** — help · **O** — settings · **M** — mute · **R** — restart
+- **Enter** — start, or **continue** a saved run · **N** — new run (press twice when a run is saved)
 - Switching tabs or alt-tabbing **auto-pauses** (shows AUTO-PAUSED; resume with Esc/click).
   Three paths catch it — `visibilitychange`, window `blur`, and a 250ms `hasFocus()` watchdog —
   because alt-tab can stall rendering *without* hiding the page. Pausing paints one frame
@@ -54,12 +59,19 @@ Neither ever takes away your guns — being unable to shoot is not a mechanic, i
    cap (8 → 16) the deeper you go.
    Kill everything (alive + queued = FOES in HUD) → grab XP gems → level up → pick 1-of-3 upgrades.
 4. The EXIT gate lands near you (250–550px, never on top) and fires a tapered beacon column;
-   a glowing off-screen marker always points the way. Leftover gems **vacuum in on clear** — they
-   streak to the ship with a `+N XP` readout, and every gem's value is credited.
+   a glowing off-screen marker always points the way. **XP is collected, never handed out:**
+   gems stay where they fell when the sector clears. Fly over them, or pull them in with Magnet
+   Core / Tractor Core (a Magnet Core pick vacuums the whole field). Once the foes are gone the HUD
+   counter switches to `XP ON FIELD n`; anything still lying there when you take the EXIT is gone.
 5. Every 5th sector is a boss **NEST** — see the chain of command below.
 6. Die = game over (score + depth banked). `R` instantly restarts.
-7. Persistent: best score, deepest sector, total boss kills (each = permanent +2% damage), and
-   codex progress.
+7. **The run is saved** (`kriefne_run` in localStorage) every time you reach the hub or enter a
+   sector, so closing the tab, reloading, or quitting to the title never ends it — only death does.
+   The title then offers **CONTINUE**, which lands on the hub at the sector you were on. Progress
+   made *inside* a sector is not saved: quitting mid-sector replays that sector from its start, so
+   a reload can never duplicate XP, drafts or kills.
+8. Persistent across runs: best score, deepest sector, total boss kills (each = permanent +2%
+   damage), and codex progress.
 
 ## The chain of command (12 bosses)
 
@@ -171,19 +183,20 @@ Every sector is rule-bound and playability-tested at generation time, with two s
   **all** enemy spawns and the EXIT portal must be reachable.
 - **Open space ≥ 0.45** — at least 45% of the floor is walkable, so a sector can never generate as a
   solid maze.
-- Up to 40 seed retries, then an open-plaza fallback. Seed + theme shown in-world and HUD.
+- Up to 40 seed retries, then an open-field fallback. Seed + theme shown in-world and HUD.
 
 Obstacles are **rects, circles and convex polygons** — hex pylons, wedges, octagonal bunkers,
 trapezoids and rotated girders.
 
 Six layout archetypes, shuffled once per run by seed and dealt by sector, so a run cycles through all six:
-**districts** (jittered city grid) · **arena** (open duelling floor, pillar ring, rim bunkers) ·
-**corridors** (girder lanes with gaps, sometimes diagonal) · **plaza** (heavy bunkers + scatter) ·
+**debris** (jittered grid of hull plates) · **arena** (open duelling floor, pillar ring, rim bunkers) ·
+**corridors** (girder lanes with gaps, sometimes diagonal) · **bastion** (heavy bunkers + scatter) ·
 **spokes** (radial avenues) · **scatter**.
 Boss nests always use **arena** — a large body cannot wedge on terrain that isn't there, and bosses
 drop on a clear ring around the centre rather than in a corner.
 
-6 themes change palette, wall/trim colours, obstacle style, bass pattern, lead motif and tempo.
+6 themes (Relay Drift · Archive Reef · Broken Ring · Slag Belt · Hull Ossuary · Rose Veil) change
+palette, wall/trim colours, obstacle style, bass pattern, lead motif and tempo.
 Generative WebAudio: ambient title theme, per-arena bass + lead, sparse pause theme, win/lose stingers.
 
 ## Settings, Help and Codex
@@ -311,15 +324,19 @@ node test.js --only xp
 it through `window.__kriefne` — nothing mocks game logic, every assertion runs the shipping code path.
 It is importable (`const {boot, fightNest} = require('./test.js')`) for ad-hoc telemetry.
 
-Suites: **XP conservation** (every gem's value accounted for — sector-clear vacuum, Magnet Core,
+Suites: **XP conservation** (every gem's value accounted for — no sector-clear vacuum, the whole
+field collectable by flying over it, uncollected gems lost on exit, Magnet Core,
 boss bonus draft, hub round trip, 14-run random-build fuzz) · boot/API surface · sector plumbing ·
 bullet hitboxes · swept-collision tunnelling · boss recovery economy · no-passive-regen ·
-boss placement + mobility · procgen contract · upgrade-pool state-awareness ·
+boss placement + mobility · procgen contract · upgrade-pool state-awareness (plus a 2,400-draft
+gating fuzz: no card for a system you do not own, and refused dash/recall always come back) ·
 balance model (S5→S135, three player profiles, lieutenants counted, README figures pinned) ·
 **chain of command** (solo debuts, rank-respecting courts, command-depth dial, live fights proving
 S20 fields no lieutenants and S100 respects rank, budget and live cap, hub lore) ·
 every boss kind live-fought for 90s · adversarial combo audit ·
 **codex** (access from every screen, locked/unlocked rendering, persistence, wipe) ·
-endless-run integrity (pool exhaustion, multi-level XP, softlock guards).
+endless-run integrity (pool exhaustion, multi-level XP, softlock guards) ·
+**run save / resume** (reopen after closing, mid-sector quit, hub Esc, double-press new run,
+death deletes the save, corrupt saves ignored).
 
-The full harness runs **1194 checks**, all passing.
+The full harness runs **1276 checks**, all passing.
