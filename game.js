@@ -12,6 +12,70 @@ const cam = { x:0, y:0 };
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d');
 ctx.imageSmoothingEnabled = false;
+// ---------- viewport fit + devicePixelRatio scaling ----------
+// Game logic draws in fixed 960x640 units (W/H) so balance, hitboxes and
+// tests never move. Only the canvas backing store and CSS size adapt: the
+// canvas fills the window (preserving 3:2) and renders at device pixels
+// (capped) so the engraved hairlines stay crisp on hidpi instead of
+// blurring. Touch here is groundwork only: a single touch maps to aim+tap
+// so menus already work on a phone; the full touch scheme (sticks and
+// gestures) is still undecided and must build on `touch`, not beside it.
+let viewScale = 1;  // CSS px per logical px (window fill factor)
+let devicePx = 1;   // backing px per logical px
+const touch = { active:false, id:-1, x:W/2, y:H/2 };
+function fitCanvas(){
+ try{
+  if(!canvas || typeof canvas.width !== 'number') return;
+  const dprCap = 2, maxBack = 2560;
+  let dpr = 1;
+  try{ dpr = (window.devicePixelRatio || 1); }catch(e){ dpr = 1; }
+  if(!(dpr > 0)) dpr = 1;
+  dpr = Math.min(dpr, dprCap);
+  let vw = 0, vh = 0, hintH = 0;
+  try{ vw = (document.documentElement && document.documentElement.clientWidth) || 0; }catch(e){}
+  try{ vh = (document.documentElement && document.documentElement.clientHeight) || 0; }catch(e){}
+  if(!vw){ try{ vw = window.innerWidth || 0; }catch(e){} }
+  if(!vh){ try{ vh = window.innerHeight || 0; }catch(e){} }
+  try{ const hEl = (typeof document !== 'undefined' && document.getElementById) ? document.getElementById('hint') : null;
+   if(hEl && hEl.offsetHeight) hintH = hEl.offsetHeight + 22; }catch(e){}
+  if(!(vw > 0)) vw = W; if(!(vh > 0)) vh = H;
+  const availW = Math.max(320, vw - 24);
+  const availH = Math.max(240, vh - hintH - 28);
+  const fit = Math.min(availW / W, availH / H);
+  viewScale = fit > 0 ? fit : 1;
+  const cssW = Math.max(1, Math.round(W * viewScale));
+  const cssH = Math.max(1, Math.round(H * viewScale));
+  let eff = Math.min(dpr, maxBack / cssW, maxBack / cssH);
+  if(!(eff > 0)) eff = 1;
+  const bw = Math.max(1, Math.round(cssW * eff));
+  const bh = Math.max(1, Math.round(cssH * eff));
+  try{ if(canvas.style){ canvas.style.width = cssW + 'px'; canvas.style.height = cssH + 'px'; } }catch(e){}
+  if(canvas.width !== bw || canvas.height !== bh){
+   canvas.width = bw; canvas.height = bh;
+   try{ ctx.imageSmoothingEnabled = false; }catch(e){}
+   // Caches are repainted at the new density below; each is guarded because
+   // fitCanvas can run before those bindings initialise.
+   try{ farStars = null; }catch(e){}
+   try{ worldCache = null; }catch(e){}
+  }
+  devicePx = (canvas.width / W) || 1;
+  try{ ctx.setTransform(devicePx, 0, 0, devicePx, 0, 0); }catch(e){}
+ }catch(e){}
+}
+let fitQueued = false;
+function queueFit(){ try{
+  if(fitQueued) return; fitQueued = true;
+  const run = () => { fitQueued = false; fitCanvas(); };
+  if(typeof requestAnimationFrame === 'function'){ try{ requestAnimationFrame(run); return; }catch(e){} }
+  run();
+ }catch(e){} }
+try{ window.addEventListener('resize', queueFit); }catch(e){}
+try{ window.addEventListener('orientationchange', queueFit); }catch(e){}
+try{ if(window.visualViewport && window.visualViewport.addEventListener) window.visualViewport.addEventListener('resize', queueFit); }catch(e){}
+try{ if(typeof ResizeObserver !== 'undefined' && document.getElementById){
+  const wrapEl = document.getElementById('wrap'); if(wrapEl) new ResizeObserver(queueFit).observe(wrapEl);
+ }}catch(e){}
+try{ if(document.addEventListener) document.addEventListener('DOMContentLoaded', fitCanvas); }catch(e){}
 // ---------- visual tokens: the Etched Record ----------
 // One palette, one meaning per colour. Gold is KRIEFNE, home and its own
 // instrument (never an enemy). Oxide red is everything hostile. Hydrogen is
@@ -125,7 +189,7 @@ function segCircleT(x1,y1,x2,y2,cx,cy,r){
 }
 
 // ---------- settings ----------
-let settings = { shake:!REDUCED, particles:true, music:true, autofire:true, showSeed:true, musicVol:0.8, sfxVol:0.6 };
+let settings = { shake:!REDUCED, particles:!REDUCED, music:true, autofire:true, showSeed:true, musicVol:0.8, sfxVol:0.6 };
 try{ const s=JSON.parse(lsGet('cfg')||'null'); if(s&&typeof s==='object') settings=Object.assign(settings,s); }catch(e){}
 function saveCfg(){ try{ lsSet('cfg',JSON.stringify(settings)); }catch(e){} }
 
@@ -176,6 +240,38 @@ canvas.addEventListener('mousemove',e=>{ const p=canvasPos(e); mouse.x=p.x; mous
 canvas.addEventListener('mousedown',e=>{ const p=canvasPos(e); mouse.x=p.x; mouse.y=p.y; mouse.down=true; ac(); handleClick(p.x,p.y); });
 window.addEventListener('mouseup',()=>{ mouse.down=false; });
 canvas.addEventListener('contextmenu',e=>e.preventDefault());
+// Touch groundwork (no designed scheme yet): the first touch drives the same
+// aim point the mouse drives, and a tap is a click, so every canvas-drawn
+// menu, draft card and gate already answers on a phone. Multi-touch and
+// movement sticks stay for the real mobile scheme; until then extra touches
+// are tracked but never act.
+function touchPos(t){ const r=canvas.getBoundingClientRect(); return { x:(t.clientX-r.left)*W/r.width, y:(t.clientY-r.top)*H/r.height }; }
+try{
+ canvas.addEventListener('touchstart',e=>{
+  try{ ac(); }catch(_){}
+  if(!e || !e.changedTouches || !e.changedTouches.length) return;
+  const t=e.changedTouches[0], p=touchPos(t);
+  touch.active=true; touch.id=(t.identifier===undefined?-1:t.identifier); touch.x=p.x; touch.y=p.y;
+  mouse.x=p.x; mouse.y=p.y; mouse.down=true;
+  try{ handleClick(p.x,p.y); }catch(_){}
+  if(e.cancelable) e.preventDefault();
+ },{passive:false});
+ canvas.addEventListener('touchmove',e=>{
+  if(!touch.active || !e || !e.changedTouches) return;
+  for(let i=0;i<e.changedTouches.length;i++){ const t=e.changedTouches[i];
+   if(t.identifier===touch.id || touch.id===-1){ const p=touchPos(t); touch.x=p.x; touch.y=p.y; mouse.x=p.x; mouse.y=p.y; break; } }
+  if(e.cancelable) e.preventDefault();
+ },{passive:false});
+ const endTouch=e=>{
+  try{
+   if(e && e.changedTouches) for(let i=0;i<e.changedTouches.length;i++)
+    if(e.changedTouches[i].identifier===touch.id || touch.id===-1){ touch.active=false; touch.id=-1; break; }
+  }catch(_){ touch.active=false; touch.id=-1; }
+  mouse.down=false;
+ };
+ canvas.addEventListener('touchend',endTouch);
+ canvas.addEventListener('touchcancel',endTouch);
+}catch(e){}
 // auto-pause when the tab loses focus / window blurs / page occluded (alt-tab safe).
 // Why a belt-and-braces approach: on alt-tab the browser often stalls rAF for the
 // covered page WITHOUT firing visibilitychange, so the game freezes on its last frame
@@ -2483,10 +2579,18 @@ function paintStars(g,w,h,n,seed,bright){
   else { g.fillStyle=m>0.8?K.metal:K.metalDim; const s=m>0.8?1.5:1; g.fillRect(x,y,s,s); } }
 }
 function drawFarStars(ox,oy){
- if(!farStars){ farStars=mkCanvas(512,512); if(farStars) paintStars(farStars.getContext('2d'),512,512,70,7771,false); }
+ // The tile is repainted at the current device density so the starfield
+ // stays as crisp as the playfield after a DPR or window change.
+ const q = devicePx > 0 ? devicePx : 1, TS = 512;
+ if(!farStars || farStars._q !== q){
+  farStars = mkCanvas(Math.max(1, Math.round(TS * q)), Math.max(1, Math.round(TS * q)));
+  if(farStars){ farStars._q = q; const fg = farStars.getContext('2d');
+   try{ fg.setTransform(q, 0, 0, q, 0, 0); }catch(e){}
+   paintStars(fg, TS, TS, 70, 7771, false); }
+ }
  if(!farStars) return;
- const sx=-(((ox%512)+512)%512), sy=-(((oy%512)+512)%512);
- for(let x=sx;x<W;x+=512) for(let y=sy;y<H;y+=512) ctx.drawImage(farStars,x,y);
+ const sx=-(((ox%TS)+TS)%TS), sy=-(((oy%TS)+TS)%TS);
+ for(let x=sx;x<W;x+=TS) for(let y=sy;y<H;y+=TS) ctx.drawImage(farStars,x,y,TS,TS);
 }
 
 // ---------- the static sector layer ----------
@@ -2495,10 +2599,14 @@ function drawFarStars(ox,oy){
 let worldCache=null;
 function worldLayer(){
  if(!arena) return null;
- if(worldCache&&worldCache.a===arena&&worldCache.w===WW&&worldCache.h===HH) return worldCache.c;
- const c=mkCanvas(WW,HH); if(!c) return null;
- paintWorld(c.getContext('2d'),arena.theme||THEMES[0]);
- worldCache={a:arena,w:WW,h:HH,c}; return c;
+ // Painted at device density and blitted back to logical size, so the one
+ // static layer never softens the hairlines after an upscale.
+ const k = devicePx > 0 ? devicePx : 1;
+ if(worldCache&&worldCache.a===arena&&worldCache.w===WW&&worldCache.h===HH&&worldCache.k===k) return worldCache.c;
+ const c=mkCanvas(Math.max(1, Math.round(WW*k)),Math.max(1, Math.round(HH*k))); if(!c) return null;
+ const g=c.getContext('2d'); try{ g.setTransform(k,0,0,k,0,0); }catch(e){}
+ paintWorld(g,arena.theme||THEMES[0]);
+ worldCache={a:arena,w:WW,h:HH,k,c}; return c;
 }
 function paintWorld(g,th){
  const seed=((arena&&arena.seed)||1)>>>0, R=mulberry32((seed^0x51f15e)>>>0);
@@ -2576,6 +2684,9 @@ function engrave(g,o,Lx,Ly){
 // ---------- frame ----------
 function render(){
  if(!fontsReady){ ctx.fillStyle=K.ground; ctx.fillRect(0,0,W,H); return; }
+ // Re-assert the device transform every frame: canvas resizes reset context
+ // state, and this keeps all draw code in logical 960x640 units.
+ try{ ctx.setTransform(devicePx,0,0,devicePx,0,0); }catch(e){}
  ctx.save();
  if(shake>0&&settings.shake) ctx.translate((Math.random()-0.5)*shake,(Math.random()-0.5)*shake);
  const th=arena?arena.theme:THEMES[0];
@@ -2588,7 +2699,7 @@ function render(){
  drawFarStars(cam.x*0.35,cam.y*0.35);
  ctx.save(); ctx.beginPath(); ctx.rect(0,HUD_H,W,H-HUD_H); ctx.clip();
  ctx.translate(-cam.x,-cam.y);
- const wl=worldLayer(); if(wl) ctx.drawImage(wl,0,0); else if(arena) paintWorld(ctx,th);
+ const wl=worldLayer(); if(wl) ctx.drawImage(wl,0,0,WW,HH); else if(arena) paintWorld(ctx,th);
  drawPulsarFix();
  drawWorld(th);
  drawFx();
@@ -2621,7 +2732,7 @@ function drawPulsarFix(){
 }
 function drawWorldMini(th){ // the sector behind a menu, dimmed to a whisper
  ctx.save(); ctx.translate(-cam.x,-cam.y); ctx.globalAlpha=0.3;
- const wl=worldLayer(); if(wl) ctx.drawImage(wl,0,0);
+ const wl=worldLayer(); if(wl) ctx.drawImage(wl,0,0,WW,HH);
  ctx.globalAlpha=1; ctx.restore();
  ctx.fillStyle='rgba(7,8,12,0.84)'; ctx.fillRect(0,0,W,H);
 }
@@ -3111,7 +3222,8 @@ function drawSettings(){
  heading('SETTINGS',W/2,132,22,K.gold,'center');
  mono('[1–8] or click to change · [O / Esc] back',W/2,156,11,K.textDim,'center');
  const armed=wipeArmT>performance.now();
- const rows=[['1','SCREEN SHAKE',settings.shake?'ON':'OFF',settings.shake],['2','PARTICLES',settings.particles?'FULL':'LOW',settings.particles],['3','MUSIC',settings.music?'ON':'OFF',settings.music],['4','AUTO-FIRE DEFAULT',settings.autofire?'ON':'OFF',settings.autofire],['5','SHOW SECTOR SEED',settings.showSeed?'ON':'OFF',settings.showSeed],['6',armed?'PRESS 6 AGAIN TO WIPE':'RESET RECORDS','BEST · DEPTH · BOSSES · CODEX',false,'danger'],['7','MUSIC VOLUME',Math.round(settings.musicVol*100)+'%',null],['8','SFX VOLUME',Math.round(settings.sfxVol*100)+'%',null]];
+ const armLeft=armed?Math.max(1,Math.ceil((wipeArmT-performance.now())/1000)):0;
+ const rows=[['1','SCREEN SHAKE',settings.shake?'ON':'OFF',settings.shake],['2','PARTICLES',settings.particles?'FULL':'LOW',settings.particles],['3','MUSIC',settings.music?'ON':'OFF',settings.music],['4','AUTO-FIRE DEFAULT',settings.autofire?'ON':'OFF',settings.autofire],['5','SHOW SECTOR SEED',settings.showSeed?'ON':'OFF',settings.showSeed],['6',armed?('PRESS 6 AGAIN TO WIPE · '+armLeft+'S'):'RESET RECORDS','BEST · DEPTH · BOSSES · CODEX',false,'danger'],['7','MUSIC VOLUME',Math.round(settings.musicVol*100)+'%',null],['8','SFX VOLUME',Math.round(settings.sfxVol*100)+'%',null]];
  const rr=rowRects();
  rows.forEach((r,i)=>{ const b=rr[i], cy=b.y+b.h/2+2, hot=hovered(b), danger=r[4]==='danger';
   mono('['+r[0]+']',b.x,cy,11,K.textDim,'left');
@@ -3442,6 +3554,8 @@ arena={seed:1337, obs:[], theme:THEMES[0], spawns:[], port:{x:800,y:500}, valida
   get titleConfirm(){ return titleConfirm; }, get levelBack(){ return levelBack; },
   get depth(){ return depth; }, get bosses(){ return bosses; }, get best(){ return best; },
   get cleared(){ return clearedMax; }, get galaxySel(){ return galaxySel; }, get time(){ return timeSec; },
-   get state(){return state;}, get player(){return player;}, get enemies(){return enemies;}, get gems(){return gems;}, get settings(){return settings;}, get arena(){return arena;}, get portal(){return portal;}, get choices(){return levelChoices;}, keys, mouse }; }catch(e){}
+   get state(){return state;}, get player(){return player;}, get enemies(){return enemies;}, get gems(){return gems;}, get settings(){return settings;}, get arena(){return arena;}, get portal(){return portal;}, get choices(){return levelChoices;}, keys, mouse, touch, fitCanvas,
+   get viewScale(){ return viewScale; }, get devicePx(){ return devicePx; } }; }catch(e){}
+fitCanvas();
 requestAnimationFrame(frame);
 })();
