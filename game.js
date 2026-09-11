@@ -10,8 +10,8 @@ let PX0 = WALL, PY0 = HUD_H + WALL, PX1 = W - WALL, PY1 = H - WALL;
 let WW = W, HH = H;
 const cam = { x:0, y:0 };
 const canvas = document.getElementById('game');
-const ctx = canvas.getContext('2d');
-ctx.imageSmoothingEnabled = false;
+let ctx = canvas.getContext('2d');
+try{ ctx.imageSmoothingEnabled = false; }catch(e){}
 // ---------- viewport fit + devicePixelRatio scaling ----------
 // Game logic draws in fixed 960x640 units (W/H) so balance, hitboxes and
 // tests never move. Only the canvas backing store and CSS size adapt: the
@@ -278,7 +278,7 @@ try{
 // and the pause overlay never paints. We therefore (a) pause on blur too, (b) run a
 // 250ms watchdog on document.hasFocus(), and (c) paint one frame synchronously.
 function clearInputs(){ try{ for(const k in keys) keys[k]=false; mouse.down=false; }catch(e){} }
-function toPaused(auto){ clearInputs(); state='paused'; autoPaused=!!auto; setMusicCfg(PAUSE_MUS); try{ render(); }catch(e){} }
+function toPaused(auto){ clearInputs(); floaters=[]; state='paused'; autoPaused=!!auto; setMusicCfg(PAUSE_MUS); try{ render(); }catch(e){} }
 function toPlaying(){ state='playing'; autoPaused=false; if(arena&&arena.theme) setMusicCfg(arena.theme); }
 function autoPause(){ if(state==='playing') toPaused(true); }
 function focusLost(){ try{ if(document.hidden) return true; if(typeof document.hasFocus==='function'&&!document.hasFocus()) return true; }catch(e){} return false; }
@@ -521,6 +521,8 @@ let state='title', settingsFrom='title', helpFrom='title', autoPaused=false;
 let runSeed=1, arenaIdx=0, kills=0, arenasCleared=0, timeSec=0;
 let arena=null, player=null, portal=null;
 let bullets=[], ebullets=[], enemies=[], gems=[], parts=[], floaters=[], rings=[];
+const MAX_PARTS=420, MAX_FLOATERS=30;
+function pushPart(p){ if(parts.length>=MAX_PARTS) parts.splice(0,parts.length-MAX_PARTS+1); parts.push(p); }
 let hazards=[]; // lingering ground effects: mines, zones, spike fields, jammers
 let strikes=[], beams=[]; // orbital cannon impacts, prism lance traces
 let spawnQueue=[], spawnT=0; // wave director: queued reinforcements stream in off-screen
@@ -1064,13 +1066,19 @@ function saveRun(){
  lsSet('run',JSON.stringify(snap));
 }
 function clearRun(){ lsDel('run'); }
+// The title parses the saved run every frame (draw + hit-test + input), so
+// memoize on the raw localStorage string: unchanged bytes are a cache hit
+// with zero JSON.parse, and any write still re-parses on the next read.
+let runCacheRaw=undefined, runCacheVal=null, runCacheHit=false;
 function readRun(){
  try{
-  const r=JSON.parse(lsGet('run')||'null');
-  if(!r||r.v!==RUN_V||!r.player||typeof r.player!=='object') return null;
-  if(!isFinite(r.player.hp)||r.player.hp<=0||!isFinite(r.clearedMax)||!isFinite(r.galaxySel)) return null;
-  return r;
- }catch(e){ return null; }
+  const raw=lsGet('run')||'null';
+  if(runCacheHit&&raw===runCacheRaw) return runCacheVal;
+  const r=JSON.parse(raw);
+  const ok=r&&r.v===RUN_V&&r.player&&typeof r.player==='object'&&isFinite(r.player.hp)&&r.player.hp>0&&isFinite(r.clearedMax)&&isFinite(r.galaxySel);
+  runCacheRaw=raw; runCacheVal=ok?r:null; runCacheHit=true;
+  return runCacheVal;
+ }catch(e){ try{ runCacheRaw=lsGet('run')||'null'; }catch(_){ runCacheRaw='null'; } runCacheVal=null; runCacheHit=true; return null; }
 }
 function continueRun(){
  const r=readRun(); if(!r){ startRun(); return; }
@@ -1153,10 +1161,12 @@ let titleMusOk=false;
 function ensureTitleMusic(){ if(titleMusOk||!settings.music) return; try{ setMusicCfg(TITLE_MUS); titleMusOk=true; }catch(e){} }
 function spawnBurst(x,y,n,col,spd,life,size){
  if(!settings.particles) n=Math.ceil(n/3);
- for(let i=0;i<n;i++){ const a=Math.random()*6.283; const s=(0.4+Math.random()*0.6)*spd; parts.push({x,y,vx:Math.cos(a)*s,vy:Math.sin(a)*s,life:life*(0.6+Math.random()*0.6),maxlife:life,col,r:size*(0.6+Math.random()*0.8)}); }
+ if(parts.length>=MAX_PARTS) return;
+ if(n>MAX_PARTS-parts.length) n=MAX_PARTS-parts.length;
+ for(let i=0;i<n;i++){ const a=Math.random()*6.283; const s=(0.4+Math.random()*0.6)*spd; pushPart({x,y,vx:Math.cos(a)*s,vy:Math.sin(a)*s,life:life*(0.6+Math.random()*0.6),maxlife:life,col,r:size*(0.6+Math.random()*0.8)}); }
 }
-function zapFx(x1,y1,x2,y2){ for(let i=0;i<=8;i++){ const t=i/8; parts.push({x:x1+(x2-x1)*t+(Math.random()-0.5)*10,y:y1+(y2-y1)*t+(Math.random()-0.5)*10,vx:0,vy:0,life:0.15,maxlife:0.15,col:K.gold,r:3}); } }
-function addFloater(x,y,txt,col){ let n=0; for(const f of floaters){ const dx=f.x-x, dy=f.y-y; if(dx*dx+dy*dy<576) n++; } floaters.push({x,y:y-n*14,txt,col:col||K.text,life:0.9}); }
+function zapFx(x1,y1,x2,y2){ for(let i=0;i<=8;i++){ const t=i/8; pushPart({x:x1+(x2-x1)*t+(Math.random()-0.5)*10,y:y1+(y2-y1)*t+(Math.random()-0.5)*10,vx:0,vy:0,life:0.15,maxlife:0.15,col:K.gold,r:3}); } }
+function addFloater(x,y,txt,col){ let n=0; for(const f of floaters){ const dx=f.x-x, dy=f.y-y; if(dx*dx+dy*dy<576) n++; } if(floaters.length>=MAX_FLOATERS) floaters.splice(0,floaters.length-MAX_FLOATERS+1); floaters.push({x,y:y-n*14,txt,col:col||K.text,life:0.9}); }
 // A single pickup can cross several thresholds at once — a Magnet Core vacuum
 // banks the whole field in one call. The old `if` awarded exactly one draft and
 // silently swallowed the rest, so the biggest payout in the game paid the least.
@@ -1179,13 +1189,13 @@ function gainXp(v){
 // vanished".
 function collectGems(){
  let t=0;
- for(const g of gems){
-  t+=g.v;
-  for(let k=1;k<=3;k++){ const f=k/4;
-   parts.push({x:g.x+(player.x-g.x)*f, y:g.y+(player.y-g.y)*f, vx:0, vy:0,
-    life:0.30+f*0.20, maxlife:0.5, col:K.hydro, r:3.2});
+  for(const g of gems){
+   t+=g.v;
+   for(let k=1;k<=3;k++){ const f=k/4;
+    pushPart({x:g.x+(player.x-g.x)*f, y:g.y+(player.y-g.y)*f, vx:0, vy:0,
+     life:0.30+f*0.20, maxlife:0.5, col:K.hydro, r:3.2});
+   }
   }
- }
  gems.length=0;
  if(t>0){
   const shown=Math.round(t*player.xpBonus);
@@ -1230,7 +1240,7 @@ function openDraft(picks,back){
   if(!c.locked(player)) pity[c.id]=0;
   else pity[c.id]=picks.some(u=>u.id===c.id)?0:pity[c.id]+1;
  }
- levelChoices=picks; state='levelup'; SFX.levelup();
+ levelChoices=picks; floaters=[]; state='levelup'; SFX.levelup();
 }
 function pickUpgrade(u){
  if(!u) return;
@@ -1242,7 +1252,7 @@ function pickUpgrade(u){
  if(pendingLevels>0){ pendingLevels--; openLevelUp(); } // drain queued level-ups
 }
 function scoreCalc(){ return kills*50+arenasCleared*250+player.level*100+Math.max(0,1800-Math.floor(timeSec)*5); }
-function die(){ state='gameover'; clearRun(); const s=scoreCalc(); if(s>best) best=s; depth=Math.max(depth,arenaIdx+1); saveMeta(); SFX.lose(); stopMusic(); spawnBurst(player.x,player.y,40,K.gold,260,0.8,4); }
+function die(){ state='gameover'; floaters=[]; clearRun(); const s=scoreCalc(); if(s>best) best=s; depth=Math.max(depth,arenaIdx+1); saveMeta(); SFX.lose(); stopMusic(); spawnBurst(player.x,player.y,40,K.gold,260,0.8,4); }
 
 // WARDEN retreat: fall back with guards — recovers only while unpressured,
 // so chase it down and keep shooting to cut the recovery short.
@@ -1457,7 +1467,7 @@ function bossBehave(e,C){
     if(e.gaze.t<=0){ const a=e.gaze.ang;
      let da=Math.abs(((aim-a+Math.PI)%6.283)-Math.PI);
      if(da<0.45&&d<430){ p.rootT=Math.max(p.rootT||0,1.0); hurtPlayer(Math.round(e.dmg*0.8),true); addFloater(p.x,p.y-30,'PETRIFIED',K.red); }
-     for(let k=0;k<9;k++) parts.push({x:e.x+Math.cos(a)*k*46,y:e.y+Math.sin(a)*k*46,vx:0,vy:0,life:0.3,maxlife:0.3,col:K.red,r:5});
+      for(let k=0;k<9;k++) pushPart({x:e.x+Math.cos(a)*k*46,y:e.y+Math.sin(a)*k*46,vx:0,vy:0,life:0.3,maxlife:0.3,col:K.red,r:5});
      e.gaze=null; e.gazeT=enrage?2.6:4; SFX.eshoot(); } }
    else if(e.gazeT<=0){ e.gaze={t:0.75,ang:aim}; SFX.click(); }
    break;
@@ -1537,7 +1547,7 @@ function bossSignature(e,C,spdM,aim){
     if(e.laser.t<=0){ const a=e.laser.ang, dx2=Math.cos(a), dy2=Math.sin(a);
      const tt=clamp((p.x-e.x)*dx2+(p.y-e.y)*dy2,0,700), cx=e.x+dx2*tt, cy=e.y+dy2*tt;
      e.beamA=a; e.beamT=0.25; e.laser=null; e.laserT=enrage?3.5:5;
-     for(let k=0;k<=10;k++) parts.push({x:e.x+dx2*k*70,y:e.y+dy2*k*70,vx:0,vy:0,life:0.25,maxlife:0.25,col:K.red,r:5});
+      for(let k=0;k<=10;k++) pushPart({x:e.x+dx2*k*70,y:e.y+dy2*k*70,vx:0,vy:0,life:0.25,maxlife:0.25,col:K.red,r:5});
      SFX.eshoot();
      if(Math.hypot(p.x-cx,p.y-cy)<16) hurtPlayer(e.dmg+8,true); } }
    else if(e.laserT<=0){ e.laser={t:0.7,ang:aim}; SFX.click(); }
@@ -1623,7 +1633,7 @@ function playerShoot(){
  if(heavy) tone('square',420,140,0.12,0.12);
  p.fireCd=1/rate;
  SFX.shoot();
- parts.push({x:p.x+Math.cos(base)*15,y:p.y+Math.sin(base)*15,vx:0,vy:0,life:0.06,maxlife:0.06,col:K.goldHi,r:4});
+ pushPart({x:p.x+Math.cos(base)*15,y:p.y+Math.sin(base)*15,vx:0,vy:0,life:0.06,maxlife:0.06,col:K.goldHi,r:4});
 }
 function shieldBlock(msg,col){ const p=player; p.invuln=Math.max(p.invuln,0.4); addFloater(p.x,p.y-20,msg,col); SFX.block(); spawnBurst(p.x,p.y,10,col,180,0.4,3); }
 // heavy=true: sniper/tempest bolts, brute rings, boss contact+bursts (blocked by Crit Ward)
@@ -1915,7 +1925,7 @@ function update(dt){
    }
   }
   if(p.orbs>0){ p.orbAng+=dt*2.6; const odmg=15*p.dmgMult; for(let k=0;k<p.orbs;k++){ const a=p.orbAng+k*6.283/p.orbs; const ox=p.x+Math.cos(a)*34, oy=p.y+Math.sin(a)*34; const snap=enemies.slice(); for(let j=snap.length-1;j>=0;j--){ const e=snap[j]; if(e.dead||e.phased) continue; const dx=e.x-ox, dy=e.y-oy; if(dx*dx+dy*dy<(e.r+8)*(e.r+8)&&e.orbCd<=0){ e.orbCd=0.45; e.hp-=odmg; e.lastHit=timeSec; e.flash=0.1; addFloater(e.x,e.y-12,Math.round(odmg),K.gold); spawnBurst(ox,oy,4,K.gold,160,0.3,2.5); SFX.hit(); if(e.hp<=0) killEnemy(enemies.indexOf(e)); } } } }
- if(p.channel){ p.channel.t-=dt; parts.push({x:p.x+(Math.random()-0.5)*20,y:p.y+(Math.random()-0.5)*20,vx:0,vy:0,life:0.2,maxlife:0.2,col:K.gold,r:2.5});
+ if(p.channel){ p.channel.t-=dt; pushPart({x:p.x+(Math.random()-0.5)*20,y:p.y+(Math.random()-0.5)*20,vx:0,vy:0,life:0.2,maxlife:0.2,col:K.gold,r:2.5});
   if(p.channel.t<=0){ const c=p.channel; p.channel=null; spawnBurst(p.x,p.y,12,K.gold,200,0.5,3);
    p.x=clamp(c.tx,PX0+p.r,PX1-p.r); p.y=clamp(c.ty,PY0+p.r,PY1-p.r); resolveObstacles(p);
    p.invuln=Math.max(p.invuln,0.5); p.recallCd=p.recallCdMax;
@@ -1930,7 +1940,7 @@ function update(dt){
   const al=len(ax,ay); if(al>1){ ax/=al; ay/=al; }
   if(ax||ay) p.face=Math.atan2(ay,ax); // hull nose follows movement; turret (p.aim) still tracks the mouse/target
   const spd=p.speed*(p.surgeT>0?1.25:1);
-  if(p.dashT>0){ p.x+=p.dashDx*1050*dt; p.y+=p.dashDy*1050*dt; parts.push({x:p.x,y:p.y,vx:0,vy:0,life:0.3,maxlife:0.3,col:K.goldDim,r:5}); }
+  if(p.dashT>0){ p.x+=p.dashDx*1050*dt; p.y+=p.dashDy*1050*dt; pushPart({x:p.x,y:p.y,vx:0,vy:0,life:0.3,maxlife:0.3,col:K.goldDim,r:5}); }
   else { p.x+=ax*spd*dt; p.y+=ay*spd*dt; }
   p.x=clamp(p.x,PX0+p.r,PX1-p.r); p.y=clamp(p.y,PY0+p.r,PY1-p.r);
   resolveObstacles(p);
@@ -1994,7 +2004,7 @@ function update(dt){
   // enemies
   const esnap=enemies.slice();
   for(let j=esnap.length-1;j>=0;j--){ const e=esnap[j]; if(e.dead) continue; e.t+=dt; e.flash-=dt; e.contactCd-=dt; if(e.orbCd>0)e.orbCd-=dt; if(e.spawnT>0)e.spawnT-=dt;
-   if(e.burnT>0){ e.burnT-=dt; if(!e.phased){ e.hp-=e.burnDps*dt; e.lastHit=timeSec; e.flash=Math.max(e.flash,0.05); if(Math.random()<dt*10) parts.push({x:e.x+(Math.random()-0.5)*10,y:e.y+(Math.random()-0.5)*10,vx:0,vy:-40,life:0.3,maxlife:0.3,col:K.gold,r:3}); if(e.hp<=0){ killEnemy(enemies.indexOf(e)); continue; } } }
+   if(e.burnT>0){ e.burnT-=dt; if(!e.phased){ e.hp-=e.burnDps*dt; e.lastHit=timeSec; e.flash=Math.max(e.flash,0.05); if(Math.random()<dt*10) pushPart({x:e.x+(Math.random()-0.5)*10,y:e.y+(Math.random()-0.5)*10,vx:0,vy:-40,life:0.3,maxlife:0.3,col:K.gold,r:3}); if(e.hp<=0){ killEnemy(enemies.indexOf(e)); continue; } } }
    const sF=e.slowT>0?0.55:1; if(e.slowT>0)e.slowT-=dt;
    const dx=p.x-e.x, dy=p.y-e.y, d=len(dx,dy), nx=dx/d, ny=dy/d;
    for(const o of enemies){ if(o===e) continue; const d2=dist2(e.x,e.y,o.x,o.y); const rr=e.r+o.r; if(d2<rr*rr&&d2>0.01){ const dd=Math.sqrt(d2); const push=(rr-dd)*0.4; e.x+=(e.x-o.x)/dd*push*0.5; e.y+=(e.y-o.y)/dd*push*0.5; } }
@@ -2138,6 +2148,7 @@ function update(dt){
 }
 function updateFx(dt){
  for(let i=parts.length-1;i>=0;i--){ const q=parts[i]; q.x+=q.vx*dt; q.y+=q.vy*dt; q.vx*=0.94; q.vy*=0.94; q.life-=dt; if(q.life<=0) parts.splice(i,1); }
+ if(parts.length>MAX_PARTS) parts.splice(0,parts.length-MAX_PARTS);
  for(let i=floaters.length-1;i>=0;i--){ const f=floaters[i]; f.y-=34*dt; f.life-=dt; if(f.life<=0) floaters.splice(i,1); }
 }
 
@@ -2596,7 +2607,7 @@ function drawFarStars(ox,oy){
 // ---------- the static sector layer ----------
 // Stars, the sector's dying star, its motif, the wreckage and the rim are
 // painted once per sector into an offscreen canvas and blitted each frame.
-let worldCache=null;
+let worldCache=null, codexSilCache={};
 function worldLayer(){
  if(!arena) return null;
  // Painted at device density and blitted back to logical size, so the one
@@ -3129,26 +3140,45 @@ function drawHUD(){
   ctx.save(); ctx.globalAlpha=a; ctx.strokeStyle=K.red; ctx.lineWidth=1; ctx.strokeRect(6.5,HUD_H+6.5,W-13,H-HUD_H-13); ctx.strokeRect(10.5,HUD_H+10.5,W-21,H-HUD_H-21); ctx.restore(); }
 }
 // ---------- title: the record cover ----------
-function drawRecord(cx,cy,R){
- const now=performance.now()/1000;
- ctx.save();
- ctx.beginPath(); ctx.arc(cx,cy,R,0,6.283); ctx.fillStyle=K.deep; ctx.fill();
+// The engraved disc is static: ~60 groove arcs + the pulsar map. Repainting
+// that every title frame is the title screen's whole cost, so it is painted
+// once into an offscreen canvas (like worldCache/farStars) and blitted.
+// Only the slow sheen sweep stays dynamic.
+let recordCache=null;
+function paintRecordStatic(g,cx,cy,R){
+ g.beginPath(); g.arc(cx,cy,R,0,6.283); g.fillStyle=K.deep; g.fill();
  // grooves in tracks, the way a record is cut
- ctx.lineWidth=1;
- for(let r=R-8;r>R*0.34;r-=3){ const band=Math.floor((R-r)/38)%2; ctx.strokeStyle=band?K.goldFaint:'rgba(134,103,44,0.42)'; ctx.beginPath(); ctx.arc(cx,cy,r,0,6.283); ctx.stroke(); }
- ctx.strokeStyle=K.gold; ctx.lineWidth=1.5; ctx.beginPath(); ctx.arc(cx,cy,R,0,6.283); ctx.stroke();
+ g.lineWidth=1;
+ for(let r=R-8;r>R*0.34;r-=3){ const band=Math.floor((R-r)/38)%2; g.strokeStyle=band?K.goldFaint:'rgba(134,103,44,0.42)'; g.beginPath(); g.arc(cx,cy,r,0,6.283); g.stroke(); }
+ g.strokeStyle=K.gold; g.lineWidth=1.5; g.beginPath(); g.arc(cx,cy,R,0,6.283); g.stroke();
  // the label, carrying a pulsar map: lines out from home with binary periods
- const lr=R*0.3; ctx.strokeStyle=K.gold; ctx.lineWidth=1; ctx.beginPath(); ctx.arc(cx,cy,lr,0,6.283); ctx.stroke();
+ const lr=R*0.3; g.strokeStyle=K.gold; g.lineWidth=1; g.beginPath(); g.arc(cx,cy,lr,0,6.283); g.stroke();
  const Rr=mulberry32(1977);
  for(let k=0;k<14;k++){ const a=k*0.4488+Rr()*0.2, l=lr*(0.45+Rr()*0.5);
-  ctx.strokeStyle=K.goldDim; ctx.beginPath(); ctx.moveTo(cx,cy); ctx.lineTo(cx+Math.cos(a)*l,cy+Math.sin(a)*l); ctx.stroke();
-  const nx=-Math.sin(a), ny=Math.cos(a); ctx.beginPath();
-  for(let b=0;b<6;b++){ const d=l*(0.35+b*0.1), t=Rr()<0.5?2:4.5, px=cx+Math.cos(a)*d, py=cy+Math.sin(a)*d; ctx.moveTo(px-nx*t,py-ny*t); ctx.lineTo(px+nx*t,py+ny*t); }
-  ctx.stroke(); }
- ctx.fillStyle=K.ground; ctx.beginPath(); ctx.arc(cx,cy,5,0,6.283); ctx.fill(); ctx.strokeStyle=K.gold; ctx.beginPath(); ctx.arc(cx,cy,5,0,6.283); ctx.stroke();
+  g.strokeStyle=K.goldDim; g.beginPath(); g.moveTo(cx,cy); g.lineTo(cx+Math.cos(a)*l,cy+Math.sin(a)*l); g.stroke();
+  const nx=-Math.sin(a), ny=Math.cos(a); g.beginPath();
+  for(let b=0;b<6;b++){ const d=l*(0.35+b*0.1), t=Rr()<0.5?2:4.5, px=cx+Math.cos(a)*d, py=cy+Math.sin(a)*d; g.moveTo(px-nx*t,py-ny*t); g.lineTo(px+nx*t,py+ny*t); }
+  g.stroke(); }
+ g.fillStyle=K.ground; g.beginPath(); g.arc(cx,cy,5,0,6.283); g.fill(); g.strokeStyle=K.gold; g.beginPath(); g.arc(cx,cy,5,0,6.283); g.stroke();
+}
+function recordLayer(R){
+ const k=devicePx>0?devicePx:1;
+ if(recordCache&&recordCache.R===R&&recordCache.k===k) return recordCache;
+ const S=Math.ceil(R*2+8);
+ const c=mkCanvas(Math.max(1,Math.round(S*k)),Math.max(1,Math.round(S*k))); if(!c) return null;
+ try{
+  const g=c.getContext('2d'); try{ g.setTransform(k,0,0,k,0,0); }catch(e){}
+  paintRecordStatic(g,S/2,S/2,R);
+  recordCache={R,k,c,S}; return recordCache;
+ }catch(e){ return null; }
+}
+function drawRecord(cx,cy,R){
+ const now=performance.now()/1000;
+ const L=recordLayer(R);
+ if(L&&L.c){ ctx.drawImage(L.c,cx-L.S/2,cy-L.S/2,L.S,L.S); }
+ else { ctx.save(); paintRecordStatic(ctx,cx,cy,R); ctx.restore(); }
  // a slow sheen line sweeping the grooves
- if(!REDUCED){ const a=now*0.25; ctx.strokeStyle='rgba(226,174,75,0.35)'; ctx.lineWidth=1; ctx.beginPath(); ctx.moveTo(cx+Math.cos(a)*lr*1.15,cy+Math.sin(a)*lr*1.15); ctx.lineTo(cx+Math.cos(a)*(R-6),cy+Math.sin(a)*(R-6)); ctx.stroke(); }
- ctx.restore();
+ if(!REDUCED){ const lr=R*0.3, a=now*0.25; ctx.save(); ctx.strokeStyle='rgba(226,174,75,0.35)'; ctx.lineWidth=1; ctx.beginPath(); ctx.moveTo(cx+Math.cos(a)*lr*1.15,cy+Math.sin(a)*lr*1.15); ctx.lineTo(cx+Math.cos(a)*(R-6),cy+Math.sin(a)*(R-6)); ctx.stroke(); ctx.restore(); }
 }
 function titleStartRect(){ return readRun()?BTN.titleStart:BTN.titleContinue; }
 function drawTitle(){
@@ -3262,6 +3292,32 @@ function drawCodexSprite(entry,cx,cy,locked){
  e.aimT=0; e.windup=0; e.dashState=0; e.slowT=0; e.laser=null; e.beamT=0; e.gaze=null;
  e.facing=0.9;
  const k=codexTab==='bosses'?0.95:2.2;
+ // Locked silhouettes are static (frozen t) but ctx.filter forces a software
+ // pass every frame. Paint once per entry into an offscreen tile and blit.
+ if(locked){
+  try{
+   const dk=devicePx>0?devicePx:1, key=codexTab+':'+(entry.id||entry.type)+':'+k.toFixed(2)+':'+dk.toFixed(2);
+   const hit=codexSilCache[key];
+   if(hit&&hit.c){ ctx.save(); ctx.beginPath(); ctx.rect(cx-65,cy-65,130,130); ctx.clip(); ctx.globalAlpha=0.9; ctx.drawImage(hit.c,cx-65,cy-65,130,130); ctx.restore(); return; }
+   const S=130, c=mkCanvas(Math.max(1,Math.round(S*dk)),Math.max(1,Math.round(S*dk)));
+   if(c){
+    const g=c.getContext('2d'); try{ g.setTransform(dk,0,0,dk,0,0); }catch(_){}
+    const realCtx=ctx; ctx=g;
+    codexPreview=true;
+    try{
+     g.save(); g.beginPath(); g.rect(0,0,S,S); g.clip();
+     try{ g.filter='brightness(0) invert(0.32)'; }catch(_){}
+     g.globalAlpha=0.9;
+     g.translate(S/2,S/2); g.scale(k,k); g.translate(-cx,-cy);
+     try{ drawEnemy(e); }catch(_){}
+     g.restore(); try{ g.filter='none'; }catch(_){}
+    }finally{ ctx=realCtx; codexPreview=false; }
+    codexSilCache[key]={c};
+    ctx.save(); ctx.beginPath(); ctx.rect(cx-65,cy-65,130,130); ctx.clip(); ctx.globalAlpha=0.9; ctx.drawImage(c,cx-65,cy-65,130,130); ctx.restore();
+    return;
+   }
+  }catch(err){}
+ }
  codexPreview=true;
  ctx.save();
  ctx.beginPath(); ctx.rect(cx-65,cy-65,130,130); ctx.clip();
