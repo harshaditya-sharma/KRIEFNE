@@ -305,8 +305,11 @@ Crit Ward (heavy) → Ward → Bulwark → Barrier → Aegis.
 
 ## Files
 
-- `index.html` — canvas + loader · `styles.css` — neon frame
-- `game.js` — full game, fixed-timestep 60Hz, swept circle collision, `window.__kriefne` test hook
+- `index.html` — canvas + loader · `styles.css` — the page around the canvas and the `@font-face` rules
+- `fonts/` — the two bundled faces, Michroma (display capitals) and Martian Mono (data, at 75% width), with their OFL licences
+- `game.js` — full game, fixed-timestep 60Hz, swept circle collision, `window.__kriefne` test hook.
+  The look ("Etched Record": everything drawn as engraving on the Golden Record KRIEFNE carries) lives in
+  one token table `K` at the top and one rendering section; `DESIGN.md` documents the system
 - `test.js` — headless QA harness (excluded from deploy via `.vercelignore`)
 
 ## QA

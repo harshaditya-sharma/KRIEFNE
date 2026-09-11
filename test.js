@@ -904,7 +904,11 @@ function suiteCodex() {
  lt.killEnemy(lt.enemies.length - 1);
  ok('defeating a lieutenant unlocks its kind', lt.codexKnown('warden'));
  // settings wipe clears it
- again.forceState('settings'); again.handleKeyPress('Digit6');
+ again.forceState('settings');
+ const before = again.codexProgress().n;
+ again.handleKeyPress('Digit6');
+ eq('one press of Reset records only arms it', again.codexProgress().n, before);
+ again.handleKeyPress('Digit6');
  eq('wiping records clears the codex', again.codexProgress().n, 0);
  // locked entries reveal nothing through the command tree either
  ok('locked subordinates stay ??? in the command line', /\?\?\?/.test(fresh.commandLine('archon')));

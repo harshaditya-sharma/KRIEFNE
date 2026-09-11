@@ -1,6 +1,14 @@
+/* The page around the canvas carries the same world: the dark the record
+   crosses, no glowing frame, and the game's own two faces, self-hosted. */
+@font-face{font-family:'Michroma';src:url('fonts/michroma-latin.woff2') format('woff2');font-weight:400;font-style:normal;font-display:block}
+@font-face{font-family:'Martian Mono';src:url('fonts/martian-mono-latin.woff2') format('woff2');font-weight:100 800;font-stretch:75%;font-style:normal;font-display:block}
+:root{--ground:#07080c;--metal-dim:#4a525e;--text-dim:#9ca5b0;--gold:#e2ae4b;color-scheme:dark}
 *{box-sizing:border-box}
-:root{--norse:"Cinzel Decorative","Palatino Linotype",Palatino,Georgia,serif}
-body{background:#05060d;color:#0ff;font-family:Consolas,Menlo,monospace;display:flex;justify-content:center;align-items:center;min-height:100vh;margin:0}
-#wrap{display:flex;flex-direction:column;align-items:center;gap:8px}
-#game{border:2px solid #0ff;background:#0a0e1a;box-shadow:0 0 24px rgba(0,255,255,.35),0 0 64px rgba(255,0,255,.15);image-rendering:auto;max-width:96vw;height:auto}
-#hint{color:#8affff;font-size:12px;opacity:.85;text-align:center;max-width:960px}
+html,body{height:100%}
+body{margin:0;background:var(--ground);color:var(--text-dim);font:400 12px/1.5 'Martian Mono',ui-monospace,Menlo,Consolas,monospace;display:flex;justify-content:center;align-items:center;min-height:100vh;padding-block:12px}
+::selection{background:var(--gold);color:var(--ground)}
+#wrap{display:flex;flex-direction:column;align-items:center;gap:10px;max-width:100%}
+#game{display:block;background:var(--ground);outline:1px solid var(--metal-dim);outline-offset:0;max-width:calc(100vw - 32px);max-height:calc(100vh - 64px);width:auto;height:auto;aspect-ratio:3/2}
+#game:focus-visible{outline:1px solid var(--gold);outline-offset:3px}
+#hint{color:var(--text-dim);font-size:13px;letter-spacing:.02em;text-align:center;max-width:960px;padding-inline:16px}
+#hint kbd{font:inherit;color:var(--gold)}

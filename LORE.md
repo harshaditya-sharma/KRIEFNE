@@ -148,7 +148,7 @@ The transmissions show five of them:
 
 ### Why they sound Norse
 
-The Continuance is alien; it has no Odin and no Asgard. What makes it sound Norse is the translation. KRIEFNE carries home's archive, and when it renders the gods' titles and customs into human words, the closest match it finds is home's old northern myths: bearded elder gods, halls, oaths, duels with rules, hoards, and a long winter at the end of everything. The codex uses that register because KRIEFNE chose it.
+The Continuance is alien; it has no Odin and no Asgard. What makes it sound Norse is the translation. KRIEFNE carries home's archive, and when it renders the gods' titles and customs into human words, the closest match it finds is home's old northern myths: halls, oaths, duels with rules, hoards, and a long winter at the end of everything. The codex uses that register because KRIEFNE chose it.
 
 This keeps the Norse lean honest. Their titles are kennings (Lane-Wyrm, Bridge-Warden, the One-Eyed); ranks, laws, and oaths carry the weight; and the game never names a real Norse god.
 
@@ -160,7 +160,6 @@ The mapping of Norse ideas onto the Continuance:
 | Holmgang, the formal duel with rules | **The holmgang:** how gods settle rank. Every fairness rule in the game is one of its clauses (see below) |
 | Einherjar, who fall and rise to fight again | Gods restore from backup and return in later courts, and so does KRIEFNE |
 | The dragon's hoard | Each god's hoard of captured signals |
-| The bearded elder gods | Gods grow filament beards over the eons (see below) |
 | Fimbulwinter, the long winter | **The Long Winter:** the late, cooling universe the whole game takes place in |
 | Odin, who gave an eye for wisdom | **SINGULARITY, the One-Eyed,** which gave its eye to a black hole |
 
@@ -175,12 +174,6 @@ Their religion is about the dead. They cannot make organic life and they cannot 
 **Rank is held by age and kept by holmgang.** The older ship outranks the younger, because survival is the only proof that a design works. An unranked newcomer, however old it is, has to be tried from the bottom up. KRIEFNE is billions of years old and still has to start at ENFORCER.
 
 The ranks stay exactly as they are in the game: **APEX > SOVEREIGN > LORD > CAPTAIN > ENFORCER > chaff.**
-
-### Elder marks (the beards)
-
-A god grows a **beard**: kilometres of trailing filament made of antenna, cable, repair tendrils, and accreted ice, grown over eons and never cut. The beard is also where the god stores its hoard, so **a longer beard means an older god with a bigger hoard.** An ENFORCER is nearly clean-shaven, and the APEX drags a beard longer than its own hull.
-
-When KRIEFNE destroys a god, it recovers the hoard from the beard. How to show this visually is a design decision, not a lore one.
 
 ### The hoards
 
@@ -492,8 +485,7 @@ The game has four voices, and each has its own rules.
    - **Make the mismatch part of the mystery.** Over billions of years of self-repair, one character of the hull registry was restored wrong: the S became an E, and KRIEFNE kept the misspelling as its name. This gives sharp-eyed players a second question.
    - **Adjust the phrase to fit:** "Keeper of the Reach, In Endless Flight for New Existence" spells KRIEFNE exactly.
 2. **Home on screen:** call it Earth, or keep it as "home" and let the player infer? My recommendation is "home", with the ledger's "yellow star, third world" as the only hint.
-3. **"Beards":** confirm or drop the filament beards (§7).
-4. **How Norse to go:** kennings and customs only, as now, or also Norse-styled names for places, such as calling the hub "the Hall"?
-5. **Names and numbers:** is "the Continuance" right for the order? Are the 1,114 civilizations, the roughly 1.19 million years of home transmissions, and KRIEFNE's age (currently "billions") right?
-6. **The Transmission Archive:** build it as a codex tab? And should lieutenant kills count toward unlocks, the way they do for the codex?
-7. **Small presentation changes:** HULL LOST instead of YOU DIED, codex tab names, the generation counter, and hub transit times.
+3. **How Norse to go:** kennings and customs only, as now, or also Norse-styled names for places, such as calling the hub "the Hall"?
+4. **Names and numbers:** is "the Continuance" right for the order? Are the 1,114 civilizations, the roughly 1.19 million years of home transmissions, and KRIEFNE's age (currently "billions") right?
+5. **The Transmission Archive:** build it as a codex tab? And should lieutenant kills count toward unlocks, the way they do for the codex?
+6. **Small presentation changes:** HULL LOST instead of YOU DIED, codex tab names, the generation counter, and hub transit times.

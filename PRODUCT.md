@@ -33,7 +33,8 @@ Success: players start another run after they die, feel that each death was thei
 
 ## Capabilities and Constraints
 
-- **Zero dependencies, zero asset files, zero API keys (hard constraint).** All art is drawn in code and all audio is synthesized with WebAudio. The only outside resource is the title web font.
+- **Zero dependencies and zero API keys (hard constraint).** All art is drawn in code and all audio is synthesized with WebAudio.
+- **Assets are allowed where they're small and necessary (confirmed 2026-09-12).** Fonts are the first case: the game may bundle its own font files so the type is identical on every OS and works offline, from `file://`, and in a Steam wrapper. Other assets are added deliberately as the game grows, never by default.
 - **Keep it simple enough to port (hard constraint).** Future mobile and Steam versions must stay easy to build. Avoid choices that tie the game to one input method, one screen size, or browser-only machinery without a reason.
 - Current implementation: vanilla JS, one Canvas with a fixed internal resolution of 960×640, and every UI element (HUD, menus, codex) drawn on the canvas rather than in the DOM. The game runs on a fixed-timestep 60Hz loop with swept circle collision, and settings are saved in `localStorage`. None of these was confirmed as a permanent constraint.
 - Current input is WASD/arrows, mouse aim, click or auto-fire, Space/Shift to dash, and E for the gate or recall. There are no touch controls yet. A mobile port will need a touch control scheme, which hasn't been designed.
@@ -56,7 +57,7 @@ Success: players start another run after they die, feel that each death was thei
 
 - The playable game (`index.html`, `game.js`) and a detailed design README (`README.md`) covering the rules, balance, the boss trail, and upgrades.
 - Pinned balance data: time-to-kill tables per nest for the ceiling and farmer builds (README "Balance model", enforced by `test.js`).
-- The lore bible (`LORE.md`, draft 1), and the existing lore fragments in `game.js`: a codex lore line for all 18 enemies and bosses (around lines 2040–2130), debut lines for each boss (`DEBUT_LORE`), court lines on the hub, and the Help LORE tab. It is rewritten to match the bible.
+- The lore bible (`LORE.md`, draft 2), and the existing lore fragments in `game.js`: a codex lore line for all 18 enemies and bosses (around lines 2040–2130), debut lines for each boss (`DEBUT_LORE`), court lines on the hub, and the Help LORE tab. It is rewritten to match the bible.
 - **Absent, so never fabricate:** player counts, reviews or testimonials, press, store pages, screenshots or trailer assets, awards, and any release dates for the mobile or Steam versions.
 
 ## Product Principles
@@ -64,5 +65,5 @@ Success: players start another run after they die, feel that each death was thei
 1. **Fair before hard.** Difficulty comes from density, pressure, and readable patterns. It never comes from hidden rules, lost information, or taking control away from the player.
 2. **Rules come from one source.** Mechanics that appear in several places (schedule, codex, hub lore, tests) are derived from a single definition, so what the game shows always matches what it does.
 3. **Show what's true.** Cards, the codex, and the HUD state what the current build and the current fight actually do. Locked information stays hidden, and it's never faked.
-4. **Hierarchy is the story.** The chain of command and the lore should explain each other: who a boss answers to, who it commands, and which transmissions it's holding. Every fairness rule has an in-world reason, the Rite in `LORE.md`.
-5. **Portable by construction.** The game has no dependencies or asset pipeline, and it's kept simple enough that mobile and Steam versions can be built without a rewrite.
+4. **Hierarchy is the story.** The chain of command and the lore should explain each other: who a boss answers to, who it commands, and which transmissions it's holding. Every fairness rule has an in-world reason: a clause of the holmgang in `LORE.md`.
+5. **Portable by construction.** The game has no dependencies and only small, deliberate assets (no asset pipeline), and it's kept simple enough that mobile and Steam versions can be built without a rewrite.
