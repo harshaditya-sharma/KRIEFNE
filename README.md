@@ -53,7 +53,7 @@ Neither ever takes away your guns — being unable to shoot is not a mechanic, i
 1. START drops you on the **galaxy hub** — pick a lit sector node (`Enter`/click/`←→`), clear it, come
    back, pick the next unlocked one. Cleared sectors stay replayable for farming.
 2. Drop into a procedurally generated themed sector — larger than the viewport with a smooth-follow
-   camera, growing every sector from 1200×880 up to 2400×1600 (seed shown in HUD).
+   camera, growing every sector from 1200×880 up to 2400×1600 (seed shown in pause when enabled).
 3. An opening pack materializes on load (6 in S1, growing with depth); reinforcements stream in
    from off-screen as the round progresses — faster, in bigger packs (up to 4), against a higher alive
    cap (8 → 16) the deeper you go.
@@ -183,7 +183,7 @@ Every sector is rule-bound and playability-tested at generation time, with two s
   **all** enemy spawns and the EXIT portal must be reachable.
 - **Open space ≥ 0.45** — at least 45% of the floor is walkable, so a sector can never generate as a
   solid maze.
-- Up to 40 seed retries, then an open-field fallback. Seed + theme shown in-world and HUD.
+- Up to 40 seed retries, then an open-field fallback. Seed + theme shown in-world and pause.
 
 Obstacles are **rects, circles and convex polygons** — hex pylons, wedges, octagonal bunkers,
 trapezoids and rotated girders.

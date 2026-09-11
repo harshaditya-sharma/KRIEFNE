@@ -3112,9 +3112,8 @@ function drawHUD(){
  // it is lost on exit, so the HUD says how much is left to collect.
  if(foes>0) mono('FOES '+foes,x,r2,12,K.red,'right',600);
  else if(gems.length) mono('XP ON FIELD '+Math.round(fieldXp*p.xpBonus),x,r2,12,K.hydro,'right',600);
- else mono('FIELD CLEAR',x,r2,12,K.textDim,'right',600);
- mono('KILLS '+kills+'   SCORE '+scoreCalc(),W-150,r2,11,K.textDim,'right');
- // shields hang off the instrument's edge as engraved tags
+  else mono('FIELD CLEAR',x,r2,12,K.textDim,'right',600);
+  // shields hang off the instrument's edge as engraved tags
  const tags=[]; if(p.shieldReady) tags.push('AEGIS'); if(p.wardUp) tags.push('WARD'); if(p.bulwark>0) tags.push('BUL×'+p.bulwark); if(p.mirrorUp) tags.push('MIR'); if(p.barrier>0) tags.push('BAR'+Math.ceil(p.barrier)); if(p.stasisN>0) tags.push('STASIS×'+p.stasisN);
  if(tags.length&&state==='playing'){ ctx.font=fM(11,600); const t=tags.join('  ·  '); let tw=t.length*6.6; try{ tw=ctx.measureText(t).width; }catch(e){}
   ctx.fillStyle=K.ground; ctx.fillRect(10,HUD_H,tw+14,18); line(10,HUD_H+18,tw+24,HUD_H+18,K.goldDim,1); mono(t,16,HUD_H+13,11,K.gold,'left',600); }
@@ -3515,7 +3514,7 @@ function drawPaused(){
  if(player){ const p=player;
   let s='DMG ×'+p.dmgMult.toFixed(2)+'   RATE '+p.fireRate.toFixed(1)+'/s   SHOTS '+p.shots;
   if(p.homing) s+='   SEEK '+p.homing; if(p.bounce) s+='   RICOCHET '+p.bounce;
-  s+='   BEST '+best+'   DEPTH S'+depth;
+   s+='   KILLS '+kills+'   SCORE '+scoreCalc()+'   BEST '+best+'   DEPTH S'+depth;
   if(settings.showSeed&&arena) s+='   SEED '+arena.seed;
   line(120,H-34,W-120,H-34,K.metalDim,1);
   mono(s,W/2,H-14,11,K.textDim,'center'); }
