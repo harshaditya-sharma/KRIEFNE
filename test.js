@@ -808,7 +808,13 @@ function suiteCombos() {
  atMost('projectile count stays renderable', p.shots, 12);
  atMost('max HP stays in band', p.maxhp, 500);
  // sustain must not outpace incoming damage at depth
- atMost('lifesteal per kill stays bounded', p.vamp, 10);
+ eq('Vampire Chip maxes at 5 HP per kill', p.vamp, 5);
+ {
+  const v = boot(); seedRandom(v, 1357); v.startRun(); v.loadSector(0); v.forceState('playing');
+  const u = v.upgrades.find(x => x.id === 'vamp'), seen = [];
+  for (let k = 0; k < u.max; k++) { v.pickUpgrade(u); seen.push(v.player.vamp); }
+  eq('Vampire Chip climbs 1 HP per stack', seen.join(','), '1,2,3,4,5');
+ }
  atMost('out-of-combat regen stays bounded', p.repair, 6);
  // the discharge line must not become a permanent aura
  if (p.shockOn) {

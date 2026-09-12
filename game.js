@@ -547,7 +547,7 @@ const UPGRADES=[
  {id:'split', name:'Split Chamber', desc:'RARE: +1 projectile, -15% dmg', max:2, r:2, apply(p){ p.shots+=1; p.dmgMult*=0.85; }},
  {id:'array', name:'Gun Array', desc:'+1 barrel: +1 bullet, no penalty', max:3, r:1, apply(p){ p.shots+=1; }},
  {id:'minigun', name:'Minigun Amps', desc:'+1 barrel, wider spread, damage rebalanced', max:3, r:1, apply(p){ const n=p.shots; p.shots+=1; p.dmgMult*=n/(n+1); p.minigun+=1; }},
- {id:'vamp', name:'Vampire Chip', desc:'Heal 3 HP per kill', max:6, dyn(p){ return p.vamp>0?{name:'Vampire Chip',desc:'Feed harder: +1 HP per kill (now '+p.vamp+')'}:null; }, apply(p){ p.vamp=p.vamp>0?p.vamp+1:3; }},
+ {id:'vamp', name:'Vampire Chip', desc:'Heal 1 HP per kill', max:5, dyn(p){ return p.vamp>0?{name:'Vampire Chip',desc:'Feed harder: +1 HP per kill (now '+p.vamp+')'}:null; }, apply(p){ p.vamp=(p.vamp||0)+1; }},
  {id:'seek', name:'Seeker Rounds', desc:'Bullets home in on foes', max:2, r:1, apply(p){ p.homing+=1; }},
  {id:'rico', name:'Ricochet Core', desc:'Bullets bounce off walls +1', max:2, r:1, apply(p){ p.bounce+=1; }},
  {id:'inc', name:'Incendiary Rounds', desc:'Bullets ignite: burn 6dps/2s', max:2, r:1, apply(p){ p.inc+=1; }},
@@ -2830,6 +2830,42 @@ const BTN={ titleContinue:{x:64,y:346,w:400,h:44}, titleStart:{x:64,y:398,w:400,
 // Re-pin buttons to the live viewport: centred menus, edge-pinned HUD-adjacent
 // entries. At 960x640 this reproduces the exact shipped rects above, so the
 // headless balance suite never moves; on any other window it reflows.
+// Optical centre. A block reads as centred a little above the geometric
+// middle, and the bottom of the field is the part a player never reads, so
+// every self-centred overlay splits its free space 42 : 58, top : bottom.
+const OPTICAL = 0.42;
+function opticalTop(top, bottom, h){ return top + Math.max(0, Math.round((bottom - top - h) * OPTICAL)); }
+// Pause: the block (PAUSED, its two lines, six entries, and the hull record
+// when it stacks beneath) is sized, then set on the optical centre of the
+// field between the HUD and the stats rule. Wide windows hang BUILD and
+// SYSTEMS beside the entries; narrower ones stack them under it, and what
+// does not fit yields — SYSTEMS first, then BUILD — instead of running into
+// the stats rule. Re-run every pause frame, since the build grows.
+let pauseRecord = 'side'; // 'side' | 'stack' | 'build' | 'none'
+function pauseSysRows(){ const p = player; return p ? 8 + (p.pierce?1:0) + (p.bounce?1:0) + (p.homing?1:0) : 0; }
+function layoutPause(){
+ const cW = Math.min(300, Math.max(200, W - 32)), cX = Math.round((W - cW) / 2);
+ const pShort = H < 560, ph = pShort ? 30 : 42, pitch = pShort ? 34 : 48;
+ const pHead = pShort ? 78 : 98; // heading cap to RESUME's top edge
+ const pBlock = pHead + 5 * pitch + ph;
+ const top = HUD_H, bottom = H - (pShort ? 24 : 34);
+ let extra = 0; pauseRecord = 'none';
+ if(!pShort && player){
+  if(W >= 700 && cX >= 48 + 240 + 40 && W - 48 - 240 >= cX + cW + 40) pauseRecord = 'side';
+  else {
+   const bw = Math.min(420, W - 32), per = Math.max(1, Math.floor(bw / 40));
+   const n = Object.keys(upgradeCounts).filter(id => upgradeCounts[id] > 0).length;
+   const buildH = 24 + 18 + (n ? Math.ceil(Math.min(n, per * 2) / per) * 46 : 26);
+   const sysH = 12 + 20 + Math.ceil(pauseSysRows() / 2) * 18;
+   const room = bottom - top - 8;
+   if(pBlock + buildH + sysH <= room){ pauseRecord = 'stack'; extra = buildH + sysH; }
+   else if(pBlock + buildH <= room){ pauseRecord = 'build'; extra = buildH; }
+  }
+ }
+ const sy = opticalTop(top, bottom, pBlock + extra) + pHead;
+ ['pauseResume','pauseSet','pauseHelp','pauseCodex','pauseRestart','pauseQuit'].forEach((k,i)=>{
+  BTN[k].x = cX; BTN[k].w = cW; BTN[k].h = ph; BTN[k].y = Math.round(sy + i * pitch); });
+}
 function layoutButtons(){
  try{
   const tMargin = W < 600 ? 16 : 64;
@@ -2851,22 +2887,7 @@ function layoutButtons(){
   BTN.titleHelp.x = tMargin + 2 * (sW + 11); BTN.titleHelp.y = 462 + tShift; BTN.titleHelp.w = Math.max(44, tW - 2 * (sW + 11)); BTN.titleHelp.h = 34;
   }
   const cW = Math.min(300, Math.max(200, W - 32)), cX = Math.round((W - cW) / 2);
-  if(H >= 560){
-   const pShift = Math.min(0, H - 640);
-   const pY = [290, 338, 386, 434, 482, 530];
-   BTN.pauseResume.x = cX; BTN.pauseResume.y = pY[0] + pShift; BTN.pauseResume.w = cW; BTN.pauseResume.h = 42;
-   BTN.pauseSet.x = cX; BTN.pauseSet.y = pY[1] + pShift; BTN.pauseSet.w = cW; BTN.pauseSet.h = 42;
-   BTN.pauseHelp.x = cX; BTN.pauseHelp.y = pY[2] + pShift; BTN.pauseHelp.w = cW; BTN.pauseHelp.h = 42;
-   BTN.pauseCodex.x = cX; BTN.pauseCodex.y = pY[3] + pShift; BTN.pauseCodex.w = cW; BTN.pauseCodex.h = 42;
-   BTN.pauseRestart.x = cX; BTN.pauseRestart.y = pY[4] + pShift; BTN.pauseRestart.w = cW; BTN.pauseRestart.h = 42;
-   BTN.pauseQuit.x = cX; BTN.pauseQuit.y = pY[5] + pShift; BTN.pauseQuit.w = cW; BTN.pauseQuit.h = 42;
-  } else {
-   // Short landscape windows: compact entries so all six stay on-screen.
-   const ph = 30, pitch = 34;
-   let sy = Math.max(56, Math.round(H / 2 - (6 * ph + 5 * (pitch - ph)) / 2) + 30);
-   const keys = ['pauseResume','pauseSet','pauseHelp','pauseCodex','pauseRestart','pauseQuit'];
-   keys.forEach((k,i)=>{ BTN[k].x = cX; BTN[k].w = cW; BTN[k].h = ph; BTN[k].y = Math.round(sy + i * pitch); });
-  }
+  layoutPause();
   const gW = Math.min(180, Math.max(120, W - 32)), gM = W < 600 ? 16 : 56;
   // phones lift CODEX above the sector heading so the two never share a line
   BTN.galCodex.w = W < 600 ? Math.min(gW, 150) : gW; BTN.galCodex.x = W - BTN.galCodex.w - gM; BTN.galCodex.y = W < 600 ? 20 : 60;
@@ -4334,7 +4355,7 @@ function draftLayout(){
    const top = HUD_H + 24, bottom = H - 8, content = head + cardH + slot + plate;
    const gapB = clamp(bottom - top - content, 28, 76);
    const free = bottom - top - content - gapB;
-   y = top + head + Math.max(-16, Math.round(free / 2));
+   y = top + head + Math.max(-16, Math.round(free * OPTICAL));
    buildY = Math.min(y + cardH + slot + gapB, H - 66);
   }
   idx.forEach((li,k)=>{ rects[li] = {x:x0+k*(cardW+gap),y,w:cardW,h:cardH}; });
@@ -4464,9 +4485,10 @@ function drawLevelUp(){
 function wrapText(t,x,y,mw){ wrapLines(t,20).forEach((l,i)=>{ ctx.textAlign='center'; ctx.fillText(l,x,y+i*20); }); }
 // ---------- pause ----------
 function drawPaused(){
+ try{ layoutPause(); }catch(e){}
  ctx.fillStyle=K.scrim; ctx.fillRect(0,0,W,H);
  const short = H < 560;
- const ty = short ? Math.max(34, BTN.pauseResume.y - 64) : Math.min(212, BTN.pauseResume.y - 78);
+ const ty = short ? Math.max(34, BTN.pauseResume.y - 64) : BTN.pauseResume.y - 78;
  heading(autoPaused?'AUTO-PAUSED':'PAUSED',W/2,ty,short?20:26,K.gold,'center');
  if(short) mono('ESC resume · ↑↓ select · H help · C codex',W/2,ty+26,12,K.text,'center');
  else {
@@ -4493,22 +4515,24 @@ function drawPaused(){
    mono(s,W/2,H-14,11,K.textDim,'center');
    return;
   }
-   // Side columns only when they clear the centred entries: on a fluid
-   // viewport the old fixed 960-grid x positions would slide under the menu.
-   const cW2=Math.min(300,Math.max(200,W-32)), cX2=Math.round((W-cW2)/2);
+   // layoutPause chose the record's shape: side columns only when they clear
+   // the centred entries, else stacked beneath with what fits.
    const lx=48, lw=240, sx=W-48-240, sw=240;
-   if(W>=700&&cX2>=lx+lw+40&&sx>=cX2+cW2+40){
-    heading('BUILD',lx,300,9,K.textDim); line(lx,308,lx+lw,308,K.metalFaint,1); drawBuild(lx,318,lw,6);
-    heading('SYSTEMS',sx,300,9,K.textDim); line(sx,308,sx+sw,308,K.metalFaint,1);
+   if(pauseRecord==='side'){
+    // both columns hang from RESUME's line, so the three read as one band
+    const cy0=BTN.pauseResume.y+10;
+    heading('BUILD',lx,cy0,9,K.textDim); line(lx,cy0+8,lx+lw,cy0+8,K.metalFaint,1); drawBuild(lx,cy0+18,lw,6);
+    heading('SYSTEMS',sx,cy0,9,K.textDim); line(sx,cy0+8,sx+sw,cy0+8,K.metalFaint,1);
     const sys=[['HULL',Math.ceil(p.hp)+'/'+p.maxhp],['DMG','×'+p.dmgMult.toFixed(2)],['RATE',p.fireRate.toFixed(1)+'/s'],['SHOTS',p.shots],['CRIT',Math.round(p.critCh*100)+'%'],['SPEED',Math.round(p.speed)],['MAGNET',Math.round(p.magnet)]];
     if(p.pierce) sys.push(['PIERCE',p.pierce]); if(p.bounce) sys.push(['RICOCHET',p.bounce]); if(p.homing) sys.push(['SEEK',p.homing]);
     sys.push(['BOSS BONUS','+'+Math.round(bosses*2)+'%']);
-    sys.forEach(([k,v],i)=>{ const yy=330+i*20; mono(k,sx,yy,11,K.textDim); mono(String(v),sx+sw,yy,11,K.text,'right',600); });
-   } else {
+    sys.forEach(([k,v],i)=>{ const yy=cy0+30+i*20; mono(k,sx,yy,11,K.textDim); mono(String(v),sx+sw,yy,11,K.text,'right',600); });
+   } else if(pauseRecord!=='none'){
    const bw = Math.min(420, W - 32), bx = Math.round((W - bw) / 2);
    heading('BUILD',bx,byY,9,K.textDim); line(bx,byY+8,bx+bw,byY+8,K.metalFaint,1);
    const bh = drawBuild(bx,byY+18,bw,2);
    const sy = byY + 18 + bh + 12;
+   if(pauseRecord==='stack'){
    heading('SYSTEMS',bx,sy,9,K.textDim); line(bx,sy+8,bx+bw,sy+8,K.metalFaint,1);
    const sys=[['HULL',Math.ceil(p.hp)+'/'+p.maxhp],['DMG','×'+p.dmgMult.toFixed(2)],['RATE',p.fireRate.toFixed(1)+'/s'],['SHOTS',p.shots],['CRIT',Math.round(p.critCh*100)+'%'],['SPEED',Math.round(p.speed)],['MAGNET',Math.round(p.magnet)]];
    if(p.pierce) sys.push(['PIERCE',p.pierce]); if(p.bounce) sys.push(['RICOCHET',p.bounce]); if(p.homing) sys.push(['SEEK',p.homing]);
@@ -4517,6 +4541,7 @@ function drawPaused(){
    sys.forEach(([k,v],i)=>{ const c=i%per, r=Math.floor(i/per), cx=bx+c*(bw/per), yy=sy+20+r*18;
     if(yy>H-50) return;
     mono(k,cx,yy,11,K.textDim); mono(String(v),cx+bw/per-4,yy,11,K.text,'right',600); });
+   }
    }
    drawBuildTip();
    let s='KILLS '+kills+'   SCORE '+scoreCalc()+'   BEST '+best+'   DEPTH S'+depth;
