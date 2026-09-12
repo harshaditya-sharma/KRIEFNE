@@ -440,14 +440,24 @@ function draftBuild(api, picks, order) {
  while (taken < picks && guard++ < 4000) {
   if (api.state !== 'levelup') api.gainXp(api.player.xpNeed + 1);
   if (api.state !== 'levelup') break;
-  const choices = api.choices;
-  if (!choices.length) break;
-  let idx = 0;
-  for (const id of order) { const i = choices.findIndex(c => c.id === id); if (i >= 0) { idx = i; break; } }
-  api.pickUpgrade(choices[idx]);
+  if (!api.choices.length) break;
+  api.pickUpgrade(prefPick(api, order));
   taken++;
  }
  return taken;
+}
+// The highest preference among the cards actually on offer. An entry written
+// 'id:n' is only wanted until n copies are owned (the fight sim's Homing Hose
+// takes dash once, like any player at the starter draft, and never again).
+function prefPick(api, order) {
+ const choices = api.choices, owned = api.upgradeCounts;
+ for (const ent of order) {
+  const c = ent.indexOf(':'), id = c < 0 ? ent : ent.slice(0, c);
+  if (c >= 0 && (owned[id] || 0) >= +ent.slice(c + 1)) continue;
+  const i = choices.findIndex(x => x.id === id);
+  if (i >= 0) return choices[i];
+ }
+ return choices[0];
 }
 function gunDps(p) { return p.dmgBase * p.dmgMult * p.fireRate * p.shots * (1 + p.critCh * (p.critMult - 1)); }
 // Cooldown abilities contribute real single-target damage and must be counted,
@@ -581,6 +591,216 @@ function suiteBalance() {
   range('README pin: S' + nn + ' ' + (prof === 'g' ? 'ceiling' : 'farmer') + ' TTK ~' + val + 's', r[prof].ttk, val * 0.8, val * 1.2);
  }
  if (wall) eq('README pin: the wall is at S115', n(wall), 115);
+ return null;
+}
+
+// ======================================================================
+//  SUITE 8c -- fight simulator (spec §10)
+// ======================================================================
+// The analytic model above divides HP by gunDps x 0.45 uptime. That is wrong
+// both ways: a homing multi-barrel build lands nearly every round, and a normal
+// sector is not one target but a stream that has to be found and flown to. So
+// this suite runs the REAL update loop at a fixed dt with a scripted pilot and
+// times the fight. The pilot:
+//   * holds fire on auto-aim (the game's own: nearest hostile inside 700px);
+//   * circle-strafes the densest threat inside 520px at ~250px, flipping
+//     direction on a timer and whenever it stalls against an obstacle;
+//   * with nothing in range, flies at the nearest hostile, or the nearest gem
+//     when that is closer;
+//   * sidesteps rounds on a collision course, armed fields and expanding rings,
+//     and dashes when one is about to land;
+//   * cannot die: every hit is the real hit (i-frames, shields, dash and heals
+//     all apply) and is logged by its stamped source; a hit that would have
+//     killed is counted as a DOWN and the hull comes back full.
+// Deterministic: seeded RNG, fixed dt, nothing in the pilot reads a clock.
+//
+// Three reference builds, drafted through the real level-up loop at the
+// depth's pick count and still drafting from the gems they collect mid-fight.
+// HOMING HOSE is the user's playtest build: every barrel on offer, Seeker, then
+// damage and rate. It is the one the pacing bands are asserted against.
+const HOSE_ORDER = ['spd:1', 'seek', 'array', 'split', 'minigun', 'dmg', 'rate', 'crit', 'slug', 'overcharge',
+ 'pierce', 'flak', 'chain', 'corrode', 'surge', 'orbital', 'lance', 'adrenal', 'hp', 'vamp'];
+const SIM_BUILDS = { hose: HOSE_ORDER, balanced: BALANCED_ORDER, greedy: GREEDY_ORDER };
+const SIM_CAP = 400;           // simulated seconds before a fight is called
+const FIGHTSIM_STRICT = false; // nest bands (spec §6) report only; wave 3 turns this on after the boss HP fit
+const FIGHTSIM_FULL = process.argv.indexOf('--full') >= 0; // every build on every nest (slow)
+// Picks banked on arrival at sector n (1-based): the same 1.15 per cleared
+// sector the analytic model uses for a player who pushes forward.
+function simPicks(n) { return Math.round((n - 1) * 1.15); }
+function simPilot(api, st) {
+ const p = api.player, keys = api.keys, E = api.enemies;
+ let vx = 0, vy = 0, danger = false;
+ let near = null, nd = 1e9, cx = 0, cy = 0, cw = 0;
+ for (const e of E) {
+  const d = Math.hypot(e.x - p.x, e.y - p.y);
+  if (d < nd) { nd = d; near = e; }
+  if (d < 520) { const w = (e.type === 'boss' ? 4 : 1) / Math.max(80, d); cx += e.x * w; cy += e.y * w; cw += w; }
+ }
+ let gem = null, gd = 1e9;
+ for (const g of api.gems) { const d = Math.hypot(g.x - p.x, g.y - p.y); if (d < gd) { gd = d; gem = g; } }
+ if (st.unstickT > 0) { st.unstickT -= DT; vx += st.ux; vy += st.uy; }
+ else if (cw > 0) {
+  // orbit the threat centroid: tangential drive, radial spring toward ~250px
+  cx /= cw; cy /= cw;
+  const dx = cx - p.x, dy = cy - p.y, d = Math.hypot(dx, dy) || 1, ux = dx / d, uy = dy / d;
+  const rad = Math.max(-1.5, Math.min(1.5, (d - 250) / 120));
+  vx += -uy * st.dir + ux * rad; vy += ux * st.dir + uy * rad;
+  if (gem && gd < 160 && nd > 200) { vx += (gem.x - p.x) / gd; vy += (gem.y - p.y) / gd; }
+ } else {
+  const tgt = (gem && gd < nd) ? gem : near;
+  if (tgt) { const d = Math.hypot(tgt.x - p.x, tgt.y - p.y) || 1; vx += (tgt.x - p.x) / d; vy += (tgt.y - p.y) / d; }
+ }
+ // personal space
+ for (const e of E) {
+  const dx = p.x - e.x, dy = p.y - e.y, d = Math.hypot(dx, dy) || 1, m = e.r + p.r + 60;
+  if (d < m) { const k = 2.5 * (m - d) / m; vx += dx / d * k; vy += dy / d * k; }
+  if (e.type === 'boss' && e.mode === 'warn' && d < 280) { vx += dx / d * 1.5; vy += dy / d * 1.5; }
+ }
+ // rounds on a collision course: step off the line, dash if it is about to land
+ for (const b of api.ebullets) {
+  const rx = p.x - b.x, ry = p.y - b.y, vv = b.vx * b.vx + b.vy * b.vy;
+  if (!vv) continue;
+  const t = (rx * b.vx + ry * b.vy) / vv;
+  if (t < 0 || t > 0.7) continue;
+  let qx = rx - b.vx * t, qy = ry - b.vy * t;
+  const q = Math.hypot(qx, qy), m = p.r + b.r + 18;
+  if (q > m) continue;
+  if (q < 0.5) { qx = -b.vy; qy = b.vx; }
+  const ql = Math.hypot(qx, qy) || 1, k = 2.5 * (1 - t / 0.7);
+  vx += qx / ql * k; vy += qy / ql * k;
+  if (t < 0.18 && q < p.r + b.r + 4) danger = true;
+ }
+ for (const h of api.hazards) {
+  if (!(h.dmg > 0 || h.jam)) continue;
+  const dx = p.x - h.x, dy = p.y - h.y, d = Math.hypot(dx, dy) || 1, m = h.r + 40;
+  if (d < m) { const k = 1 + 2 * (m - d) / m; vx += dx / d * k; vy += dy / d * k; if (d < h.r && h.t >= (h.warn || 0) && h.dmg > 0) danger = true; }
+ }
+ for (const g of api.hostileRings) {
+  if (g.hit) continue;
+  const dx = p.x - g.x, dy = p.y - g.y, d = Math.hypot(dx, dy) || 1, gap = d - g.r;
+  if (gap > -10 && gap < 120 && d < g.maxR + 20) { vx += dx / d * 2; vy += dy / d * 2; if (gap >= 0 && gap < 28) danger = true; }
+ }
+ // walls: lean back toward the middle
+ const mw = 140;
+ if (p.x < mw) vx += (mw - p.x) / mw * 2; if (p.x > st.w - mw) vx -= (p.x - st.w + mw) / mw * 2;
+ if (p.y < mw + 60) vy += (mw + 60 - p.y) / mw * 2; if (p.y > st.h - mw) vy -= (p.y - st.h + mw) / mw * 2;
+ // stall watchdog: wedged on a rock, head for the middle and swap orbit
+ st.sampleT -= DT; st.flipT -= DT;
+ if (st.sampleT <= 0) {
+  st.sampleT = 0.5;
+  const moved = Math.hypot(p.x - st.lx, p.y - st.ly); st.lx = p.x; st.ly = p.y;
+  if (moved < 25 && Math.hypot(vx, vy) > 0.3) st.stall++; else st.stall = 0;
+  if (st.stall >= 2) {
+   st.stall = 0; st.dir = -st.dir; st.unstickT = 0.7;
+   const dx = st.w / 2 - p.x, dy = st.h / 2 - p.y, d = Math.hypot(dx, dy) || 1; st.ux = dx / d; st.uy = dy / d;
+  }
+ }
+ if (st.flipT <= 0) { st.flips++; st.dir = -st.dir; st.flipT = 4 + (st.flips % 3); }
+ let sx = 0, sy = 0;
+ if (Math.hypot(vx, vy) > 0.15) { const sv = api.steer({ x: p.x, y: p.y, r: p.r }, vx, vy); sx = sv[0]; sy = sv[1]; }
+ keys.KeyD = sx > 0.38; keys.KeyA = sx < -0.38; keys.KeyS = sy > 0.38; keys.KeyW = sy < -0.38;
+ if (danger && p.dashUnlocked && p.dashCd <= 0 && p.dashT <= 0) api.tryDash();
+}
+// One fight. Normal sector: until every hostile, alive and queued, is dead.
+// Nest: until the LEAD boss dies, whatever else is on the field (the roster is
+// read from the live game, so a rewritten boss ladder needs no change here).
+function simFight(api, s, order) {
+ const p = api.player, nest = api.isBossSector(s);
+ api.loadSector(s); api.forceState('playing');
+ p.autoFire = true; api.mouse.down = false;
+ const w = api.sectorWorld(s);
+ const st = { dir: 1, flipT: 4, flips: 0, sampleT: 0.5, lx: p.x, ly: p.y, stall: 0, unstickT: 0, ux: 0, uy: 0, w: w.w, h: w.h };
+ let leadUid = -1, leadKind = '';
+ if (nest) {
+  const k = api.bossKindsFor(s)[0];
+  const lead = api.enemies.find(e => e.type === 'boss' && e.kind === k && !e.lieutenant) || api.enemies.find(e => e.type === 'boss');
+  if (lead) { leadUid = lead.uid; leadKind = lead.kind; }
+ }
+ const r = { s, n: s + 1, nest, lead: leadKind, hostiles: api.hostiles(), t: 0, done: false, dmg: 0, hits: 0, downs: 0, bySrc: {}, peak: 0, kills: api.kills, drafts: 0 };
+ while (r.t < SIM_CAP) {
+  if (api.state === 'levelup') { if (r.drafts++ > 200) break; api.pickUpgrade(prefPick(api, order)); continue; }
+  if (api.state !== 'playing') break;
+  // The hull is real (so Vampire, Repair and Adrenal all count), but a spare
+  // full revive is armed every frame and put back afterwards, so the draft
+  // and the build never see it. Each time it fires is a DOWN: a real pilot
+  // flying this line would have died there, before their own revives.
+  const sN = p.stasisN, sT = p.stasisTier, hp0 = p.hp;
+  p.lastSrc = null; p.stasisN = 9; p.stasisTier = 3;
+  simPilot(api, st);
+  api.update(DT); r.t += DT;
+  let took = hp0 - p.hp;
+  if (p.stasisN < 9) { took = hp0; r.downs++; p.hp = p.maxhp; }
+  p.stasisN = sN; p.stasisTier = sT;
+  if (took > 0.01) {
+   r.dmg += took; r.hits++;
+   const src = p.lastSrc, key = src ? src.name + ' ' + src.what : 'UNSTAMPED';
+   r.bySrc[key] = (r.bySrc[key] || 0) + took;
+  }
+  if (api.enemies.length > r.peak) r.peak = api.enemies.length;
+  if (nest ? !api.enemies.some(e => e.uid === leadUid) : api.hostiles() === 0) { r.done = true; break; }
+ }
+ for (const k of ['KeyW', 'KeyA', 'KeyS', 'KeyD']) api.keys[k] = false;
+ r.kills = api.kills - r.kills; r.maxhp = p.maxhp; r.level = p.level;
+ return r;
+}
+function simRun(s, build, seed, tune) {
+ const api = boot(); seedRandom(api, seed);
+ if (tune) tune(api); // fitting hook: retune pacing knobs on this boot only
+ api.startRun(); api.loadSector(0); api.forceState('playing');
+ draftBuild(api, simPicks(s + 1), SIM_BUILDS[build]);
+ const r = simFight(api, s, SIM_BUILDS[build]);
+ r.build = build;
+ return r;
+}
+// Normal samples: the nearest normal sector to S1, 3, 6, 9, 12, 20, 30, 45,
+// 60, 80, 100 (the round numbers from S20 on are nests).
+const SIM_SECTORS = [1, 3, 6, 9, 12, 21, 31, 46, 61, 81, 99];
+const SIM_NESTS = []; for (let n = 5; n <= 100; n += 5) SIM_NESTS.push(n);
+// spec §7, Homing Hose clear time
+function sectorBand(n) { return n <= 9 ? [50, 70] : n <= 49 ? [75, 100] : [100, 130]; }
+// spec §6, Homing Hose seconds-to-kill the lead; S5 and S10 stay "as now"
+function nestBand(n) { return n <= 10 ? null : n <= 20 ? [60, 80] : n <= 45 ? [75, 105] : n <= 95 ? [100, 150] : [150, 210]; }
+function simTop(r) {
+ const e = Object.entries(r.bySrc).sort((a, b) => b[1] - a[1])[0];
+ return e ? e[0] + ' ' + Math.round(e[1]) : '-';
+}
+function simRow(r) {
+ return '  ' + ('S' + r.n).padEnd(5) + (r.nest ? (r.lead || '?').slice(0, 10) : 'normal').padEnd(11) + r.build.padEnd(9) +
+  ((r.done ? '' : '>') + r.t.toFixed(1)).padStart(7) + String(Math.round(r.dmg)).padStart(8) +
+  (r.dmg / r.maxhp).toFixed(1).padStart(7) + String(r.downs).padStart(6) + String(r.hostiles).padStart(6) +
+  String(r.peak).padStart(6) + String(r.kills).padStart(6) + '  ' + simTop(r);
+}
+function suiteFightsim() {
+ section('fight simulator');
+ const t0 = Date.now();
+ const head = '  sect kind       build        sec  dmgTkn  xBars downs hosts  peak kills  worst source';
+ // ---- normal sectors: every build; Homing Hose is asserted against §7 ----
+ const norm = [];
+ for (const n of SIM_SECTORS) for (const b of ['hose', 'balanced', 'greedy']) norm.push(simRun(n - 1, b, 9100 + n * 31));
+ if (VERBOSE) { console.log(head); for (const r of norm) console.log(simRow(r)); }
+ for (const r of norm.filter(x => x.build === 'hose')) {
+  const [lo, hi] = sectorBand(r.n);
+  ok('S' + r.n + ' Homing Hose clears the sector', r.done, 'still ' + r.hostiles + ' hostiles after ' + SIM_CAP + 's');
+  range('S' + r.n + ' Homing Hose clear time in the §7 band (' + lo + '-' + hi + 's)', +r.t.toFixed(1), lo, hi);
+ }
+ for (const r of norm.filter(x => x.build !== 'hose')) ok('S' + r.n + ' ' + r.build + ' clears the sector', r.done, r.t.toFixed(0) + 's');
+ // ---- nests: seconds to kill the lead; report only until the boss HP fit ----
+ const nests = [];
+ for (const n of SIM_NESTS) {
+  const builds = FIGHTSIM_FULL || n % 25 === 0 ? ['hose', 'balanced', 'greedy'] : ['hose'];
+  for (const b of builds) nests.push(simRun(n - 1, b, 9300 + n * 37));
+ }
+ if (VERBOSE) { console.log(head); for (const r of nests) console.log(simRow(r)); }
+ const off = [];
+ for (const r of nests.filter(x => x.build === 'hose')) {
+  const band = nestBand(r.n);
+  if (!band) continue;
+  const label = 'S' + r.n + ' Homing Hose kills the lead in the §6 band (' + band[0] + '-' + band[1] + 's)';
+  if (FIGHTSIM_STRICT) range(label, +r.t.toFixed(1), band[0], band[1]);
+  else if (!r.done || r.t < band[0] || r.t > band[1]) off.push('S' + r.n + ' ' + (r.done ? '' : '>') + r.t.toFixed(0) + 's');
+ }
+ if (!FIGHTSIM_STRICT && off.length) console.log('  report: ' + off.length + ' nests outside the §6 band (not asserted): ' + off.join(', '));
+ console.log('  fightsim ran ' + (norm.length + nests.length) + ' fights in ' + ((Date.now() - t0) / 1000).toFixed(1) + 's');
  return null;
 }
 
@@ -1786,6 +2006,7 @@ const SUITES = [
  ['procgen', suiteProcgen],
  ['pool', suiteUpgradePool],
  ['balance', suiteBalance],
+ ['fightsim', suiteFightsim],
  ['roster', suiteBossRoster],
  ['hierarchy', suiteHierarchy],
  ['live', suiteBossLive],
@@ -1802,7 +2023,7 @@ const SUITES = [
 
 // Importable so ad-hoc diagnostics can drive the same stubs without running the
 // whole suite: `const {boot, fightNest} = require('./test.js')`.
-module.exports = { boot, seedRandom, fightNest, step, seconds, give, bossesIn, immortal, DT };
+module.exports = { boot, seedRandom, fightNest, step, seconds, give, bossesIn, immortal, DT, simRun, simRow, simFight, draftBuild, SIM_BUILDS };
 
 if (require.main === module) {
   console.log('KRIEFNE QA harness\n------------------');
