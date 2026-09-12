@@ -658,7 +658,7 @@ function newPlayer(dmgBonus){
    surgeLvl:0, surgeT:0, xpBonus:1, dashUnlocked:false, recallUnlocked:false, recallCdMax:8,
    charges:0, channel:null, channelMax:0.6, gateRange:520,
    orbs:0, orbAng:0, novaLvl:0, novaT:3, teslaLvl:0, teslaT:2, pierce:0, minigun:0, secondWind:false, lockMsgCd:0,
-   rootT:0, jamT:0,
+   status:statusFresh(),
    shockOn:false, shockKills:0, shockNeed:50, shockDmg:28, shockR:180, shockChill:0,
    orbitalLvl:0, orbitalCd:9, orbitalT:99, lanceLvl:0, lanceCd:6, lanceT:99,
    flak:0, corrode:0, chain:0, overcharge:0, shotN:0,
@@ -1165,7 +1165,7 @@ const RUN_V=1;
 function runSnap(){
  return { v:RUN_V, runSeed, arenaIdx, kills, arenasCleared, timeSec, upgradeCounts,
    starterOffered, pendingLevels, pendingNest, clearedMax, galaxySel, pity,
-  player:Object.assign({},player,{recall:null,channel:null}) };
+  player:Object.assign({},player,{recall:null,channel:null,status:statusFresh()}) };
 }
 // A replay saves the hull as it went in, never what happens inside it, so a
 // reload mid-replay resumes on exactly the same state the replay restores.
@@ -1179,7 +1179,7 @@ function applySnap(r){
  kills=r.kills|0; arenasCleared=r.arenasCleared|0; timeSec=+r.timeSec||0;
  upgradeCounts=Object.assign({},r.upgradeCounts);
  // Merge onto fresh defaults, so a save written before a field existed still loads.
- player=Object.assign(newPlayer(1),r.player,{recall:null,channel:null});
+ player=Object.assign(newPlayer(1),r.player,{recall:null,channel:null,status:statusFresh()});
  starterOffered=!!r.starterOffered; pendingLevels=r.pendingLevels|0; pendingNest=r.pendingNest|0;
  pity=Object.assign({spd:0,pcell:0},r.pity);
  clearedMax=Math.max(-1,r.clearedMax|0); galaxySel=clamp(r.galaxySel|0,0,clearedMax+1);
