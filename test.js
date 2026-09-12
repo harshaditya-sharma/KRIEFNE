@@ -1767,6 +1767,178 @@ function suitePigment() {
  ok('wreckage lit edges stay silver (chroma ≤ 0.015)', tint.every(([, , m]) => Math.hypot(m[1], m[2]) <= 0.015));
 }
 
+// ======================================================================
+//  maps: the shape vocabulary, compounds, per-layout palettes and tints
+// ======================================================================
+// The types a sector would field, built the way loadArena builds them, so a
+// probed map places the same spawns a loaded one would.
+function mapTypes(api, i) {
+ const t = [];
+ if (api.isBossSector(i)) { for (const k of api.bossKindsFor(i)) t.push('boss:' + k); for (let k = 0; k < 3 + Math.min(3, (i / 5) | 0); k++) t.push(k % 2 ? 'stalker' : 'drone'); }
+ else { const c = api.compFor(i); for (const k in c) for (let n = 0; n < c[k]; n++) t.push(k); }
+ return t;
+}
+// BFS on the validator's grid (40px cells, 16px inflation) from the drop.
+function reachGrid(api, P) {
+ const CELL = 40, b = P.bounds, cols = Math.floor((b.x1 - b.x0) / CELL), rows = Math.floor((b.y1 - b.y0) / CELL), obs = P.map.obs;
+ const at = (cx, cy) => [b.x0 + cx * CELL + CELL / 2, b.y0 + cy * CELL + CELL / 2];
+ const blocked = new Uint8Array(cols * rows);
+ for (let cy = 0; cy < rows; cy++) for (let cx = 0; cx < cols; cx++) { const [x, y] = at(cx, cy); blocked[cy * cols + cx] = api.pointBlocked(x, y, 16, obs) ? 1 : 0; }
+ const cell = (x, y) => Math.min(rows - 1, Math.max(0, Math.floor((y - b.y0) / CELL))) * cols + Math.min(cols - 1, Math.max(0, Math.floor((x - b.x0) / CELL)));
+ const seen = new Uint8Array(cols * rows), q = [cell(P.drop.x, P.drop.y)]; seen[q[0]] = 1;
+ while (q.length) { const c = q.pop(), cx = c % cols, cy = (c / cols) | 0;
+  for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { const nx = cx + dx, ny = cy + dy; if (nx < 0 || ny < 0 || nx >= cols || ny >= rows) continue; const n = ny * cols + nx; if (seen[n] || blocked[n]) continue; seen[n] = 1; q.push(n); } }
+ return { cols, rows, at, blocked, seen, cell };
+}
+function suiteMaps() {
+ section('maps');
+ const api = boot();
+ // -- the sweep: every layout, early and deep sectors, a dozen runs
+ const forms = new Set(), groupKinds = new Set(), groupSizes = new Set(), byLayout = {};
+ const bad = [], trapped = [], pockets = [], rims = [], overlaps = [];
+ let maps = 0, fallbacks = 0, groups = 0;
+ for (let s = 0; s < 8; s++) for (let i = 0; i < 30; i++) {
+  const seed = (0x2c9f1 + s * 104729) >>> 0, P = api.mapProbe(seed, i, mapTypes(api, i)), m = P.map;
+  maps++;
+  if (m.layout === 'open-fallback') { fallbacks++; continue; }
+  const R = reachGrid(api, P), unreached = m.spawns.concat([m.port]).filter(t => !R.seen[R.cell(t.x, t.y)]).length;
+  if (!(m.validated && unreached === 0 && m.ratio >= 0.55 && m.openFrac >= 0.45)) bad.push('seed ' + seed + ' S' + (i + 1) + ' ' + m.layout + ' unreached ' + unreached + ' ratio ' + m.ratio.toFixed(2) + ' open ' + m.openFrac.toFixed(2));
+  const L = byLayout[m.layout] || (byLayout[m.layout] = new Set());
+  const G = {};
+  for (const o of m.obs) {
+   const f = o.kind === 'poly' ? o.sh : o.kind; forms.add(f); L.add(f);
+   if (o.grp !== undefined) (G[o.grp] || (G[o.grp] = [])).push(o);
+  }
+  // pieces that overlap another obstacle must share its group
+  for (let a = 0; a < m.obs.length; a++) for (let c = a + 1; c < m.obs.length; c++) {
+   const A = m.obs[a], B = m.obs[c];
+   if (A.kind !== 'poly' || B.kind !== 'poly' || (A.grp !== undefined && A.grp === B.grp)) continue;
+   if (A.pts.some(p => api.polyDist(A.x + p[0], A.y + p[1], B) === 0)) overlaps.push('S' + (i + 1) + ' ' + A.sh + '/' + B.sh);
+  }
+  const gl = Object.values(G);
+  for (const g of gl) {
+   groups++; groupKinds.add(g[0].gk); groupSizes.add(g[0].gk + g.length); L.add('@' + g[0].gk);
+   // no spawn and no EXIT sits in or against a compound
+   for (const t of m.spawns.concat([m.port])) if (api.pointBlocked(t.x, t.y, 14, g)) trapped.push('S' + (i + 1) + ' ' + g[0].gk + ' covers a spawn or the EXIT');
+   // every open cell against a compound is reachable: it seals no pocket
+   for (let cy = 0; cy < R.rows; cy++) for (let cx = 0; cx < R.cols; cx++) {
+    const k = cy * R.cols + cx; if (R.blocked[k] || R.seen[k]) continue;
+    const [x, y] = R.at(cx, cy); if (api.pointBlocked(x, y, 16 + 40, g)) pockets.push('seed ' + seed + ' S' + (i + 1) + ' ' + g[0].gk + ' at ' + (x | 0) + ',' + (y | 0));
+   }
+   // the painted outline runs round the union: just outside every rim span is
+   // open, just inside it is hull
+   const E = api.groupEdges(g);
+   for (const r of E.rim) { const mx = (r[0] + r[2]) / 2, my = (r[1] + r[3]) / 2;
+    if (Math.hypot(r[2] - r[0], r[3] - r[1]) < 3) continue;
+    if (api.pointBlocked(mx + r[4] * 1.5, my + r[5] * 1.5, 0, g) || !api.pointBlocked(mx - r[4] * 1.5, my - r[5] * 1.5, 0, g)) rims.push(g[0].gk + ' S' + (i + 1)); }
+   for (const r of E.seam) { const mx = (r[0] + r[2]) / 2, my = (r[1] + r[3]) / 2, l = Math.hypot(r[2] - r[0], r[3] - r[1]);
+    if (l < 3) continue; const nx = (r[3] - r[1]) / l, ny = -(r[2] - r[0]) / l;
+    if (!api.pointBlocked(mx + nx * 1.5, my + ny * 1.5, 0, g) || !api.pointBlocked(mx - nx * 1.5, my - ny * 1.5, 0, g)) rims.push('seam ' + g[0].gk + ' S' + (i + 1)); }
+  }
+ }
+ const want = ['tri-eq', 'tri-iso', 'tri-right', 'square', 'rhombus', 'para', 'kite', 'hept', 'non', 'dec'];
+ const miss = want.filter(f => !forms.has(f));
+ ok('every new shape appears across the sweep', miss.length === 0, 'missing ' + miss.join(', '));
+ ok('L-blocks, crosses and compounds all appear', ['L', 'cross', 'cmp'].every(k => groupKinds.has(k)), [...groupKinds].join(','));
+ ok('compounds of two and of three pieces both appear', groupSizes.has('cmp2') && groupSizes.has('cmp3') && groupSizes.has('L2') && groupSizes.has('cross2'), [...groupSizes].join(','));
+ ok('every generated map validates (reachable, >= 0.55 connected, >= 0.45 open)', bad.length === 0, bad.slice(0, 4).join('; '));
+ atMost('open-field fallbacks stay rare across ' + maps + ' maps', fallbacks, Math.ceil(maps * 0.02));
+ ok('no compound covers a spawn or the EXIT', trapped.length === 0, trapped.slice(0, 4).join('; '));
+ ok('no compound seals off a pocket of open floor', pockets.length === 0, pockets.length + ': ' + pockets.slice(0, 4).join('; '));
+ ok('obstacles only overlap within their own compound', overlaps.length === 0, overlaps.slice(0, 4).join('; '));
+ ok('a compound is outlined round its union, seams only inside it', rims.length === 0, rims.length + ': ' + rims.slice(0, 4).join('; '));
+ atLeast('the sweep placed compounds', groups, 200);
+ // -- each layout keeps its palette
+ const has = (l, fs) => fs.some(f => byLayout[l] && byLayout[l].has(f));
+ ok('debris is shards and rhombi', has('debris', ['tri-iso']) && has('debris', ['rhombus']));
+ ok('corridors run parallelogram girders', has('corridors', ['para']));
+ ok('bastion bunkers are heptagons and nonagons', has('bastion', ['hept']) && has('bastion', ['non']) && !has('bastion', ['oct']));
+ ok('spokes are kites and bars', has('spokes', ['kite']) && has('spokes', ['bar']));
+ ok('the arena ring mixes its polygons', ['hex', 'hept', 'non', 'dec', 'square', 'tri-eq'].filter(f => has('arena', [f])).length >= 5);
+ atLeast('scatter draws from everything', byLayout.scatter ? byLayout.scatter.size : 0, 18);
+ // -- the arena keeps its duelling floor: nothing inside the boss clearing
+ {
+  let intrude = 0;
+  for (let s = 0; s < 8; s++) for (const i of [4, 9, 19, 49]) {
+   const P = api.mapProbe((0x51 + s * 7919) >>> 0, i, mapTypes(api, i)), b = P.bounds, clearR = Math.min(300, Math.min(b.x1 - b.x0, b.y1 - b.y0) * 0.30);
+   if (P.map.layout === 'open-fallback') continue;
+   for (const o of P.map.obs) { const cx = o.kind === 'rect' ? o.x + o.w / 2 : o.x, cy = o.kind === 'rect' ? o.y + o.h / 2 : o.y, r = o.kind === 'rect' ? Math.hypot(o.w, o.h) / 2 : o.r; if (Math.hypot(cx - P.drop.x, cy - P.drop.y) < clearR + r) intrude++; }
+  }
+  eq('nest arenas keep the clearing empty', intrude, 0);
+ }
+ // -- driving into a compound never leaves a ship inside it, and it can leave
+ {
+  const S = api.mapProbe(0x9a11, 17, mapTypes(api, 17)), G = {};
+  for (const o of S.map.obs) if (o.grp !== undefined) (G[o.grp] || (G[o.grp] = [])).push(o);
+  let inside = 0, stuck = 0, runs = 0;
+  for (const g of Object.values(G).slice(0, 16)) {
+   let cx = 0, cy = 0; for (const o of g) { cx += o.x; cy += o.y; } cx /= g.length; cy /= g.length;
+   for (const r of [12, 26, 44]) for (let k = 0; k < 24; k++) {
+    const a = k / 24 * 6.283, e = { x: cx + Math.cos(a) * 260, y: cy + Math.sin(a) * 260, r };
+    for (let st = 0; st < 90; st++) { const dx = cx - e.x, dy = cy - e.y, d = Math.hypot(dx, dy) || 1, v = st % 3 ? 5 : 15; e.x += dx / d * v; e.y += dy / d * v; api.pushOut(g, e); }
+    runs++;
+    if (g.some(o => api.polyDist(e.x, e.y, o) === 0)) inside++;
+    const x0 = e.x, y0 = e.y; for (let st = 0; st < 40; st++) { e.x += Math.cos(a) * 5; e.y += Math.sin(a) * 5; api.pushOut(g, e); }
+    if (Math.hypot(e.x - x0, e.y - y0) < 150) stuck++;
+   }
+  }
+  atLeast('the push test drove into compounds', runs, 200);
+  eq('no ship ends a push with its centre inside a compound', inside, 0);
+  eq('every ship pushed into a compound can fly back out', stuck, 0);
+ }
+ // -- loaded sectors carry their sector's light, and every map paints
+ {
+  let same = 0, drew = 0;
+  seedRandom(api, 4242); api.startRun();
+  for (let i = 0; i < 14; i++) {
+   api.loadSector(i); api.forceState('playing');
+   if (api.arena.theme === api.sectorTheme(i)) same++;
+   try { api.render(); drew++; } catch (e) { console.log('   render threw at S' + (i + 1) + ': ' + e.message); }
+  }
+  eq('a loaded sector wears sectorTheme(i)', same, 14);
+  eq('every sector paints without throwing, compounds included', drew, 14);
+  api.forceState('galaxy');
+  const sr = api.srSummary();
+  ok('the hub names the selected sector by its own theme', sr.indexOf(api.sectorTheme(api.galaxySel).name) >= 0, sr.slice(0, 80));
+ }
+ // -- tints: 12-14 stops, jitter within ±8°, two lightness variants, restraint kept
+ const TH = api.themes;
+ range('there are 12-14 hue stops', TH.length, 12, 14);
+ ok('every stop has a distinct name', new Set(TH.map(t => t.name)).size === TH.length);
+ const fam = { slate: [212, 232], 'sea-green': [155, 180], moss: [100, 125], ochre: [68, 92], indigo: [262, 282], mauve: [312, 336] };
+ for (const f in fam) ok('a ' + f + ' stop exists', TH.some(t => t.tint >= fam[f][0] && t.tint <= fam[f][1]));
+ const gap = (a, b) => Math.abs(((a - b) % 360 + 540) % 360 - 180);
+ const firstSix = TH.slice(0, 6);
+ ok('every theme plays music', TH.every(t => t.bass && t.bass.length && t.lead && t.tempo > 0));
+ ok('each new hue borrows the music of the nearest of the first six', TH.slice(6).every(t => {
+  const near = firstSix.reduce((b, o) => gap(o.tint, t.tint) < gap(b.tint, t.tint) ? o : b);
+  return t.bass === near.bass && t.lead === near.lead;
+ }));
+ const band = [], guard = [], jit = [], variants = {};
+ let maxJ = 0;
+ for (let i = 0; i < 12 * TH.length; i++) {
+  const t = api.sectorTheme(i), P = t.pal, j = gap(t.tint, t.baseTint);
+  maxJ = Math.max(maxJ, j); if (j > 8.0001) jit.push('S' + (i + 1) + ' ' + j.toFixed(2));
+  (variants[t.baseTint] || (variants[t.baseTint] = new Set())).add(t.variant);
+  const tones = ['ground', 'deep', 'hull', 'faint', 'dim', 'motif'].map(k => [k, hexLab(P[k])]);
+  for (const [k, l] of tones) { const C = Math.hypot(l[1], l[2]); if (C > 0.04 + 0.003) band.push(t.name + ' S' + (i + 1) + ' ' + k + ' C ' + C.toFixed(3)); }
+  const g = hexLab(P.ground), mt = hexLab(P.metal);
+  if (!(g[0] > 0.11 && g[0] < 0.16)) band.push(t.name + ' S' + (i + 1) + ' ground L ' + g[0].toFixed(3));
+  if (Math.hypot(mt[1], mt[2]) > 0.015) band.push(t.name + ' S' + (i + 1) + ' metal edge not silver');
+  // the red guard: no tone near red's hue carries more than the guard's chroma
+  for (const [k, l] of tones) { const C = Math.hypot(l[1], l[2]), h = (Math.atan2(l[2], l[1]) * 180 / Math.PI + 360) % 360;
+   if (C > 0.02 + 0.003 && gap(h, 32) <= 16) guard.push(t.name + ' S' + (i + 1) + ' ' + k + ' h ' + h.toFixed(0) + ' C ' + C.toFixed(3)); }
+  if (api.nearRed(t.tint) && tones.some(([, l]) => Math.hypot(l[1], l[2]) > 0.02 + 0.003)) guard.push(t.name + ' S' + (i + 1) + ' inside the guard at full chroma');
+ }
+ ok('sector hue jitter stays within ±8°', jit.length === 0, jit.slice(0, 3).join('; '));
+ atLeast('the jitter is actually used', maxJ, 5);
+ ok('every hue stop shows both lightness variants', Object.values(variants).every(v => v.size === 2) && Object.keys(variants).length === TH.length);
+ ok('every sector tint stays in band (chroma <= 0.04, ground L 0.11-0.16, silver edge)', band.length === 0, band.slice(0, 4).join('; '));
+ ok('no palette sits within the red guard', guard.length === 0, guard.slice(0, 4).join('; '));
+ ok('the two variants of a hue differ in lightness', (() => { const a = hexLab(api.mkSectorPal(245, 0).ground), b = hexLab(api.mkSectorPal(245, 1).ground); return a[0] - b[0] > 0.01; })());
+ ok('the hub and the sector agree on a sector\'s light', api.sectorTheme(37) === api.sectorTheme(37) && api.sectorTheme(37).pal.ground === api.mkSectorPal(api.sectorTheme(37).tint, api.sectorTheme(37).variant).ground);
+}
+
 // ---------- voice and access ----------
 // KRIEFNE's voice (LORE §12) and the laws of the universe (LORE §2) are rules
 // the text can break, so the text is checked like any other rule.
@@ -1994,11 +2166,277 @@ function suiteSafety() {
  }
 }
 
+// ======================================================================
+//  BUG REPRO: rounds passing through enemies (SPEC-overhaul §9)
+// ======================================================================
+// A clean room: one boss with near-infinite HP, no obstacles, and everything the
+// boss summons or fires stripped after each frame, so every round's fate is
+// down to guidance and hit shapes alone.
+const HOSE = [['array', 3], ['seek', 2], ['dmg', 3]];      // Homing Hose
+const HOSE_LANCE = HOSE.concat([['pierce', 2]]);            // + Lance Rounds
+function bulletRoom(kind, sector, build, seed) {
+ const api = boot(); seedRandom(api, seed || 1);
+ api.startRun();
+ for (const b of (build || [])) give(api, b[0], b[1]);
+ api.loadSector(sector); api.forceState('playing');
+ api.arena.obs.length = 0; api.enemies.length = 0; api.queue.length = 0;
+ api.spawnEnemy('boss:' + kind);
+ const boss = api.enemies[0]; boss.hp = boss.maxhp = 1e9; boss.spawnT = 0;
+ const w = api.sectorWorld(sector), p = api.player;
+ p.autoFire = false; api.mouse.down = false; p.fireCd = 99;
+ return { api, boss, p, cx: w.w / 2, cy: w.h / 2, keep: [boss] };
+}
+function roomStep(room) {
+ const api = room.api; immortal(api); api.update(DT);
+ if (api.state !== 'playing') api.forceState('playing');
+ const en = api.enemies;
+ for (let i = en.length - 1; i >= 0; i--) if (room.keep.indexOf(en[i]) < 0) en.splice(i, 1);
+ for (const k of room.keep) if (en.indexOf(k) < 0 && !k.dead) en.push(k);
+ api.queue.length = 0; api.ebullets.length = 0; api.hazards.length = 0;
+}
+// A hand-placed player round with the same fields playerShoot gives one.
+function mkRound(o) {
+ return Object.assign({ x: 0, y: 0, vx: 640, vy: 0, r: 3.5, dmg: 10, life: 1.1, crit: false, bounce: 0, turn: 0,
+  burn: 0, chill: 0, flak: 0, chain: 0, corrode: 0, heavyShot: false, pierce: 0, hitUid: null }, o);
+}
+function aimAt(api, x, y) { api.player.autoFire = false; api.mouse.down = true; api.mouse.x = x - api.cam.x; api.mouse.y = y - api.cam.y; }
+function wrapA(a) { while (a > Math.PI) a -= 2 * Math.PI; while (a < -Math.PI) a += 2 * Math.PI; return a; }
+// The shapes a round can visibly overlap: the body at its DRAWN scale, plus
+// LEVIATHAN's tail. Snapshotted before update(), because rounds move and sweep
+// before the enemy AI does; measuring after would blame rounds for the boss moving.
+function drawnShapes(boss) {
+ const c = [{ x: boss.x, y: boss.y, r: boss.r * (boss.vscale || 1) }];
+ if (boss.segs) for (const g of boss.segs) c.push({ x: g.x, y: g.y, r: g.r });
+ return c;
+}
+// Fire the build for `secs` under `script` (which places boss, ship and aim each
+// frame), then let every round live out its life. Per round it records:
+//   hit   : registered on the boss (consumed with life left, or pierced it)
+//   ghost : overlapped the drawn silhouette at the end of a frame before any hit
+//   loop  : heading turned through more than half a circle (an orbit)
+function hoseTrial(o) {
+ const room = bulletRoom(o.kind, o.sector, o.build, o.seed);
+ const { api, boss, p } = room;
+ boss.vscale = o.vscale || 1.08; p.fireCd = 0;
+ const recs = new Map(), fireF = Math.round((o.secs || 2) * 60);
+ for (let f = 0; f < fireF + 600; f++) {
+  const firing = f < fireF;
+  o.script(room, f * DT);
+  if (!firing) { p.autoFire = false; api.mouse.down = false; p.fireCd = 99; }
+  const shapes = drawnShapes(boss);
+  roomStep(room);
+  const now = new Set(api.bullets);
+  for (const b of now) if (!recs.has(b)) recs.set(b, { hit: false, ghost: false, turn: 0, h: Math.atan2(b.vy, b.vx), done: false });
+  for (const [b, r] of recs) {
+   if (r.done) continue;
+   if (!now.has(b)) { r.done = true; if (b.life > 1e-6) r.hit = true; continue; }
+   if (b.hitUid && b.hitUid.indexOf(boss.uid) >= 0) r.hit = true;
+   const h = Math.atan2(b.vy, b.vx); r.turn += wrapA(h - r.h); r.h = h;
+   if (!r.hit) for (const c of shapes) if (Math.hypot(b.x - c.x, b.y - c.y) < c.r + b.r - 0.5) { r.ghost = true; break; }
+  }
+  if (!firing && api.bullets.length === 0) break;
+ }
+ const all = [...recs.values()], n = f => all.filter(f).length;
+ return { fired: all.length, hits: n(r => r.hit), ghost: n(r => r.ghost), loops: n(r => Math.abs(r.turn) > Math.PI) };
+}
+const SCRIPT = {
+ // boss parked R px out; the cursor held `off` radians off it (mouse fire)
+ still: (R, off) => (m, t) => { m.boss.x = m.cx + R; m.boss.y = m.cy; m.p.x = m.cx; m.p.y = m.cy; aimAt(m.api, m.cx + Math.cos(off) * R, m.cy + Math.sin(off) * R); },
+ stillAuto: R => (m, t) => { m.boss.x = m.cx + R; m.boss.y = m.cy; m.p.x = m.cx; m.p.y = m.cy; m.p.autoFire = true; },
+ // boss sweeps back and forth across the ship's front at speed v, D px away
+ cross: (D, v) => (m, t) => { const L = 400, ph = (t * v) % (4 * L), x = ph < 2 * L ? -L + ph : 3 * L - ph; m.boss.x = m.cx + x; m.boss.y = m.cy + D; m.p.x = m.cx; m.p.y = m.cy; m.p.autoFire = true; },
+ // LEVIATHAN flees, the ship follows 260 px behind: its tail is in the line of fire
+ tail: v => (m, t) => { const x = m.cx - 500 + ((t * v) % 1000); m.boss.x = x + 260; m.boss.y = m.cy; m.p.x = x; m.p.y = m.cy; m.p.autoFire = true;
+  if (t === 0) m.boss.segs.forEach((g, k) => { g.x = m.boss.x - (k + 1) * m.boss.r * 0.82; g.y = m.cy; }); },
+};
+function sumTrials(list) { return list.reduce((a, r) => ({ fired: a.fired + r.fired, hits: a.hits + r.hits, ghost: a.ghost + r.ghost, loops: a.loops + r.loops }), { fired: 0, hits: 0, ghost: 0, loops: 0 }); }
+
+function suiteBullets() {
+ suiteBulletHits();
+ section('bullets / pass-through (homing, pierce, drawn scale, tail)');
+
+ // --- cause 1: homing orbits. Mouse fire held off a parked WARDEN, point blank
+ // to mid range. Before terminal guidance ~40% of this grid orbited forever
+ // (a 69-degree off-aim at 150px landed 0 of 4 barrels).
+ for (const [lab, build] of [['Homing Hose', HOSE], ['Homing Hose + Lance', HOSE_LANCE]]) {
+  const grid = [];
+  for (const R of [110, 180, 260]) for (const off of [0, 0.6, 1.2, -1.2]) grid.push(hoseTrial({ kind: 'warden', sector: 9, build, secs: 1, script: SCRIPT.still(R, off) }));
+  grid.push(hoseTrial({ kind: 'warden', sector: 9, build, secs: 3, script: SCRIPT.stillAuto(320) }));
+  const s = sumTrials(grid);
+  if (VERBOSE) console.log('    ' + lab + ' vs parked WARDEN: ' + JSON.stringify(s));
+  atLeast(lab + ': a parked WARDEN takes >=95% of rounds within their life', s.hits / s.fired, 0.95);
+  eq(lab + ': no round orbits the WARDEN (heading never turns past 180deg)', s.loops, 0);
+  eq(lab + ': no round overlaps the drawn WARDEN before it registers', s.ghost, 0);
+ }
+ // --- moving LEVIATHAN: crossing the ship's front, and fleeing tail-first
+ for (const [lab, build] of [['Homing Hose', HOSE], ['Homing Hose + Lance', HOSE_LANCE]]) {
+  const cross = hoseTrial({ kind: 'leviathan', sector: 29, build, secs: 4, script: SCRIPT.cross(120, 300) });
+  const tail = hoseTrial({ kind: 'leviathan', sector: 29, build, secs: 4, script: SCRIPT.tail(150) });
+  if (VERBOSE) console.log('    ' + lab + ' LEVIATHAN cross ' + JSON.stringify(cross) + ' tail ' + JSON.stringify(tail));
+  atLeast(lab + ': a crossing LEVIATHAN takes >=95% of rounds', cross.hits / cross.fired, 0.95);
+  atLeast(lab + ': a fleeing LEVIATHAN takes >=95% of rounds', tail.hits / tail.fired, 0.95);
+  eq(lab + ': no round crosses the drawn LEVIATHAN (head or tail) unregistered', cross.ghost + tail.ghost, 0);
+  eq(lab + ': no round orbits a moving LEVIATHAN', cross.loops + tail.loops, 0);
+ }
+
+ // --- terminal guidance leaves the card rate alone at range
+ {
+  const m = bulletRoom('warden', 9);
+  const turn = 2.2 + 1.6 * 2, sp = 640, R2 = 2 * sp / turn;
+  const probe = (dist) => {
+   m.boss.x = m.cx + dist; m.boss.y = m.cy; m.p.x = m.cx - 600; m.p.y = m.cy;
+   // round heading straight "up", target due east: a 90-degree error
+   const b = mkRound({ x: m.cx, y: m.cy, vx: 0, vy: -sp, turn, life: 0.5 });
+   m.api.bullets.length = 0; m.api.bullets.push(b); roomStep(m);
+   return Math.abs(wrapA(Math.atan2(b.vy, b.vx) - (-Math.PI / 2)));
+  };
+  const far = probe(R2 + 60), near = probe(R2 * 0.5);
+  ok('beyond two turning radii a Seeker round turns at exactly its card rate', Math.abs(far - turn * DT) < 1e-9, 'turned ' + far + ' want ' + turn * DT);
+  atLeast('inside one turning radius it turns >=3x harder (terminal guidance)', near / (turn * DT), 3);
+ }
+
+ // --- cause 2: Lance + Seeker. After piercing, the round must not steer back at
+ // the foe it already hit: it takes the next foe, or flies straight.
+ {
+  const m = bulletRoom('warden', 9);
+  m.boss.x = m.cx + 150; m.boss.y = m.cy;
+  const b = mkRound({ x: m.cx, y: m.cy, turn: 5.4, pierce: 1 });
+  m.api.bullets.push(b);
+  let hitF = -1, turnAfter = 0, h0 = null, reenter = false, out = false;
+  for (let f = 0; f < 70 && m.api.bullets.indexOf(b) >= 0; f++) {
+   m.boss.x = m.cx + 150; m.boss.y = m.cy; roomStep(m);
+   const hit = b.hitUid && b.hitUid.indexOf(m.boss.uid) >= 0;
+   if (hit && hitF < 0) { hitF = f; h0 = Math.atan2(b.vy, b.vx); }
+   if (hitF >= 0) { const h = Math.atan2(b.vy, b.vx); turnAfter = Math.max(turnAfter, Math.abs(wrapA(h - h0)));
+    const d = Math.hypot(b.x - m.boss.x, b.y - m.boss.y), R = m.boss.r * (m.boss.vscale || 1) + b.r;
+    if (d > R + 12) out = true; else if (out && d < R) reenter = true; }
+  }
+  ok('a Lance round pierces the WARDEN', hitF >= 0);
+  atMost('a pierced round never turns back toward the foe it already hit (rad)', turnAfter, 0.01);
+  ok('a pierced round never loops back through the WARDEN', !reenter);
+
+  const m2 = bulletRoom('warden', 9);
+  m2.api.spawnEnemy('drone'); const dr = m2.api.enemies.find(e => e.type === 'drone'); m2.keep.push(dr);
+  dr.hp = dr.maxhp = 1e6; dr.spawnT = 0;
+  const b2 = mkRound({ x: m2.cx, y: m2.cy, turn: 5.4, pierce: 1, life: 1.1 });
+  m2.api.bullets.push(b2);
+  const hp0 = dr.hp;
+  for (let f = 0; f < 70 && m2.api.bullets.indexOf(b2) >= 0; f++) {
+   m2.boss.x = m2.cx + 150; m2.boss.y = m2.cy; dr.x = m2.cx + 330; dr.y = m2.cy + 110; roomStep(m2);
+  }
+  ok('after piercing the boss, a Seeker round retargets to the next foe', dr.hp < hp0 && (b2.hitUid || []).indexOf(m2.boss.uid) >= 0, 'drone hp ' + hp0 + ' -> ' + dr.hp);
+ }
+
+ // --- cause 3: hit tests use the drawn scale (vscale 0.92..1.08)
+ {
+  const lane = (vs, lateral) => {
+   const m = bulletRoom('warden', 9);
+   m.boss.vscale = vs; m.boss.x = m.cx + 120; m.boss.y = m.cy + lateral;
+   const b = mkRound({ x: m.cx, y: m.cy, life: 0.4 }); m.api.bullets.push(b);
+   const hp0 = m.boss.hp;
+   for (let f = 0; f < 24; f++) { m.boss.x = m.cx + 120; m.boss.y = m.cy + lateral; roomStep(m); }
+   return m.boss.hp < hp0;
+  };
+  const r = 34, br = 3.5;
+  ok('a round grazing the drawn rim of a 1.08-scale WARDEN registers', lane(1.08, r * 1.08 + br - 1));
+  ok('a round through the empty gap beside a 0.92-scale WARDEN does not', !lane(0.92, r * 0.92 + br + 1));
+ }
+
+ // --- cause 4: LEVIATHAN's tail is hittable; SEG_PASS of the damage reaches the boss
+ {
+  const lay = m => { m.boss.x = m.cx; m.boss.y = m.cy; m.boss.segs.forEach((g, k) => { g.x = m.cx - (k + 1) * m.boss.r * 0.82; g.y = m.cy; }); };
+  const m = bulletRoom('leviathan', 29);
+  eq('LEVIATHAN carries five tail segments', m.boss.segs.length, 5);
+  lay(m);
+  const g = m.boss.segs[2];
+  const b = mkRound({ x: g.x, y: g.y + 60, vx: 0, vy: -640, dmg: 100 }); m.api.bullets.push(b);
+  const hp0 = m.boss.hp;
+  for (let f = 0; f < 12; f++) { lay(m); roomStep(m); }
+  ok('a round into a tail segment is spent there', m.api.bullets.indexOf(b) < 0 && b.life > 0.5);
+  ok('a tail hit passes ' + Math.round(m.api.SEG_PASS * 100) + '% of the damage to the boss', Math.abs((hp0 - m.boss.hp) - 100 * m.api.SEG_PASS) < 1e-6, 'dealt ' + (hp0 - m.boss.hp));
+  eq('the tail pass-through share is 60%', m.api.SEG_PASS, 0.6);
+
+  const m2 = bulletRoom('leviathan', 29); lay(m2);
+  const g2 = m2.boss.segs[2];
+  const b2 = mkRound({ x: g2.x, y: g2.y + 60, vx: 0, vy: -640, dmg: 100, pierce: 1 }); m2.api.bullets.push(b2);
+  for (let f = 0; f < 6; f++) { lay(m2); roomStep(m2); }
+  ok('a piercing round survives a tail hit, spending one pierce', m2.api.bullets.indexOf(b2) >= 0 && b2.pierce === 0 && (b2.hitUid || []).indexOf(m2.boss.uid) >= 0);
+
+  // direct sweep: the helper names what it struck
+  const api = m.api; lay(m);
+  const s1 = m.boss.segs[1];
+  ok('enemyHitT reports a segment hit', api.enemyHitT(m.boss, s1.x, s1.y + 80, s1.x, s1.y, 3.5) >= 0 && api.hitWhat.kind === 'seg' && api.hitWhat.ref === s1);
+  ok('enemyHitT reports a body hit on the head', api.enemyHitT(m.boss, m.cx + 90, m.cy, m.cx, m.cy, 3.5) >= 0 && api.hitWhat.kind === 'body');
+  eq('enemyHitT misses clean air', api.enemyHitT(m.boss, m.cx, m.cy + 200, m.cx + 50, m.cy + 200, 3.5), -1);
+ }
+
+ // --- hit shapes the boss engine declares: hitParts redirect to the body
+ {
+  const m = bulletRoom('warden', 9);
+  m.boss.x = m.cx + 200; m.boss.y = m.cy;
+  const hp0 = m.boss.hp;
+  const b = mkRound({ x: m.cx, y: m.cy + 90, dmg: 10 }); m.api.bullets.push(b);
+  for (let f = 0; f < 20; f++) { m.boss.x = m.cx + 200; m.boss.y = m.cy; m.boss.hitParts = [{ x: m.cx + 120, y: m.cy + 90, r: 14 }]; roomStep(m); }
+  ok('a round into a declared hitPart damages the boss', m.boss.hp < hp0 && m.api.bullets.indexOf(b) < 0);
+ }
+
+ // --- engine hooks. The game resolves them as globals, typeof-guarded, so a
+ // test can install one on the sandbox and the shipping loop picks it up.
+ {
+  // parts, with and without hitBossPart
+  const partRun = (hook) => {
+   const m = bulletRoom('warden', 9);
+   if (hook) m.api.__sandbox.hitBossPart = hook;
+   const part = { x: m.cx + 120, y: m.cy + 60, r: 12, hp: 50 };
+   const b = mkRound({ x: m.cx, y: m.cy + 60, dmg: 10, life: 0.8 }); m.api.bullets.push(b);
+   const hp0 = m.boss.hp, seen = { part, b, alive: [] };
+   for (let f = 0; f < 40; f++) { m.boss.x = m.cx + 200; m.boss.y = m.cy + 60; m.boss.parts = [part]; roomStep(m); seen.alive.push(m.api.bullets.indexOf(b) >= 0); }
+   seen.dmg = hp0 - m.boss.hp; return seen;
+  };
+  const calls = [];
+  const a = partRun((e, part, b, hx, hy) => { calls.push({ e, part, b, hx, hy }); part.hp -= b.dmg; return true; });
+  ok('hitBossPart is called once, with (boss, part, round, hx, hy)', calls.length === 1 && calls[0].part === a.part && calls[0].b === a.b && calls[0].e.kind === 'warden' && Math.abs(calls[0].hx - (a.part.x - a.part.r - 3.5)) < 1);
+  ok('hitBossPart returning true spends the round, and the body takes nothing', a.dmg === 0 && a.alive[a.alive.length - 1] === false && a.part.hp === 40);
+  let n2 = 0;
+  const c = partRun(() => { n2++; return false; });
+  ok('hitBossPart returning false lets the round fly on to the body, never re-hitting that part', n2 === 1 && c.dmg > 0);
+  const d = partRun(null);
+  // the part's near face is ~104px out, the body's ~160px: 10.7px a frame puts
+  // the part hit at frame 9 and a body hit no earlier than frame 14
+  ok('without hitBossPart a part hit counts as a body hit', d.dmg === 10 && d.alive.indexOf(false) >= 8 && d.alive.indexOf(false) <= 10, 'dmg ' + d.dmg + ' spent at frame ' + d.alive.indexOf(false));
+
+  // bossDeflect: no damage, round left alive for the engine
+  const m = bulletRoom('warden', 9);
+  let dn = 0; m.api.__sandbox.bossDeflect = (e, b, hx, hy) => { dn++; b.vx = -b.vx; b.vy = -b.vy; return true; };
+  const b = mkRound({ x: m.cx, y: m.cy, dmg: 10 }); m.api.bullets.push(b);
+  const hp0 = m.boss.hp; let aliveAfter = false;
+  for (let f = 0; f < 12; f++) { m.boss.x = m.cx + 120; m.boss.y = m.cy; roomStep(m); if (dn === 1 && !aliveAfter) aliveAfter = m.api.bullets.indexOf(b) >= 0; }
+  ok('bossDeflect returning true: no damage, and the round is not removed', dn >= 1 && m.boss.hp === hp0 && aliveAfter && b.vx < 0);
+  m.api.__sandbox.bossDeflect = (e, bb) => { bb.dead = true; return true; };
+  const bk = mkRound({ x: m.cx, y: m.cy, dmg: 10 }); m.api.bullets.push(bk);
+  for (let f = 0; f < 12; f++) { m.boss.x = m.cx + 120; m.boss.y = m.cy; roomStep(m); }
+  ok('a deflected round the engine marks dead is removed', m.api.bullets.indexOf(bk) < 0 && m.boss.hp === hp0);
+
+  // bulletField bends before movement; bulletErased deletes
+  const m3 = bulletRoom('warden', 9); m3.boss.x = m3.cx - 600; m3.boss.y = m3.cy;
+  let fn = 0; m3.api.__sandbox.bulletField = (bb, dt) => { fn++; bb.vy += 600 * dt; };
+  const bf = mkRound({ x: m3.cx, y: m3.cy - 200, life: 0.5 }); m3.api.bullets.push(bf);
+  roomStep(m3);
+  ok('bulletField(b,dt) bends the round before it moves', fn === 1 && bf.vy > 0 && bf.y > m3.cy - 200);
+  delete m3.api.__sandbox.bulletField;
+  m3.api.__sandbox.bulletErased = bb => bb.x > m3.cx + 40;
+  const be = mkRound({ x: m3.cx, y: m3.cy + 200, life: 0.5 }); m3.api.bullets.push(be);
+  let gone = -1; for (let f = 0; f < 10 && gone < 0; f++) { roomStep(m3); if (m3.api.bullets.indexOf(be) < 0) gone = f; }
+  ok('bulletErased(b) true deletes the round the frame it enters the zone', gone >= 0 && be.x > m3.cx + 40 && be.x < m3.cx + 40 + 640 * DT + 1);
+ }
+ return null;
+}
+
 const SUITES = [
  ['xp', suiteXp],
  ['boot', suiteBoot],
  ['sectors', suiteSectors],
- ['bullets', suiteBulletHits],
+ ['bullets', suiteBullets],
  ['swept', suiteSweptCollision],
  ['recovery', suiteBossRecovery],
  ['regen', suiteNoPassiveRegen],
@@ -2016,6 +2454,7 @@ const SUITES = [
  ['cascades', suiteCascades],
  ['save', suiteSave],
  ['pigment', suitePigment],
+ ['maps', suiteMaps],
  ['voice', suiteVoice],
  ['safety', suiteSafety],
  ['replay', suiteReplay]
