@@ -1774,11 +1774,277 @@ function suiteSafety() {
  }
 }
 
+// ======================================================================
+//  BUG REPRO: rounds passing through enemies (SPEC-overhaul §9)
+// ======================================================================
+// A clean room: one boss with near-infinite HP, no obstacles, and everything the
+// boss summons or fires stripped after each frame, so every round's fate is
+// down to guidance and hit shapes alone.
+const HOSE = [['array', 3], ['seek', 2], ['dmg', 3]];      // Homing Hose
+const HOSE_LANCE = HOSE.concat([['pierce', 2]]);            // + Lance Rounds
+function bulletRoom(kind, sector, build, seed) {
+ const api = boot(); seedRandom(api, seed || 1);
+ api.startRun();
+ for (const b of (build || [])) give(api, b[0], b[1]);
+ api.loadSector(sector); api.forceState('playing');
+ api.arena.obs.length = 0; api.enemies.length = 0; api.queue.length = 0;
+ api.spawnEnemy('boss:' + kind);
+ const boss = api.enemies[0]; boss.hp = boss.maxhp = 1e9; boss.spawnT = 0;
+ const w = api.sectorWorld(sector), p = api.player;
+ p.autoFire = false; api.mouse.down = false; p.fireCd = 99;
+ return { api, boss, p, cx: w.w / 2, cy: w.h / 2, keep: [boss] };
+}
+function roomStep(room) {
+ const api = room.api; immortal(api); api.update(DT);
+ if (api.state !== 'playing') api.forceState('playing');
+ const en = api.enemies;
+ for (let i = en.length - 1; i >= 0; i--) if (room.keep.indexOf(en[i]) < 0) en.splice(i, 1);
+ for (const k of room.keep) if (en.indexOf(k) < 0 && !k.dead) en.push(k);
+ api.queue.length = 0; api.ebullets.length = 0; api.hazards.length = 0;
+}
+// A hand-placed player round with the same fields playerShoot gives one.
+function mkRound(o) {
+ return Object.assign({ x: 0, y: 0, vx: 640, vy: 0, r: 3.5, dmg: 10, life: 1.1, crit: false, bounce: 0, turn: 0,
+  burn: 0, chill: 0, flak: 0, chain: 0, corrode: 0, heavyShot: false, pierce: 0, hitUid: null }, o);
+}
+function aimAt(api, x, y) { api.player.autoFire = false; api.mouse.down = true; api.mouse.x = x - api.cam.x; api.mouse.y = y - api.cam.y; }
+function wrapA(a) { while (a > Math.PI) a -= 2 * Math.PI; while (a < -Math.PI) a += 2 * Math.PI; return a; }
+// The shapes a round can visibly overlap: the body at its DRAWN scale, plus
+// LEVIATHAN's tail. Snapshotted before update(), because rounds move and sweep
+// before the enemy AI does; measuring after would blame rounds for the boss moving.
+function drawnShapes(boss) {
+ const c = [{ x: boss.x, y: boss.y, r: boss.r * (boss.vscale || 1) }];
+ if (boss.segs) for (const g of boss.segs) c.push({ x: g.x, y: g.y, r: g.r });
+ return c;
+}
+// Fire the build for `secs` under `script` (which places boss, ship and aim each
+// frame), then let every round live out its life. Per round it records:
+//   hit   : registered on the boss (consumed with life left, or pierced it)
+//   ghost : overlapped the drawn silhouette at the end of a frame before any hit
+//   loop  : heading turned through more than half a circle (an orbit)
+function hoseTrial(o) {
+ const room = bulletRoom(o.kind, o.sector, o.build, o.seed);
+ const { api, boss, p } = room;
+ boss.vscale = o.vscale || 1.08; p.fireCd = 0;
+ const recs = new Map(), fireF = Math.round((o.secs || 2) * 60);
+ for (let f = 0; f < fireF + 600; f++) {
+  const firing = f < fireF;
+  o.script(room, f * DT);
+  if (!firing) { p.autoFire = false; api.mouse.down = false; p.fireCd = 99; }
+  const shapes = drawnShapes(boss);
+  roomStep(room);
+  const now = new Set(api.bullets);
+  for (const b of now) if (!recs.has(b)) recs.set(b, { hit: false, ghost: false, turn: 0, h: Math.atan2(b.vy, b.vx), done: false });
+  for (const [b, r] of recs) {
+   if (r.done) continue;
+   if (!now.has(b)) { r.done = true; if (b.life > 1e-6) r.hit = true; continue; }
+   if (b.hitUid && b.hitUid.indexOf(boss.uid) >= 0) r.hit = true;
+   const h = Math.atan2(b.vy, b.vx); r.turn += wrapA(h - r.h); r.h = h;
+   if (!r.hit) for (const c of shapes) if (Math.hypot(b.x - c.x, b.y - c.y) < c.r + b.r - 0.5) { r.ghost = true; break; }
+  }
+  if (!firing && api.bullets.length === 0) break;
+ }
+ const all = [...recs.values()], n = f => all.filter(f).length;
+ return { fired: all.length, hits: n(r => r.hit), ghost: n(r => r.ghost), loops: n(r => Math.abs(r.turn) > Math.PI) };
+}
+const SCRIPT = {
+ // boss parked R px out; the cursor held `off` radians off it (mouse fire)
+ still: (R, off) => (m, t) => { m.boss.x = m.cx + R; m.boss.y = m.cy; m.p.x = m.cx; m.p.y = m.cy; aimAt(m.api, m.cx + Math.cos(off) * R, m.cy + Math.sin(off) * R); },
+ stillAuto: R => (m, t) => { m.boss.x = m.cx + R; m.boss.y = m.cy; m.p.x = m.cx; m.p.y = m.cy; m.p.autoFire = true; },
+ // boss sweeps back and forth across the ship's front at speed v, D px away
+ cross: (D, v) => (m, t) => { const L = 400, ph = (t * v) % (4 * L), x = ph < 2 * L ? -L + ph : 3 * L - ph; m.boss.x = m.cx + x; m.boss.y = m.cy + D; m.p.x = m.cx; m.p.y = m.cy; m.p.autoFire = true; },
+ // LEVIATHAN flees, the ship follows 260 px behind: its tail is in the line of fire
+ tail: v => (m, t) => { const x = m.cx - 500 + ((t * v) % 1000); m.boss.x = x + 260; m.boss.y = m.cy; m.p.x = x; m.p.y = m.cy; m.p.autoFire = true;
+  if (t === 0) m.boss.segs.forEach((g, k) => { g.x = m.boss.x - (k + 1) * m.boss.r * 0.82; g.y = m.cy; }); },
+};
+function sumTrials(list) { return list.reduce((a, r) => ({ fired: a.fired + r.fired, hits: a.hits + r.hits, ghost: a.ghost + r.ghost, loops: a.loops + r.loops }), { fired: 0, hits: 0, ghost: 0, loops: 0 }); }
+
+function suiteBullets() {
+ suiteBulletHits();
+ section('bullets / pass-through (homing, pierce, drawn scale, tail)');
+
+ // --- cause 1: homing orbits. Mouse fire held off a parked WARDEN, point blank
+ // to mid range. Before terminal guidance ~40% of this grid orbited forever
+ // (a 69-degree off-aim at 150px landed 0 of 4 barrels).
+ for (const [lab, build] of [['Homing Hose', HOSE], ['Homing Hose + Lance', HOSE_LANCE]]) {
+  const grid = [];
+  for (const R of [110, 180, 260]) for (const off of [0, 0.6, 1.2, -1.2]) grid.push(hoseTrial({ kind: 'warden', sector: 9, build, secs: 1, script: SCRIPT.still(R, off) }));
+  grid.push(hoseTrial({ kind: 'warden', sector: 9, build, secs: 3, script: SCRIPT.stillAuto(320) }));
+  const s = sumTrials(grid);
+  if (VERBOSE) console.log('    ' + lab + ' vs parked WARDEN: ' + JSON.stringify(s));
+  atLeast(lab + ': a parked WARDEN takes >=95% of rounds within their life', s.hits / s.fired, 0.95);
+  eq(lab + ': no round orbits the WARDEN (heading never turns past 180deg)', s.loops, 0);
+  eq(lab + ': no round overlaps the drawn WARDEN before it registers', s.ghost, 0);
+ }
+ // --- moving LEVIATHAN: crossing the ship's front, and fleeing tail-first
+ for (const [lab, build] of [['Homing Hose', HOSE], ['Homing Hose + Lance', HOSE_LANCE]]) {
+  const cross = hoseTrial({ kind: 'leviathan', sector: 29, build, secs: 4, script: SCRIPT.cross(120, 300) });
+  const tail = hoseTrial({ kind: 'leviathan', sector: 29, build, secs: 4, script: SCRIPT.tail(150) });
+  if (VERBOSE) console.log('    ' + lab + ' LEVIATHAN cross ' + JSON.stringify(cross) + ' tail ' + JSON.stringify(tail));
+  atLeast(lab + ': a crossing LEVIATHAN takes >=95% of rounds', cross.hits / cross.fired, 0.95);
+  atLeast(lab + ': a fleeing LEVIATHAN takes >=95% of rounds', tail.hits / tail.fired, 0.95);
+  eq(lab + ': no round crosses the drawn LEVIATHAN (head or tail) unregistered', cross.ghost + tail.ghost, 0);
+  eq(lab + ': no round orbits a moving LEVIATHAN', cross.loops + tail.loops, 0);
+ }
+
+ // --- terminal guidance leaves the card rate alone at range
+ {
+  const m = bulletRoom('warden', 9);
+  const turn = 2.2 + 1.6 * 2, sp = 640, R2 = 2 * sp / turn;
+  const probe = (dist) => {
+   m.boss.x = m.cx + dist; m.boss.y = m.cy; m.p.x = m.cx - 600; m.p.y = m.cy;
+   // round heading straight "up", target due east: a 90-degree error
+   const b = mkRound({ x: m.cx, y: m.cy, vx: 0, vy: -sp, turn, life: 0.5 });
+   m.api.bullets.length = 0; m.api.bullets.push(b); roomStep(m);
+   return Math.abs(wrapA(Math.atan2(b.vy, b.vx) - (-Math.PI / 2)));
+  };
+  const far = probe(R2 + 60), near = probe(R2 * 0.5);
+  ok('beyond two turning radii a Seeker round turns at exactly its card rate', Math.abs(far - turn * DT) < 1e-9, 'turned ' + far + ' want ' + turn * DT);
+  atLeast('inside one turning radius it turns >=3x harder (terminal guidance)', near / (turn * DT), 3);
+ }
+
+ // --- cause 2: Lance + Seeker. After piercing, the round must not steer back at
+ // the foe it already hit: it takes the next foe, or flies straight.
+ {
+  const m = bulletRoom('warden', 9);
+  m.boss.x = m.cx + 150; m.boss.y = m.cy;
+  const b = mkRound({ x: m.cx, y: m.cy, turn: 5.4, pierce: 1 });
+  m.api.bullets.push(b);
+  let hitF = -1, turnAfter = 0, h0 = null, reenter = false, out = false;
+  for (let f = 0; f < 70 && m.api.bullets.indexOf(b) >= 0; f++) {
+   m.boss.x = m.cx + 150; m.boss.y = m.cy; roomStep(m);
+   const hit = b.hitUid && b.hitUid.indexOf(m.boss.uid) >= 0;
+   if (hit && hitF < 0) { hitF = f; h0 = Math.atan2(b.vy, b.vx); }
+   if (hitF >= 0) { const h = Math.atan2(b.vy, b.vx); turnAfter = Math.max(turnAfter, Math.abs(wrapA(h - h0)));
+    const d = Math.hypot(b.x - m.boss.x, b.y - m.boss.y), R = m.boss.r * (m.boss.vscale || 1) + b.r;
+    if (d > R + 12) out = true; else if (out && d < R) reenter = true; }
+  }
+  ok('a Lance round pierces the WARDEN', hitF >= 0);
+  atMost('a pierced round never turns back toward the foe it already hit (rad)', turnAfter, 0.01);
+  ok('a pierced round never loops back through the WARDEN', !reenter);
+
+  const m2 = bulletRoom('warden', 9);
+  m2.api.spawnEnemy('drone'); const dr = m2.api.enemies.find(e => e.type === 'drone'); m2.keep.push(dr);
+  dr.hp = dr.maxhp = 1e6; dr.spawnT = 0;
+  const b2 = mkRound({ x: m2.cx, y: m2.cy, turn: 5.4, pierce: 1, life: 1.1 });
+  m2.api.bullets.push(b2);
+  const hp0 = dr.hp;
+  for (let f = 0; f < 70 && m2.api.bullets.indexOf(b2) >= 0; f++) {
+   m2.boss.x = m2.cx + 150; m2.boss.y = m2.cy; dr.x = m2.cx + 330; dr.y = m2.cy + 110; roomStep(m2);
+  }
+  ok('after piercing the boss, a Seeker round retargets to the next foe', dr.hp < hp0 && (b2.hitUid || []).indexOf(m2.boss.uid) >= 0, 'drone hp ' + hp0 + ' -> ' + dr.hp);
+ }
+
+ // --- cause 3: hit tests use the drawn scale (vscale 0.92..1.08)
+ {
+  const lane = (vs, lateral) => {
+   const m = bulletRoom('warden', 9);
+   m.boss.vscale = vs; m.boss.x = m.cx + 120; m.boss.y = m.cy + lateral;
+   const b = mkRound({ x: m.cx, y: m.cy, life: 0.4 }); m.api.bullets.push(b);
+   const hp0 = m.boss.hp;
+   for (let f = 0; f < 24; f++) { m.boss.x = m.cx + 120; m.boss.y = m.cy + lateral; roomStep(m); }
+   return m.boss.hp < hp0;
+  };
+  const r = 34, br = 3.5;
+  ok('a round grazing the drawn rim of a 1.08-scale WARDEN registers', lane(1.08, r * 1.08 + br - 1));
+  ok('a round through the empty gap beside a 0.92-scale WARDEN does not', !lane(0.92, r * 0.92 + br + 1));
+ }
+
+ // --- cause 4: LEVIATHAN's tail is hittable; SEG_PASS of the damage reaches the boss
+ {
+  const lay = m => { m.boss.x = m.cx; m.boss.y = m.cy; m.boss.segs.forEach((g, k) => { g.x = m.cx - (k + 1) * m.boss.r * 0.82; g.y = m.cy; }); };
+  const m = bulletRoom('leviathan', 29);
+  eq('LEVIATHAN carries five tail segments', m.boss.segs.length, 5);
+  lay(m);
+  const g = m.boss.segs[2];
+  const b = mkRound({ x: g.x, y: g.y + 60, vx: 0, vy: -640, dmg: 100 }); m.api.bullets.push(b);
+  const hp0 = m.boss.hp;
+  for (let f = 0; f < 12; f++) { lay(m); roomStep(m); }
+  ok('a round into a tail segment is spent there', m.api.bullets.indexOf(b) < 0 && b.life > 0.5);
+  ok('a tail hit passes ' + Math.round(m.api.SEG_PASS * 100) + '% of the damage to the boss', Math.abs((hp0 - m.boss.hp) - 100 * m.api.SEG_PASS) < 1e-6, 'dealt ' + (hp0 - m.boss.hp));
+  eq('the tail pass-through share is 60%', m.api.SEG_PASS, 0.6);
+
+  const m2 = bulletRoom('leviathan', 29); lay(m2);
+  const g2 = m2.boss.segs[2];
+  const b2 = mkRound({ x: g2.x, y: g2.y + 60, vx: 0, vy: -640, dmg: 100, pierce: 1 }); m2.api.bullets.push(b2);
+  for (let f = 0; f < 6; f++) { lay(m2); roomStep(m2); }
+  ok('a piercing round survives a tail hit, spending one pierce', m2.api.bullets.indexOf(b2) >= 0 && b2.pierce === 0 && (b2.hitUid || []).indexOf(m2.boss.uid) >= 0);
+
+  // direct sweep: the helper names what it struck
+  const api = m.api; lay(m);
+  const s1 = m.boss.segs[1];
+  ok('enemyHitT reports a segment hit', api.enemyHitT(m.boss, s1.x, s1.y + 80, s1.x, s1.y, 3.5) >= 0 && api.hitWhat.kind === 'seg' && api.hitWhat.ref === s1);
+  ok('enemyHitT reports a body hit on the head', api.enemyHitT(m.boss, m.cx + 90, m.cy, m.cx, m.cy, 3.5) >= 0 && api.hitWhat.kind === 'body');
+  eq('enemyHitT misses clean air', api.enemyHitT(m.boss, m.cx, m.cy + 200, m.cx + 50, m.cy + 200, 3.5), -1);
+ }
+
+ // --- hit shapes the boss engine declares: hitParts redirect to the body
+ {
+  const m = bulletRoom('warden', 9);
+  m.boss.x = m.cx + 200; m.boss.y = m.cy;
+  const hp0 = m.boss.hp;
+  const b = mkRound({ x: m.cx, y: m.cy + 90, dmg: 10 }); m.api.bullets.push(b);
+  for (let f = 0; f < 20; f++) { m.boss.x = m.cx + 200; m.boss.y = m.cy; m.boss.hitParts = [{ x: m.cx + 120, y: m.cy + 90, r: 14 }]; roomStep(m); }
+  ok('a round into a declared hitPart damages the boss', m.boss.hp < hp0 && m.api.bullets.indexOf(b) < 0);
+ }
+
+ // --- engine hooks. The game resolves them as globals, typeof-guarded, so a
+ // test can install one on the sandbox and the shipping loop picks it up.
+ {
+  // parts, with and without hitBossPart
+  const partRun = (hook) => {
+   const m = bulletRoom('warden', 9);
+   if (hook) m.api.__sandbox.hitBossPart = hook;
+   const part = { x: m.cx + 120, y: m.cy + 60, r: 12, hp: 50 };
+   const b = mkRound({ x: m.cx, y: m.cy + 60, dmg: 10, life: 0.8 }); m.api.bullets.push(b);
+   const hp0 = m.boss.hp, seen = { part, b, alive: [] };
+   for (let f = 0; f < 40; f++) { m.boss.x = m.cx + 200; m.boss.y = m.cy + 60; m.boss.parts = [part]; roomStep(m); seen.alive.push(m.api.bullets.indexOf(b) >= 0); }
+   seen.dmg = hp0 - m.boss.hp; return seen;
+  };
+  const calls = [];
+  const a = partRun((e, part, b, hx, hy) => { calls.push({ e, part, b, hx, hy }); part.hp -= b.dmg; return true; });
+  ok('hitBossPart is called once, with (boss, part, round, hx, hy)', calls.length === 1 && calls[0].part === a.part && calls[0].b === a.b && calls[0].e.kind === 'warden' && Math.abs(calls[0].hx - (a.part.x - a.part.r - 3.5)) < 1);
+  ok('hitBossPart returning true spends the round, and the body takes nothing', a.dmg === 0 && a.alive[a.alive.length - 1] === false && a.part.hp === 40);
+  let n2 = 0;
+  const c = partRun(() => { n2++; return false; });
+  ok('hitBossPart returning false lets the round fly on to the body, never re-hitting that part', n2 === 1 && c.dmg > 0);
+  const d = partRun(null);
+  // the part's near face is ~104px out, the body's ~160px: 10.7px a frame puts
+  // the part hit at frame 9 and a body hit no earlier than frame 14
+  ok('without hitBossPart a part hit counts as a body hit', d.dmg === 10 && d.alive.indexOf(false) >= 8 && d.alive.indexOf(false) <= 10, 'dmg ' + d.dmg + ' spent at frame ' + d.alive.indexOf(false));
+
+  // bossDeflect: no damage, round left alive for the engine
+  const m = bulletRoom('warden', 9);
+  let dn = 0; m.api.__sandbox.bossDeflect = (e, b, hx, hy) => { dn++; b.vx = -b.vx; b.vy = -b.vy; return true; };
+  const b = mkRound({ x: m.cx, y: m.cy, dmg: 10 }); m.api.bullets.push(b);
+  const hp0 = m.boss.hp; let aliveAfter = false;
+  for (let f = 0; f < 12; f++) { m.boss.x = m.cx + 120; m.boss.y = m.cy; roomStep(m); if (dn === 1 && !aliveAfter) aliveAfter = m.api.bullets.indexOf(b) >= 0; }
+  ok('bossDeflect returning true: no damage, and the round is not removed', dn >= 1 && m.boss.hp === hp0 && aliveAfter && b.vx < 0);
+  m.api.__sandbox.bossDeflect = (e, bb) => { bb.dead = true; return true; };
+  const bk = mkRound({ x: m.cx, y: m.cy, dmg: 10 }); m.api.bullets.push(bk);
+  for (let f = 0; f < 12; f++) { m.boss.x = m.cx + 120; m.boss.y = m.cy; roomStep(m); }
+  ok('a deflected round the engine marks dead is removed', m.api.bullets.indexOf(bk) < 0 && m.boss.hp === hp0);
+
+  // bulletField bends before movement; bulletErased deletes
+  const m3 = bulletRoom('warden', 9); m3.boss.x = m3.cx - 600; m3.boss.y = m3.cy;
+  let fn = 0; m3.api.__sandbox.bulletField = (bb, dt) => { fn++; bb.vy += 600 * dt; };
+  const bf = mkRound({ x: m3.cx, y: m3.cy - 200, life: 0.5 }); m3.api.bullets.push(bf);
+  roomStep(m3);
+  ok('bulletField(b,dt) bends the round before it moves', fn === 1 && bf.vy > 0 && bf.y > m3.cy - 200);
+  delete m3.api.__sandbox.bulletField;
+  m3.api.__sandbox.bulletErased = bb => bb.x > m3.cx + 40;
+  const be = mkRound({ x: m3.cx, y: m3.cy + 200, life: 0.5 }); m3.api.bullets.push(be);
+  let gone = -1; for (let f = 0; f < 10 && gone < 0; f++) { roomStep(m3); if (m3.api.bullets.indexOf(be) < 0) gone = f; }
+  ok('bulletErased(b) true deletes the round the frame it enters the zone', gone >= 0 && be.x > m3.cx + 40 && be.x < m3.cx + 40 + 640 * DT + 1);
+ }
+ return null;
+}
+
 const SUITES = [
  ['xp', suiteXp],
  ['boot', suiteBoot],
  ['sectors', suiteSectors],
- ['bullets', suiteBulletHits],
+ ['bullets', suiteBullets],
  ['swept', suiteSweptCollision],
  ['recovery', suiteBossRecovery],
  ['regen', suiteNoPassiveRegen],

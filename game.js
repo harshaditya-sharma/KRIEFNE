@@ -1848,6 +1848,27 @@ function playerShoot(){
  SFX.shoot();
  pushPart({x:p.x+Math.cos(base)*15,y:p.y+Math.sin(base)*15,vx:0,vy:0,life:0.06,maxlife:0.06,col:K.goldHi,r:4});
 }
+// SEEKER guidance. At range a round turns at its card rate b.turn (2.2 rad/s +1.6
+// per Seeker level), a 120-170px turning radius at 640px/s. A target that falls inside that
+// circle (a near miss, a close off-aim shot) can never be reached: the round
+// orbits it for its whole life. So inside two turning radii the limit rises as
+// (2R/d)^2: continuous with the card rate at the boundary, 4x at one radius, a
+// near-snap point-blank. That keeps the effective radius under d/2, and with it
+// the heading error shrinks every frame, so every approach converges.
+// Foes already in hitUid are skipped: a pierced target is behind the round, and
+// chasing it back made Lance rounds loop through a boss they could not hit again.
+// With no other foe in reach the round flies straight.
+const SEEK_SNAP=40; // rad/s ceiling: ~0.67 rad a frame at 60Hz, a visible hook rather than a teleport of heading
+function seekSteer(b,dt){
+ let bd=420*420, be=null;
+ for(const e of enemies){ if(b.hitUid&&b.hitUid.indexOf(e.uid)>=0) continue; const d=dist2(b.x,b.y,e.x,e.y); if(d<bd){ bd=d; be=e; } }
+ if(!be) return;
+ const want=Math.atan2(be.y-b.y,be.x-b.x), cur=Math.atan2(b.vy,b.vx);
+ let dA=want-cur; while(dA>Math.PI)dA-=6.283; while(dA<-Math.PI)dA+=6.283;
+ const sp=len(b.vx,b.vy), d=Math.max(1,Math.sqrt(bd)), R2=2*sp/b.turn;
+ const lim=d<R2?Math.min(SEEK_SNAP,b.turn*(R2/d)*(R2/d)):b.turn;
+ const na=cur+clamp(dA,-lim*dt,lim*dt); b.vx=Math.cos(na)*sp; b.vy=Math.sin(na)*sp;
+}
 function shieldBlock(msg,col){ const p=player; p.invuln=Math.max(p.invuln,0.4); addFloater(p.x,p.y-20,msg,col); SFX.block(); spawnBurst(p.x,p.y,10,col,180,0.4,3); }
 // heavy=true: sniper/tempest bolts, brute rings, boss contact+bursts (blocked by Crit Ward)
 // ---------- what brought the hull down ----------
@@ -2058,12 +2079,41 @@ function splashDamage(x,y,r,amount,col,skipUid){
   if(e.hp<=0){ const ix=enemies.indexOf(e); if(ix>=0) killEnemy(ix); } }
  rings.push({x,y,r:4,maxR:r,spd:r*4,dmg:0,hit:true,own:true});
 }
+// ---------- hit shapes ----------
+// One swept test for every way a round can touch an enemy, so the sweep, the
+// boss engine and the hitbox overlay all agree on what a hit is:
+//   body     : e.r at the DRAWN scale. Hulls render at vscale 0.92-1.08, and
+//              testing the bare e.r left a rim of silhouette rounds crossed clean.
+//   hitParts : world-space {x,y,r} circles a non-circular boss keeps current;
+//              striking one is a body hit.
+//   parts    : world-space {x,y,r,hp} destructible children, resolved by the
+//              engine's hitBossPart. Dead parts (hp<=0 or .dead) and any in
+//              `skip` (parts this round already passed) are ignored.
+//   segs     : LEVIATHAN's trailing body. Real hits; SEG_PASS of the damage
+//              reaches the boss, so the tail is a target, not a free shield.
+// Returns the earliest entry t in [0,1] or -1. What was struck is left in HIT
+// (module scratch: this runs per round per enemy per frame, so it never allocates).
+// Ties go to parts and segments, which sit on top of the body they belong to.
+const SEG_PASS=0.6, HIT={kind:null,ref:null};
+function enemyHitT(e,px,py,x,y,br,skip){
+ let bt=segCircleT(px,py,x,y,e.x,e.y,e.r*(e.vscale||1)+br), t;
+ HIT.kind='body'; HIT.ref=null;
+ const hp=e.hitParts;
+ if(hp) for(let i=0;i<hp.length;i++){ const c=hp[i]; t=segCircleT(px,py,x,y,c.x,c.y,c.r+br); if(t>=0&&(bt<0||t<bt)){ bt=t; HIT.kind='body'; HIT.ref=null; } }
+ const sg=e.segs;
+ if(sg) for(let i=0;i<sg.length;i++){ const g=sg[i]; t=segCircleT(px,py,x,y,g.x,g.y,g.r+br); if(t>=0&&(bt<0||t<=bt)){ bt=t; HIT.kind='seg'; HIT.ref=g; } }
+ const pt=e.parts;
+ if(pt) for(let i=0;i<pt.length;i++){ const c=pt[i]; if(c.hp<=0||c.dead||(skip&&skip.indexOf(c)>=0)) continue;
+  t=segCircleT(px,py,x,y,c.x,c.y,c.r+br); if(t>=0&&(bt<0||t<=bt)){ bt=t; HIT.kind='part'; HIT.ref=c; } }
+ return bt;
+}
 // ---------- bullet impact ----------
 // Resolve one bullet against one enemy at the contact point. Returns true when
 // the round is spent, so it is removed rather than continuing out the far side.
-function applyBulletHit(e,b,hx,hy){
+// `mul` scales the round's damage for indirect hits (a LEVIATHAN segment).
+function applyBulletHit(e,b,hx,hy,mul){
  const phased=!!e.phased;
- let dmg=b.dmg*(phased?0.30:1)*corrodeMul(e);
+ let dmg=b.dmg*(mul||1)*(phased?0.30:1)*corrodeMul(e);
  if(b.corrode&&!phased) e.corrode=Math.min(5,(e.corrode||0)+b.corrode);
  // ORACLE wards soak most of the round until they are broken — a visible,
  // solvable reason the boss is tanky, instead of an invisible damage reduction.
@@ -2108,19 +2158,29 @@ function applyBulletHit(e,b,hx,hy){
 }
 // Sweep this frame's travel against every enemy, resolving hits nearest-first
 // so a pierce round chews through targets in the order it actually meets them.
+// Boss-engine hooks, each optional (typeof-guarded, so this runs without them):
+//   bossDeflect(e,b,hx,hy) -> true : the round was reflected. No damage, and it
+//     is NOT removed here; the engine converts or kills it (b.dead=true).
+//   hitBossPart(e,part,b,hx,hy) -> true : the part took the round; it is spent.
+//     false lets it fly on, remembered in b.hitPart so it cannot re-hit that
+//     part every frame it overlaps. Without the hook a part hit is a body hit.
 function bulletSweep(b){
  let hits=null;
  for(let j=0;j<enemies.length;j++){ const e=enemies[j];
   if(b.hitUid&&b.hitUid.indexOf(e.uid)>=0) continue;
-  const t=segCircleT(b.px,b.py,b.x,b.y,e.x,e.y,e.r+b.r);
-  if(t>=0){ if(!hits) hits=[]; hits.push({t,e}); }
+  const t=enemyHitT(e,b.px,b.py,b.x,b.y,b.r,b.hitPart);
+  if(t>=0){ if(!hits) hits=[]; hits.push({t,e,kind:HIT.kind,ref:HIT.ref}); }
  }
  if(!hits) return false;
  if(hits.length>1) hits.sort((p,q)=>p.t-q.t);
  for(const h of hits){
   if(enemies.indexOf(h.e)<0) continue; // already died to an earlier hit this pass
   const hx=b.px+(b.x-b.px)*h.t, hy=b.py+(b.y-b.py)*h.t;
-  if(applyBulletHit(h.e,b,hx,hy)) return true;
+  if(typeof bossDeflect==='function'&&bossDeflect(h.e,b,hx,hy)) return false; // the engine owns it now
+  if(h.kind==='part'&&typeof hitBossPart==='function'){
+   if(hitBossPart(h.e,h.ref,b,hx,hy)) return true;
+   (b.hitPart=b.hitPart||[]).push(h.ref); continue; }
+  if(applyBulletHit(h.e,b,hx,hy,h.kind==='seg'?SEG_PASS:1)) return true;
  }
  return false;
 }
@@ -2215,11 +2275,16 @@ function update(dt){
   p.aim=Math.atan2(wmy()-p.y,wmx()-p.x);
   if((mouse.down||p.autoFire)&&p.fireCd<=0) playerShoot();
   // player bullets (homing + ricochet)
+  // Boss-engine hooks, typeof-guarded so the loop runs without them:
+  //   bulletField(b,dt)  bends the round before it moves (gravity, currents)
+  //   bulletErased(b)    true deletes it (NULLIFIER's erase zone)
+  const bField=typeof bulletField==='function'?bulletField:null, bErase=typeof bulletErased==='function'?bulletErased:null;
   for(let i=bullets.length-1;i>=0;i--){ const b=bullets[i];
-   if(b.turn>0&&enemies.length){ let bd=420*420, be=null; for(const e of enemies){ const d=dist2(b.x,b.y,e.x,e.y); if(d<bd){ bd=d; be=e; } } if(be){ const want=Math.atan2(be.y-b.y,be.x-b.x), cur=Math.atan2(b.vy,b.vx); let dA=want-cur; while(dA>Math.PI)dA-=6.283; while(dA<-Math.PI)dA+=6.283; const na=cur+clamp(dA,-b.turn*dt,b.turn*dt); const sp=len(b.vx,b.vy); b.vx=Math.cos(na)*sp; b.vy=Math.sin(na)*sp; } }
+   if(b.turn>0&&enemies.length) seekSteer(b,dt);
+   if(bField) bField(b,dt);
    b.px=b.x; b.py=b.y;
    b.x+=b.vx*dt; b.y+=b.vy*dt; b.life-=dt;
-   let dead=b.life<=0;
+   let dead=b.life<=0||b.dead||(bErase!==null&&!!bErase(b));
    if(!dead&&(b.x<PX0+b.r||b.x>PX1-b.r)){ if(b.bounce>0){ b.bounce--; if(b.x<PX0+b.r){b.x=PX0+b.r;b.vx=Math.abs(b.vx);} else {b.x=PX1-b.r;b.vx=-Math.abs(b.vx);} b.px=b.x; b.py=b.y; } else dead=true; }
    if(!dead&&(b.y<PY0+b.r||b.y>PY1-b.r)){ if(b.bounce>0){ b.bounce--; if(b.y<PY0+b.r){b.y=PY0+b.r;b.vy=Math.abs(b.vy);} else {b.y=PY1-b.r;b.vy=-Math.abs(b.vy);} b.px=b.x; b.py=b.y; } else dead=true; }
    if(!dead&&bulletPathBlocked(b)){
@@ -2227,7 +2292,9 @@ function update(dt){
     else { spawnBurst(b.x,b.y,3,K.metal,120,0.3,2); dead=true; }
    }
    if(!dead&&bulletSweep(b)) dead=true;
-   if(dead) bullets.splice(i,1);
+   // b.dead: the engine killed a round it deflected. Splice only if it is still
+   // at i, in case the engine already moved it out of the array itself.
+   if((dead||b.dead)&&bullets[i]===b) bullets.splice(i,1);
   }
   // enemy bullets
   for(let i=ebullets.length-1;i>=0;i--){ const b=ebullets[i];
@@ -4792,6 +4859,9 @@ arena={seed:1337, obs:[], theme:THEMES[0], spawns:[], port:{x:800,y:500}, valida
    get viewScale(){ return viewScale; }, get devicePx(){ return devicePx; },
     get vw(){ return W; }, get vh(){ return H; }, get btn(){ return BTN; }, draftLayout, draftRect, rowRects, helpTabRects, codexTabRects, codexRects, layoutButtons,
     coachStep, coachLines, dismissCoach, coachSeen, markCoach, drawCoach, updateCoach }; }catch(e){}
+// bullet hooks. defineProperties, not Object.assign: assign would read the
+// getter once and pin a stale array (bullets is reassigned on every sector load).
+try{ Object.defineProperties(window.__kriefne,Object.getOwnPropertyDescriptors({ get bullets(){ return bullets; }, enemyHitT, get hitWhat(){ return HIT; }, SEG_PASS })); }catch(e){}
 fitCanvas();
 requestAnimationFrame(frame);
 })();
