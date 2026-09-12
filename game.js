@@ -3,7 +3,7 @@
  * rule-bound validated procgen (BFS reachability), themed maps/music. */
 (() => {
 'use strict';
-const W = 960, H = 640, WALL = 24, HUD_H = 56;
+let W = 960, H = 640; const WALL = 24, HUD_H = 56;
 // World bounds + size are per-sector (sectors are larger than the viewport and
 // grow endlessly). PX0..PY1 double as the camera-clamped playfield rect.
 let PX0 = WALL, PY0 = HUD_H + WALL, PX1 = W - WALL, PY1 = H - WALL;
@@ -13,15 +13,19 @@ const canvas = document.getElementById('game');
 let ctx = canvas.getContext('2d');
 try{ ctx.imageSmoothingEnabled = false; }catch(e){}
 // ---------- viewport fit + devicePixelRatio scaling ----------
-// Game logic draws in fixed 960x640 units (W/H) so balance, hitboxes and
-// tests never move. Only the canvas backing store and CSS size adapt: the
-// canvas fills the window (preserving 3:2) and renders at device pixels
-// (capped) so the engraved hairlines stay crisp on hidpi instead of
-// blurring. Touch here is groundwork only: a single touch maps to aim+tap
+// The canvas fills the window and the layout reflows to its shape: W/H are
+// the live viewport in CSS px (not a fixed 960x640), so every draw routine
+// that already anchors to W/H (HUD edges, centred menus) follows the window.
+// Gameplay, hitboxes and tests never move: world bounds (PX0..PY1, WW/HH)
+// are per-sector and independent of the viewport; only the camera's visible
+// window (W/H) changes. Backing store renders at device pixels (capped) so
+// the engraved hairlines stay crisp on hidpi. Text is drawn in CSS px, so a
+// 12px label is always >=12px on screen — nothing ever scales down.
+// Touch here is groundwork only: a single touch maps to aim+tap
 // so menus already work on a phone; the full touch scheme (sticks and
 // gestures) is still undecided and must build on `touch`, not beside it.
-let viewScale = 1;  // CSS px per logical px (window fill factor)
-let devicePx = 1;   // backing px per logical px
+let viewScale = 1;  // kept for API compat: logical px == CSS px, so always 1
+let devicePx = 1;   // backing px per logical px (= effective DPR)
 const touch = { active:false, id:-1, x:W/2, y:H/2 };
 function fitCanvas(){
  try{
@@ -36,15 +40,42 @@ function fitCanvas(){
   try{ vh = (document.documentElement && document.documentElement.clientHeight) || 0; }catch(e){}
   if(!vw){ try{ vw = window.innerWidth || 0; }catch(e){} }
   if(!vh){ try{ vh = window.innerHeight || 0; }catch(e){} }
+  const headless = !(vw > 0 && vh > 0);
   try{ const hEl = (typeof document !== 'undefined' && document.getElementById) ? document.getElementById('hint') : null;
    if(hEl && hEl.offsetHeight) hintH = hEl.offsetHeight + 22; }catch(e){}
+  if(headless){
+   // Tests / headless: keep the 960x640 viewport so balance never moves;
+   // only ensure a crisp backing store.
+   let eff = Math.min(dpr, maxBack / W, maxBack / H);
+   if(!(eff > 0)) eff = 1;
+   const bw = Math.max(1, Math.round(W * eff));
+   const bh = Math.max(1, Math.round(H * eff));
+   if(canvas.width !== bw || canvas.height !== bh){
+    canvas.width = bw; canvas.height = bh;
+    try{ ctx.imageSmoothingEnabled = false; }catch(e){}
+    try{ farStars = null; }catch(e){}
+    try{ worldCache = null; }catch(e){}
+   }
+   devicePx = eff; viewScale = 1;
+   try{ ctx.setTransform(devicePx, 0, 0, devicePx, 0, 0); }catch(e){}
+   try{ if(typeof layoutButtons === 'function') layoutButtons(); }catch(e){}
+   return;
+  }
   if(!(vw > 0)) vw = W; if(!(vh > 0)) vh = H;
-  const availW = Math.max(320, vw - 24);
-  const availH = Math.max(240, vh - hintH - 28);
-  const fit = Math.min(availW / W, availH / H);
-  viewScale = fit > 0 ? fit : 1;
-  const cssW = Math.max(1, Math.round(W * viewScale));
-  const cssH = Math.max(1, Math.round(H * viewScale));
+  const availW = Math.max(280, vw - 24);
+  const availH = Math.max(320, vh - hintH - 28);
+  const cssW = Math.max(1, Math.round(availW));
+  const cssH = Math.max(1, Math.round(availH));
+  if(cssW !== W || cssH !== H){
+   W = cssW; H = cssH;
+   try{ mouse.x = clamp(mouse.x, 0, W); mouse.y = clamp(mouse.y, 0, H); }catch(e){}
+   try{ touch.x = clamp(touch.x, 0, W); touch.y = clamp(touch.y, 0, H); }catch(e){}
+   try{ farStars = null; }catch(e){}
+   try{ worldCache = null; }catch(e){}
+   try{ recordCache = null; }catch(e){}
+   try{ for(const k in codexSilCache) delete codexSilCache[k]; }catch(e){}
+  }
+  viewScale = 1;
   let eff = Math.min(dpr, maxBack / cssW, maxBack / cssH);
   if(!(eff > 0)) eff = 1;
   const bw = Math.max(1, Math.round(cssW * eff));
@@ -58,8 +89,11 @@ function fitCanvas(){
    try{ farStars = null; }catch(e){}
    try{ worldCache = null; }catch(e){}
   }
-  devicePx = (canvas.width / W) || 1;
+  devicePx = eff;
   try{ ctx.setTransform(devicePx, 0, 0, devicePx, 0, 0); }catch(e){}
+  // Re-pin centred menus and edge HUD to the new shape.
+  try{ if(typeof layoutButtons === 'function') layoutButtons(); }catch(e){}
+  try{ cam.x = clamp(cam.x, 0, Math.max(0, WW - W)); cam.y = clamp(cam.y, 0, Math.max(0, HH - H)); }catch(e){}
  }catch(e){}
 }
 let fitQueued = false;
@@ -114,7 +148,7 @@ function oklch(L,C,H){
 // [hue, lightness, chroma], found by a constrained search that held each god
 // as near as it could to its character hue.
 const PIGMENT_DEF={
- stalker:[122,0.66,0.063], brute:[176,0.71,0.111], tempest:[160,0.59,0.119],
+ stalker:[128,0.66,0.06], brute:[176,0.71,0.111], tempest:[160,0.59,0.119],
  sniper:[231,0.61,0.098], drone:[265,0.72,0.114], mite:[344,0.69,0.110],
  basilisk:[131,0.58,0.104],    // moss         · Keeper of the Held
  nullifier:[148,0.74,0.116],   // pale jade    · the Silent
@@ -241,13 +275,14 @@ function segCircleT(x1,y1,x2,y2,cx,cy,r){
 }
 
 // ---------- settings ----------
-let settings = { shake:!REDUCED, particles:!REDUCED, music:true, autofire:true, showSeed:true, musicVol:0.8, sfxVol:0.6, dmgNums:true };
+let settings = { shake:!REDUCED, particles:!REDUCED, music:true, autofire:true, showSeed:false, musicVol:0.8, sfxVol:0.6, dmgNums:!REDUCED };
 try{ const s=JSON.parse(lsGet('cfg')||'null'); if(s&&typeof s==='object') settings=Object.assign(settings,s); }catch(e){}
 function saveCfg(){ try{ lsSet('cfg',JSON.stringify(settings)); }catch(e){} }
 
 // ---------- audio ----------
 let AC=null, master=null, musicBus=null, noiseBuf=null, muted=false, musicTimer=null, musicStep=0, musicPat=[55,0,55,65.41,0,55,49,58.27], musicTempo=190, musicLead=[], musicWave='square';
 function ac(){ try{ if(!AC){ const C=window.AudioContext||window.webkitAudioContext; if(!C) return null; AC=new C(); master=AC.createGain(); master.gain.value=muted?0:settings.sfxVol; master.connect(AC.destination); musicBus=AC.createGain(); musicBus.gain.value=(muted||!settings.music)?0:settings.musicVol; musicBus.connect(AC.destination); } if(AC.state==='suspended') AC.resume(); return AC; }catch(e){ return null; } }
+function audioUnlocked(){ try{ return !!(AC&&AC.state==='running'); }catch(e){ return false; } }
 function applyVol(){ try{ if(master) master.gain.value=muted?0:settings.sfxVol; if(musicBus) musicBus.gain.value=(muted||!settings.music)?0:settings.musicVol; }catch(e){} }
 function tone(type,f0,f1,dur,vol,delay,bus){ const c=ac(); if(!c||muted) return; delay=delay||0; try{ const t0=c.currentTime+delay; const o=c.createOscillator(), g=c.createGain(); o.type=type; o.frequency.setValueAtTime(Math.max(1,f0),t0); o.frequency.exponentialRampToValueAtTime(Math.max(1,f1),t0+dur); g.gain.setValueAtTime(vol,t0); g.gain.exponentialRampToValueAtTime(0.001,t0+dur); o.connect(g); g.connect(bus||master); o.start(t0); o.stop(t0+dur+0.03); }catch(e){} }
 function noiseHit(dur,vol,hp,delay,bus){ const c=ac(); if(!c||muted) return; delay=delay||0; try{ const t0=c.currentTime+delay; if(!noiseBuf){ noiseBuf=c.createBuffer(1,c.sampleRate*0.5,c.sampleRate); const d=noiseBuf.getChannelData(0); for(let i=0;i<d.length;i++) d[i]=Math.random()*2-1; } const s=c.createBufferSource(); s.buffer=noiseBuf; s.loop=true; const f=c.createBiquadFilter(); f.type='highpass'; f.frequency.value=hp||6000; const g=c.createGain(); g.gain.setValueAtTime(vol,t0); g.gain.exponentialRampToValueAtTime(0.001,t0+dur); s.connect(f); f.connect(g); g.connect(bus||master); s.start(t0); s.stop(t0+dur+0.03); }catch(e){} }
@@ -330,7 +365,7 @@ try{
 // and the pause overlay never paints. We therefore (a) pause on blur too, (b) run a
 // 250ms watchdog on document.hasFocus(), and (c) paint one frame synchronously.
 function clearInputs(){ try{ for(const k in keys) keys[k]=false; mouse.down=false; }catch(e){} }
-function toPaused(auto){ clearInputs(); floaters=[]; state='paused'; autoPaused=!!auto; setMusicCfg(PAUSE_MUS); try{ render(); }catch(e){} }
+function toPaused(auto){ clearInputs(); floaters=[]; state='paused'; pauseSel=0; autoPaused=!!auto; setMusicCfg(PAUSE_MUS); try{ render(); }catch(e){} }
 function toPlaying(){ state='playing'; autoPaused=false; if(arena&&arena.theme) setMusicCfg(arena.theme); }
 function autoPause(){ if(state==='playing') toPaused(true); }
 function focusLost(){ try{ if(document.hidden) return true; if(typeof document.hasFocus==='function'&&!document.hasFocus()) return true; }catch(e){} return false; }
@@ -595,6 +630,7 @@ let galaxySel=0, clearedMax=-1; // level selector: highest cleared sector idx, n
 let shake=0, levelChoices=[], upgradeCounts={}, starterOffered=false;
 let sectorCleared=false; // clear bonus fires once per sector, not per empty field
 let pendingLevels=0;     // level-ups earned but not yet drafted (see gainXp)
+let pendingNest=0;       // nest bonus drafts queued behind an open draft (see killEnemy)
 // Dash and recall are the two abilities that make the game move. Passing on
 // them early must not lock a run out of them for good: while one is still
 // locked, each draft it is missing from counts up, and once it has been
@@ -605,7 +641,7 @@ let pity={spd:0,pcell:0};
 let levelBack=null; // the core unlock offered again as a fourth card, if any
 let enterT=-1e9;     // when the current sector was entered: drives the pulsar fix
 let wipeArmT=0;      // Reset records asks twice: the first press arms it until this time
-let nestDraftAt=0;   // set when a nest's bonus draft opens: that draft is drawn inverted
+let nestDraftAt=0;   // set when a nest's bonus draft opens: dark ground + gold disc
 let nestLtLeft=0;        // boss-class lieutenants this nest may still field (shared by all bosses)
 
 function newPlayer(dmgBonus){
@@ -1107,7 +1143,7 @@ function startRun(){
  spawnQueue=[]; spawnT=0;
  upgradeCounts={};
  player=newPlayer(1+0.02*bosses);
- starterOffered=false; pendingLevels=0; pity={spd:0,pcell:0};
+ starterOffered=false; pendingLevels=0; pendingNest=0; pity={spd:0,pcell:0};
  loadArena(0); // live world behind the hub; entering S1 reloads it fresh
  galaxySel=0; clearedMax=-1;
  setMusicCfg(TITLE_MUS);
@@ -1125,7 +1161,7 @@ const RUN_V=1;
 function saveRun(){
  if(!player) return;
  const snap={ v:RUN_V, runSeed, arenaIdx, kills, arenasCleared, timeSec, upgradeCounts,
-  starterOffered, pendingLevels, clearedMax, galaxySel, pity,
+   starterOffered, pendingLevels, pendingNest, clearedMax, galaxySel, pity,
   player:Object.assign({},player,{recall:null,channel:null}) };
  lsSet('run',JSON.stringify(snap));
 }
@@ -1154,7 +1190,7 @@ function continueRun(){
  upgradeCounts=Object.assign({},r.upgradeCounts);
  // Merge onto fresh defaults, so a save written before a field existed still loads.
  player=Object.assign(newPlayer(1),r.player,{recall:null,channel:null});
- starterOffered=!!r.starterOffered; pendingLevels=r.pendingLevels|0;
+ starterOffered=!!r.starterOffered; pendingLevels=r.pendingLevels|0; pendingNest=r.pendingNest|0;
  pity=Object.assign({spd:0,pcell:0},r.pity);
  loadArena(0); // live world behind the hub, as in startRun
  clearedMax=Math.max(-1,r.clearedMax|0); galaxySel=clamp(r.galaxySel|0,0,clearedMax+1);
@@ -1162,9 +1198,15 @@ function continueRun(){
  setMusicCfg(TITLE_MUS);
  state='galaxy'; autoPaused=false; titleConfirm=false;
 }
-let titleConfirm=false; // NEW RUN over a saved run asks twice
+let titleConfirm=false, titleConfirmT=0; // NEW RUN over a saved run asks twice
 let endInfo={src:null,newBest:false,at:0}; // what ended the last hull, for the end screen
-let restartArm=0; // pause RESTART asks twice, like NEW RUN
+let restartArm=0; // pause ABANDON asks twice, like NEW RUN
+// Arrow selection rides alongside the number/letter shortcuts: every menu
+// answers both. Indices reset when the menu opens.
+let titleSel=0, pauseSel=0, settingsSel=5, draftSel=0, endSel=0;
+const ARM_MS=3000; // every destructive confirm drains over the same window
+function confirmFrac(armT){ return clamp((armT-performance.now())/ARM_MS,0,1); }
+function drainBar(x0,x1,y,frac){ if(frac<=0) return; line(x0,y,x0+(x1-x0)*clamp(frac,0,1),y,K.red,2); }
 let draftAt=0, draftPress=-1; const DRAFT_GRACE=300; // a draft ignores the mouse briefly after opening: clicks meant as shots must not pick
 function handleRelease(x,y){ if(state!=='levelup'||draftPress<0) return; const i=draftPress; draftPress=-1; const r=draftRect(i); if(levelChoices[i]&&x>r.x&&x<r.x+r.w&&y>r.y&&y<r.y+r.h) pickUpgrade(levelChoices[i]); }
 function loadArena(i){
@@ -1257,6 +1299,7 @@ function gainXp(v){
   player.maxhp+=3; player.hp=Math.min(player.maxhp,player.hp+3);
  }
  if(pendingLevels>0&&state==='playing'){ pendingLevels--; openLevelUp(); }
+ else if(pendingNest>0&&state==='playing'){ pendingNest--; openLevelUp(); nestDraftAt=performance.now(); }
 }
 // Magnet Core vacuum: bank every gem on the field at once. This is the ONLY way
 // gems reach the ship without being flown over or pulled in — clearing a sector
@@ -1316,7 +1359,7 @@ function openDraft(picks,back){
   if(!c.locked(player)) pity[c.id]=0;
   else pity[c.id]=picks.some(u=>u.id===c.id)?0:pity[c.id]+1;
  }
- levelChoices=picks; floaters=[]; state='levelup'; draftAt=performance.now(); draftPress=-1; SFX.levelup();
+  levelChoices=picks; floaters=[]; state='levelup'; draftAt=performance.now(); draftPress=-1; draftSel=0; SFX.levelup();
 }
 function pickUpgrade(u){
  if(!u) return;
@@ -1325,7 +1368,9 @@ function pickUpgrade(u){
  addFloater(player.x,player.y-24,u.name,K.gold);
  if(u.r===2) SFX.rare(); else SFX.upgrade();
  state='playing';
- if(pendingLevels>0){ pendingLevels--; openLevelUp(); } // drain queued level-ups
+ // A queued nest bonus still opens as the nest draft: disc, with its FALLS header.
+ if(pendingNest>0){ pendingNest--; openLevelUp(); nestDraftAt=performance.now(); }
+ else if(pendingLevels>0){ pendingLevels--; openLevelUp(); } // drain queued level-ups
 }
 function scoreCalc(){ return kills*50+arenasCleared*250+player.level*100+Math.max(0,1800-Math.floor(timeSec)*5); }
 function die(){ state='gameover'; floaters=[]; clearRun(); const s=scoreCalc(); endInfo={src:player.lastSrc||null, newBest:s>best&&s>0, at:performance.now()}; if(endInfo.src) markSeen(endInfo.src.id); if(s>best) best=s; depth=Math.max(depth,arenaIdx+1); saveMeta(); SFX.lose(); stopMusic(); spawnBurst(player.x,player.y,40,K.gold,260,0.8,4); }
@@ -1411,7 +1456,7 @@ function callLieutenant(e){
  const lt=mkLieutenant(kind,s2.x,s2.y,arenaIdx,e.chain+1,e.cmd-1);
  lt.spawnT=0.9; enemies.push(lt);
  rings.push({x:s2.x,y:s2.y,r:10,maxR:120,spd:300,dmg:0,hit:true});
- addFloater(e.x,calloutY(e),e.bname+' CALLS '+TIER_NAMES[lt.def.tier]+' '+lt.def.name,K.red); SFX.alarm();
+  addFloater(e.x,calloutY(e),e.bname+' CALLS LIEUTENANT '+lt.def.name+' ('+TIER_NAMES[lt.def.tier]+')',K.red); SFX.alarm();
 }
 function bossBehave(e,C){
  const p=C.p, d=C.d, nx=C.nx, ny=C.ny, dt=C.dt, sF=C.sF, enrage=C.enrage;
@@ -1800,8 +1845,8 @@ function killEnemy(j){
   if(left>0){ addFloater(player.x,player.y-34,'BOSS DOWN — '+left+' LEFT',K.gold); SFX.win(); }
   else { addFloater(player.x,player.y-34,'NEST CLEARED · bonus draft',K.goldHi); SFX.win();
    // A draft already on screen must not be replaced by the bonus: queue it
-   // behind the open one and pickUpgrade drains it next.
-   if(state==='levelup') pendingLevels++; else { openLevelUp(); nestDraftAt=performance.now(); } }
+   // as its own entry behind the open one and pickUpgrade opens it inverted.
+   if(state==='levelup') pendingNest++; else { openLevelUp(); nestDraftAt=performance.now(); } }
   return; }
  // Sector-clear bonus, ONCE per sector. The field empties repeatedly between
  // reinforcement batches, so the old unguarded `enemies.length===0` test paid
@@ -1821,8 +1866,11 @@ function galaxyConfirm(){ if(galaxySel<=clearedMax+1){ SFX.click(); loadSector(g
 // never collide with the description / hint lines at the bottom of the hub.
 function galNodes(){
  const out=[], start=Math.max(0,galaxySel-2);
+ const margin = Math.max(24, Math.min(110, W * 0.115));
+ const step = (W - margin * 2) / 8;
+ const lo = Math.max(140, H * 0.39), hi = Math.max(lo + 40, H - 220);
  for(let k=0;k<9;k++){ const i=start+k;
-  out.push({i,x:110+k*92,y:clamp(H/2+40+Math.sin(i*0.9+(runSeed%7))*110,250,420),unlocked:i<=clearedMax+1,cleared:i<=clearedMax,cur:i===galaxySel});
+  out.push({i,x:margin+k*step,y:clamp(H/2+40+Math.sin(i*0.9+(runSeed%7))*110,lo,hi),unlocked:i<=clearedMax+1,cleared:i<=clearedMax,cur:i===galaxySel});
  }
  return out;
 }
@@ -2250,16 +2298,36 @@ function updateFx(dt){
 function handleKeyPress(code){
  ac();
  if(code==='KeyM'){ muted=!muted; applyVol(); return; }
-  if(state==='title'){
-   ensureTitleMusic();
-   if(code==='Enter'||code==='Space'){ SFX.click(); if(readRun()) continueRun(); else startRun(); return; }
-   if(code==='KeyN'){ SFX.click(); titleNewRun(); return; }
-   titleConfirm=false;
-  if(code==='KeyO') openSettings('title');
-  if(code==='KeyH'||code==='F1') openHelp('title');
-  if(code==='KeyC') openCodex('title');
-  return;
- }
+   if(state==='title'){
+    ensureTitleMusic();
+    if(titleConfirm&&titleConfirmT<=performance.now()){ titleConfirm=false; titleConfirmT=0; }
+    const saved=!!readRun(), nT=saved?5:4;
+    titleSel=clamp(titleSel,0,nT-1);
+    if(code==='ArrowDown'||code==='ArrowUp'){ titleSel=(titleSel+(code==='ArrowDown'?1:nT-1))%nT; SFX.click(); return; }
+    if(code==='Space'){ SFX.click(); if(saved) continueRun(); else startRun(); return; }
+    if(code==='Enter'){
+     SFX.click();
+     if(saved){
+      if(titleSel===0) continueRun();
+      else if(titleSel===1) titleNewRun();
+      else if(titleSel===2) openSettings('title');
+      else if(titleSel===3) openCodex('title');
+      else openHelp('title');
+     } else {
+      if(titleSel===0){ if(readRun()) continueRun(); else startRun(); }
+      else if(titleSel===1) openSettings('title');
+      else if(titleSel===2) openCodex('title');
+      else openHelp('title');
+     }
+     return;
+    }
+    if(code==='KeyN'){ SFX.click(); titleSel=saved?1:0; titleNewRun(); return; }
+    titleConfirm=false; titleConfirmT=0;
+   if(code==='KeyO'){ titleSel=saved?2:1; openSettings('title'); }
+   if(code==='KeyH'||code==='F1'){ titleSel=nT-1; openHelp('title'); }
+   if(code==='KeyC'){ titleSel=nT-2; openCodex('title'); }
+   return;
+  }
  if(state==='codex'){
   if(code==='Digit1'||code==='Digit2'){ codexTab=CODEX_TABS[code==='Digit1'?0:1]; codexSel=0; SFX.click(); }
   else if(code==='ArrowLeft'||code==='ArrowRight'){ codexTab=codexTab==='bosses'?'bestiary':'bosses'; codexSel=0; SFX.click(); }
@@ -2267,9 +2335,13 @@ function handleKeyPress(code){
   else if(code==='Escape'||code==='KeyC'||code==='Enter') closeCodex();
   return;
  }
-  // Space is dash: a player mashing it as the hull goes must still see the end screen
-  if(state==='gameover'){ if((code==='KeyR'||code==='Enter')&&endReady()){ SFX.click(); startRun(); } if(code==='Escape'){ state='title'; ensureTitleMusic(); } return; }
-  if(state==='settings'){ settingsKey(code); return; }
+   // Space is dash: a player mashing it as the hull goes must still see the end screen
+   if(state==='gameover'){
+    if(code==='ArrowDown'||code==='ArrowUp'){ endSel=(endSel+(code==='ArrowDown'?1:1))%2; SFX.click(); return; }
+    if(code==='Enter'&&endReady()){ SFX.click(); if(endSel===0) startRun(); else { state='title'; ensureTitleMusic(); } return; }
+    if(code==='KeyR'&&endReady()){ SFX.click(); startRun(); return; }
+    if(code==='Escape'){ state='title'; titleSel=0; ensureTitleMusic(); } return; }
+   if(state==='settings'){ settingsKey(code); return; }
  if(state==='help'){
   const dig=['Digit1','Digit2','Digit3','Digit4'].indexOf(code);
   if(dig>=0){ helpTab=HELP_TABS[dig]; SFX.click(); }
@@ -2280,7 +2352,13 @@ function handleKeyPress(code){
   }
   else if(code==='Escape'||code==='KeyH'||code==='Enter') closeHelp();
   return; }
-  if(state==='levelup'){ if(code==='KeyC'){ openCodex('levelup'); return; } if(code==='KeyH'){ openHelp('levelup'); return; } const d=['Digit1','Digit2','Digit3','Digit4'].indexOf(code); if(d>=0&&levelChoices[d]) pickUpgrade(levelChoices[d]); return; }
+   if(state==='levelup'){
+    if(code==='KeyC'){ openCodex('levelup'); return; }
+    if(code==='KeyH'){ openHelp('levelup'); return; }
+    const n=levelChoices.length;
+    if(code==='ArrowLeft'||code==='ArrowUp'||code==='ArrowRight'||code==='ArrowDown'){ draftSel=((draftSel+((code==='ArrowLeft'||code==='ArrowUp')?n-1:1))%Math.max(1,n)); SFX.click(); return; }
+    if((code==='Enter'||code==='Space')&&levelChoices[draftSel]){ pickUpgrade(levelChoices[draftSel]); return; }
+    const d=['Digit1','Digit2','Digit3','Digit4'].indexOf(code); if(d>=0&&levelChoices[d]){ draftSel=d; pickUpgrade(levelChoices[d]); } return; }
   if(state==='galaxy'){
    if(code==='Enter'||code==='Space'){ galaxyConfirm(); return; }
    if(code==='ArrowRight'||code==='ArrowLeft'){ const ns=clamp(galaxySel+(code==='ArrowRight'?1:-1),0,clearedMax+1); if(ns!==galaxySel){ galaxySel=ns; SFX.click(); } else SFX.brk(); return; }
@@ -2299,10 +2377,31 @@ function handleKeyPress(code){
   if(code==='KeyE'){ doPortalKey(); return; }
   return;
  }
- if(state==='paused'){ if(code==='Escape'||code==='KeyP'){ toPlaying(); SFX.click(); } if(code==='KeyR'){ pauseRestart(); } if(code==='KeyQ'){ quitToTitle(); return; } if(code==='KeyO') openSettings('paused'); if(code==='KeyH') openHelp('paused'); if(code==='KeyC') openCodex('paused'); return; }
+  if(state==='paused'){
+   pauseSel=clamp(pauseSel,0,5);
+   if(code==='ArrowDown'||code==='ArrowUp'){ pauseSel=(pauseSel+(code==='ArrowDown'?1:5))%6; SFX.click(); return; }
+   if(code==='Enter'){
+    SFX.click();
+    if(pauseSel===0) toPlaying();
+    else if(pauseSel===1) openSettings('paused');
+    else if(pauseSel===2) openHelp('paused');
+    else if(pauseSel===3) openCodex('paused');
+    else if(pauseSel===4){ pauseRestart(); }
+    else quitToTitle();
+    return;
+   }
+   if(code==='Escape'||code==='KeyP'){ toPlaying(); SFX.click(); return; }
+   if(code==='KeyR'){ pauseSel=4; pauseRestart(); return; }
+   if(code==='KeyQ'){ pauseSel=5; quitToTitle(); return; }
+   if(code==='KeyO'){ pauseSel=1; openSettings('paused'); }
+   if(code==='KeyH'){ pauseSel=2; openHelp('paused'); }
+   if(code==='KeyC'){ pauseSel=3; openCodex('paused'); }
+   return; }
 }
-// RESTART from pause throws away the saved run, so it asks twice, like NEW RUN.
-function pauseRestart(){ SFX.click(); if(restartArm>performance.now()){ restartArm=0; startRun(); } else restartArm=performance.now()+3000; }
+// ABANDON from pause throws away the saved run, so it asks twice, like NEW
+// RUN — and it lands on the title, never straight into sector 1. A fresh run
+// always starts from the title menu, never from a stray keypress.
+function pauseRestart(){ SFX.click(); if(restartArm>performance.now()){ restartArm=0; clearRun(); state='title'; autoPaused=false; titleConfirm=false; titleConfirmT=0; titleSel=0; pauseSel=0; ensureTitleMusic(); } else restartArm=performance.now()+ARM_MS; }
 function endReady(){ return performance.now()-endInfo.at>=600; }
 function tryDash(){
  const p=player; if(!p||state!=='playing') return;
@@ -2317,34 +2416,59 @@ function tryDash(){
  p.dashT=0.16; p.dashCd=p.dashCdMax; p.invuln=Math.max(p.invuln,0.25);
  SFX.dash(); spawnBurst(p.x,p.y,7,K.goldDim,160,0.4,2.5);
 }
-function openSettings(from){ settingsFrom=from; prevPause=(state==='playing'||state==='paused')?state:null; state='settings'; if(from!=='title') setMusicCfg(PAUSE_MUS); SFX.click(); }
+function openSettings(from){ settingsFrom=from; prevPause=(state==='playing'||state==='paused')?state:null; state='settings'; settingsSel=clamp(settingsSel,0,8); if(from!=='title') setMusicCfg(PAUSE_MUS); SFX.click(); }
 let prevPause=null;
 function settingsKey(code){
   if(code==='Escape'||code==='KeyO'){ SFX.click(); const ap=autoPaused; if(settingsFrom==='playing') toPlaying(); else if(settingsFrom==='title'||settingsFrom==='galaxy') state=settingsFrom; else toPaused(ap);
    if(state==='title'||state==='galaxy') setMusicCfg(TITLE_MUS); else if(state==='playing'&&arena) setMusicCfg(arena.theme); else setMusicCfg(PAUSE_MUS); return; }
- if(code==='Digit1'){ settings.shake=!settings.shake; saveCfg(); }
- if(code==='Digit2'){ settings.particles=!settings.particles; saveCfg(); }
-  if(code==='Digit3'){ settings.music=!settings.music; saveCfg(); applyVol(); if(settings.music){ if(settingsFrom==='title'||settingsFrom==='galaxy') setMusicCfg(TITLE_MUS); else if(state==='playing'&&arena) setMusicCfg(arena.theme); else setMusicCfg(PAUSE_MUS); } }
- if(code==='Digit4'){ settings.autofire=!settings.autofire; saveCfg(); if(player) player.autoFire=settings.autofire; }
- if(code==='Digit5'){ settings.showSeed=!settings.showSeed; saveCfg(); }
-  if(code==='Digit6'){ if(wipeArmT>performance.now()){ wipeArmT=0; best=0; depth=0; bosses=0; saveMeta(); codexKills={}; saveCodex(); codexSeenMap={}; try{ lsDel('seen'); }catch(e){} } else wipeArmT=performance.now()+3000; }
- if(code==='Digit7'){ settings.musicVol=settings.musicVol>=1?0:Math.round((settings.musicVol+0.1)*10)/10; saveCfg(); applyVol(); }
- if(code==='Digit8'){ settings.sfxVol=settings.sfxVol>=1?0:Math.round((settings.sfxVol+0.1)*10)/10; saveCfg(); applyVol(); }
- if(code==='Digit9'){ settings.dmgNums=!settings.dmgNums; saveCfg(); }
+  settingsSel=clamp(settingsSel,0,8);
+  if(code==='ArrowDown'||code==='ArrowUp'){ settingsSel=(settingsSel+(code==='ArrowDown'?1:8))%9; SFX.click(); return; }
+  // Volume rows step both ways: left turns it down, right turns it up. Every
+  // other row treats all four as a press.
+  if(settingsSel===6||settingsSel===7){
+   const key=settingsSel===6?'musicVol':'sfxVol';
+   if(code==='ArrowLeft'){ settingsSel=settingsSel; settings[key]=Math.round((settings[key]-0.1)*10)/10; if(settings[key]<0) settings[key]=0; saveCfg(); applyVol(); SFX.click(); return; }
+   if(code==='ArrowRight'){ settingsSel=settingsSel; settings[key]=Math.round((settings[key]+0.1)*10)/10; if(settings[key]>1) settings[key]=1; saveCfg(); applyVol(); SFX.click(); return; }
+  }
+  if(code==='Enter'||code==='Space'||code==='ArrowLeft'||code==='ArrowRight'){ code='Digit'+(settingsSel+1); }
+  if(code==='Digit1'){ settingsSel=0; settings.shake=!settings.shake; saveCfg(); }
+  if(code==='Digit2'){ settingsSel=1; settings.particles=!settings.particles; saveCfg(); }
+   if(code==='Digit3'){ settingsSel=2; settings.music=!settings.music; saveCfg(); applyVol(); if(settings.music){ if(settingsFrom==='title'||settingsFrom==='galaxy') setMusicCfg(TITLE_MUS); else if(state==='playing'&&arena) setMusicCfg(arena.theme); else setMusicCfg(PAUSE_MUS); } }
+  if(code==='Digit4'){ settingsSel=3; settings.autofire=!settings.autofire; saveCfg(); if(player) player.autoFire=settings.autofire; }
+  if(code==='Digit5'){ settingsSel=4; settings.showSeed=!settings.showSeed; saveCfg(); }
+   if(code==='Digit6'){ settingsSel=5; if(wipeArmT>performance.now()){ wipeArmT=0; best=0; depth=0; bosses=0; saveMeta(); codexKills={}; saveCodex(); codexSeenMap={}; try{ lsDel('seen'); }catch(e){} } else wipeArmT=performance.now()+ARM_MS; }
+  if(code==='Digit7'){ settingsSel=6; settings.musicVol=Math.min(1,Math.round((settings.musicVol+0.1)*10)/10); saveCfg(); applyVol(); }
+  if(code==='Digit8'){ settingsSel=7; settings.sfxVol=Math.min(1,Math.round((settings.sfxVol+0.1)*10)/10); saveCfg(); applyVol(); }
+  if(code==='Digit9'){ settingsSel=8; settings.dmgNums=!settings.dmgNums; saveCfg(); }
  SFX.click();
 }
 let helpTab='controls'; // controls | shields | arsenal | lore
 let codexPreview=false; // suppresses HP bars and combat labels in codex portraits
 let codexSilhouette=false; // locked entries draw their real shape as a flat shadow
 const HELP_TABS=['controls','shields','arsenal','lore'];
-function helpTabRects(){ const a=[]; const w=170, g=10, x0=(W-(w*4+g*3))/2; for(let i=0;i<4;i++) a.push({x:x0+i*(w+g),y:132,w,h:30}); return a; }
+function helpTabRects(){
+ const fullW = 170, g = 10;
+ let w = fullW;
+ if(W < fullW * 4 + g * 3 + 32) w = Math.max(64, Math.floor((W - 32 - g * 3) / 4));
+ const x0 = Math.round((W - (w * 4 + g * 3)) / 2);
+ const y = Math.max(110, 132 + Math.min(0, H - 640));
+ const a = [];
+ for(let i=0;i<4;i++) a.push({x:x0+i*(w+g),y,w,h:30});
+ return a;
+}
 // ---------- codex screen ----------
 // Its own screen, reachable from the title, the galaxy hub and pause (key C).
 let codexFrom='title', codexTab='bosses', codexSel=0;
 const CODEX_TABS=['bestiary','bosses'];
 function openCodex(from){ codexFrom=from; codexSel=0; state='codex'; if(from==='paused'||from==='playing-paused') setMusicCfg(PAUSE_MUS); SFX.click(); }
 function closeCodex(){ SFX.click(); if(codexFrom==='paused'||codexFrom==='playing-paused') toPaused(autoPaused); else if(codexFrom==='galaxy') state='galaxy'; else if(codexFrom==='levelup') state='levelup'; else state='title'; }
-function codexTabRects(){ const w=200, g=12, x0=(W-(w*2+g))/2; return [0,1].map(i=>({x:x0+i*(w+g),y:120,w,h:30})); }
+function codexTabRects(){
+ let w = 200; const g = 12;
+ if(W < w * 2 + g + 32) w = Math.max(80, Math.floor((W - 32 - g) / 2));
+ const x0 = Math.round((W - (w * 2 + g)) / 2);
+ const y = Math.max(100, 120 + Math.min(0, H - 640));
+ return [0,1].map(i=>({x:x0+i*(w+g),y,w,h:30}));
+}
 // ---------- codex ----------
 // One entry per thing that can kill you. TELL is what you see before it hurts,
 // COUNTER is what you do about it — the two lines that actually change play.
@@ -2460,6 +2584,8 @@ function codexProgress(){
  return {n,m,tot};
 }
 // Left-aligned word wrap returning lines, so lore can flow in the detail pane.
+// The last line never strands a single word: a lone orphan is folded back so
+// it joins the previous line instead of dangling.
 function wrapLines(t,maxChars){
  const words=String(t).split(' '), out=[]; let line='';
  for(const w of words){
@@ -2467,6 +2593,13 @@ function wrapLines(t,maxChars){
   else line=line?line+' '+w:w;
  }
  if(line) out.push(line);
+ if(out.length>=2){
+  const last=out[out.length-1];
+  if(last.indexOf(' ')<0){
+   const prev=out[out.length-2].split(' ');
+   if(prev.length>1){ const w=prev.pop(); out[out.length-2]=prev.join(' '); out[out.length-1]=w+' '+last; }
+  }
+ }
  return out;
 }
 const HELP_TXT={
@@ -2474,9 +2607,9 @@ controls:[
 'MOVE: WASD / Arrows — your nose follows movement, guns track the mouse.',
 'FIRE: hold click, or leave AUTO-FIRE on (T) and just fly.',
 'DASH: locked until Ion Thrusters — then Space / Shift (i-frames).',
-'EXIT: walk into the ring or press E. Clearing a wave funds ~1 upgrade.',
+'EXIT: walk into the ring or press E. Clearing a sector funds ~1 upgrade.',
 'GALAXY: START drops you on the hub — pick a lit sector, clear it, pick the next.',
-'WAVES: an opening pack loads in; reinforcements stream from off-screen.',
+'SECTORS: an opening pack loads in; reinforcements stream from off-screen.',
 'RECALL: Portal Cell cards grant charges (max 5).',
 '  E drops a gate (1 charge). E again channels a blink (520px, cooldown).',
 '  Overdrive cuts cooldown, Transit cuts channel time. E cancels.',
@@ -2484,15 +2617,15 @@ controls:[
 'STATUS: PETRIFIED roots you; JAMMED locks dash + recall. Neither stops your guns.',
 'TIP: first draft offers dash + recall — take one, then build damage.'],
 shields:[
-'Warding Plate: blocks the 1st hit of EVERY round. Refreshes per arena.',
-'Bulwark Matrix: blocks 2+ hits per round. Refreshes per arena.',
-'Crit Ward (rare): blocks 1 HEAVY hit per round. Refreshes per arena.',
+'Warding Plate: blocks the 1st hit of EVERY sector. Refreshes per sector.',
+'Bulwark Matrix: blocks 2+ hits per sector. Refreshes per sector.',
+'Crit Ward (rare): blocks 1 HEAVY hit per sector. Refreshes per sector.',
 'Aegis Pulse: a shield that recharges mid-fight and blocks hits.',
 'Ablative Barrier (rare): ONE-TIME pool absorbs 50 damage — never comes back.',
 'Stasis Protocol (rare): cheat death up to 3 times — revival grows 1 HP → 25% → FULL.',
 'Second Wind (rare): one revive at 50% HP.',
 'Block order: Crit Ward (heavy only) → Warding → Bulwark → Barrier → Aegis.',
-'Live shields show under your HUD: WARD · BUL×2 · MIR · BAR50 · STASIS×1.',
+'Live shields hang under your HUD: AEGIS PULSE · WARDING PLATE · BULWARK ×2 · CRIT WARD · BARRIER 50 · STASIS ×1.',
 'Repair Drone mends you only after 4s UNDAMAGED — sustain between fights.',
 'Adrenal Core pays more the lower your HP. Salvage mends on every gem.'],
 arsenal:[
@@ -2506,7 +2639,7 @@ arsenal:[
 '  lowers the kill cost, Amplifier raises damage, Resonance widens and chills.',
 '  Orbital Cannon calls telegraphed strikes. Prism Lance fires a piercing beam.',
 '  Guardian Orbit, Frost Nova, Tesla Arc (rare), Kill Surge, Shrapnel Core.',
-'MAPS: every arena is validated — all spawns and the EXIT are always reachable,',
+'MAPS: every sector is validated — all spawns and the EXIT are always reachable,',
 '  and at least 45% of the field is open. Six layout types, six themes.'],
 lore:[
 'You are KRIEFNE: an exploration ship sent from home, long ago, to find life.',
@@ -2530,25 +2663,72 @@ function openHelp(from){ helpFrom=from; helpTab='controls'; state='help'; if(fro
 function closeHelp(){ SFX.click(); if(helpFrom==='levelup'){ state='levelup'; } else if(helpFrom==='paused'){ toPaused(autoPaused); } else if(helpFrom==='playing-paused'){ toPaused(autoPaused); } else if(helpFrom==='galaxy'){ state='galaxy'; } else { state='title'; } }
 function inBtn(x,y,b){ return x>b.x&&x<b.x+b.w&&y>b.y&&y<b.y+b.h; }
 // Starting over while a run is saved throws that run away, so it takes a
-// second press: the first only arms the button.
-function titleNewRun(){ if(readRun()&&!titleConfirm){ titleConfirm=true; return; } titleConfirm=false; startRun(); }
-function quitToTitle(){ state='title'; autoPaused=false; titleConfirm=false; parts=[]; floaters=[]; clearInputs(); ensureTitleMusic(); SFX.click(); }
+// second press: the first only arms the button for one shared window.
+function titleNewRun(){ const sv=readRun(); if(sv&&(!titleConfirm||titleConfirmT<=performance.now())){ titleConfirm=true; titleConfirmT=performance.now()+ARM_MS; return; } titleConfirm=false; titleConfirmT=0; startRun(); }
+function quitToTitle(){ state='title'; autoPaused=false; titleConfirm=false; titleConfirmT=0; titleSel=0; pauseSel=0; parts=[]; floaters=[]; clearInputs(); ensureTitleMusic(); SFX.click(); }
 const BTN={ titleContinue:{x:64,y:346,w:400,h:44}, titleStart:{x:64,y:398,w:400,h:44}, titleSet:{x:64,y:462,w:126,h:34}, titleCodex:{x:201,y:462,w:126,h:34}, titleHelp:{x:338,y:462,w:126,h:34},
  pauseResume:{x:330,y:290,w:300,h:42}, pauseSet:{x:330,y:338,w:300,h:42}, pauseHelp:{x:330,y:386,w:300,h:42}, pauseCodex:{x:330,y:434,w:300,h:42}, pauseRestart:{x:330,y:482,w:300,h:42}, pauseQuit:{x:330,y:530,w:300,h:42},
  galCodex:{x:W-236,y:60,w:180,h:34},
  endRestart:{x:330,y:532,w:300,h:44}, endTitle:{x:330,y:584,w:300,h:36},
  back:{x:330,y:560,w:300,h:44} };
+// Re-pin buttons to the live viewport: centred menus, edge-pinned HUD-adjacent
+// entries. At 960x640 this reproduces the exact shipped rects above, so the
+// headless balance suite never moves; on any other window it reflows.
+function layoutButtons(){
+ try{
+  const tMargin = W < 600 ? 16 : 64;
+  const tW = Math.min(400, W - tMargin * 2);
+  if(H < 560){
+   BTN.titleContinue.x = tMargin; BTN.titleContinue.y = 108; BTN.titleContinue.w = tW; BTN.titleContinue.h = 36;
+   BTN.titleStart.x = tMargin; BTN.titleStart.y = 148; BTN.titleStart.w = tW; BTN.titleStart.h = 36;
+   const sW = Math.max(44, Math.floor((tW - 22) / 3));
+   BTN.titleSet.x = tMargin; BTN.titleSet.y = 188; BTN.titleSet.w = sW; BTN.titleSet.h = 28;
+   BTN.titleCodex.x = tMargin + sW + 11; BTN.titleCodex.y = 188; BTN.titleCodex.w = sW; BTN.titleCodex.h = 28;
+   BTN.titleHelp.x = tMargin + 2 * (sW + 11); BTN.titleHelp.y = 188; BTN.titleHelp.w = Math.max(44, tW - 2 * (sW + 11)); BTN.titleHelp.h = 28;
+  } else {
+  const tShift = Math.min(0, H - 640);
+  BTN.titleContinue.x = tMargin; BTN.titleContinue.y = 346 + tShift; BTN.titleContinue.w = tW; BTN.titleContinue.h = 44;
+  BTN.titleStart.x = tMargin; BTN.titleStart.y = 398 + tShift; BTN.titleStart.w = tW; BTN.titleStart.h = 44;
+  const sW = Math.max(44, Math.floor((tW - 22) / 3));
+  BTN.titleSet.x = tMargin; BTN.titleSet.y = 462 + tShift; BTN.titleSet.w = sW; BTN.titleSet.h = 34;
+  BTN.titleCodex.x = tMargin + sW + 11; BTN.titleCodex.y = 462 + tShift; BTN.titleCodex.w = sW; BTN.titleCodex.h = 34;
+  BTN.titleHelp.x = tMargin + 2 * (sW + 11); BTN.titleHelp.y = 462 + tShift; BTN.titleHelp.w = Math.max(44, tW - 2 * (sW + 11)); BTN.titleHelp.h = 34;
+  }
+  const cW = Math.min(300, Math.max(200, W - 32)), cX = Math.round((W - cW) / 2);
+  if(H >= 560){
+   const pShift = Math.min(0, H - 640);
+   const pY = [290, 338, 386, 434, 482, 530];
+   BTN.pauseResume.x = cX; BTN.pauseResume.y = pY[0] + pShift; BTN.pauseResume.w = cW; BTN.pauseResume.h = 42;
+   BTN.pauseSet.x = cX; BTN.pauseSet.y = pY[1] + pShift; BTN.pauseSet.w = cW; BTN.pauseSet.h = 42;
+   BTN.pauseHelp.x = cX; BTN.pauseHelp.y = pY[2] + pShift; BTN.pauseHelp.w = cW; BTN.pauseHelp.h = 42;
+   BTN.pauseCodex.x = cX; BTN.pauseCodex.y = pY[3] + pShift; BTN.pauseCodex.w = cW; BTN.pauseCodex.h = 42;
+   BTN.pauseRestart.x = cX; BTN.pauseRestart.y = pY[4] + pShift; BTN.pauseRestart.w = cW; BTN.pauseRestart.h = 42;
+   BTN.pauseQuit.x = cX; BTN.pauseQuit.y = pY[5] + pShift; BTN.pauseQuit.w = cW; BTN.pauseQuit.h = 42;
+  } else {
+   // Short landscape windows: compact entries so all six stay on-screen.
+   const ph = 30, pitch = 34;
+   let sy = Math.max(56, Math.round(H / 2 - (6 * ph + 5 * (pitch - ph)) / 2) + 30);
+   const keys = ['pauseResume','pauseSet','pauseHelp','pauseCodex','pauseRestart','pauseQuit'];
+   keys.forEach((k,i)=>{ BTN[k].x = cX; BTN[k].w = cW; BTN[k].h = ph; BTN[k].y = Math.round(sy + i * pitch); });
+  }
+  const gW = Math.min(180, Math.max(120, W - 32)), gM = W < 600 ? 16 : 56;
+  BTN.galCodex.w = gW; BTN.galCodex.x = W - gW - gM; BTN.galCodex.y = 60;
+  BTN.endRestart.x = cX; BTN.endRestart.w = cW; BTN.endRestart.y = H - 108;
+  BTN.endTitle.x = cX; BTN.endTitle.w = cW; BTN.endTitle.y = H - 56;
+  BTN.back.x = cX; BTN.back.w = cW; BTN.back.y = H - 80;
+ }catch(e){}
+}
 function handleClick(x,y){
- if(state==='title'){
-  ensureTitleMusic();
-  const saved=readRun();
-  if(saved&&inBtn(x,y,BTN.titleContinue)){ SFX.click(); continueRun(); }
-  else if(inBtn(x,y,titleStartRect())){ SFX.click(); if(saved) titleNewRun(); else startRun(); }
-  else if(inBtn(x,y,BTN.titleSet)) openSettings('title');
-  else if(inBtn(x,y,BTN.titleCodex)) openCodex('title');
-  else if(inBtn(x,y,BTN.titleHelp)) openHelp('title');
-  return;
- }
+  if(state==='title'){
+   ensureTitleMusic();
+   const saved=readRun();
+   if(saved&&inBtn(x,y,BTN.titleContinue)){ titleSel=0; SFX.click(); continueRun(); }
+   else if(inBtn(x,y,titleStartRect())){ titleSel=saved?1:0; SFX.click(); if(saved) titleNewRun(); else startRun(); }
+   else if(inBtn(x,y,BTN.titleSet)){ titleSel=saved?2:1; openSettings('title'); }
+   else if(inBtn(x,y,BTN.titleCodex)){ titleSel=saved?3:2; openCodex('title'); }
+   else if(inBtn(x,y,BTN.titleHelp)){ titleSel=saved?4:3; openHelp('title'); }
+   return;
+  }
  if(state==='codex'){
   const tr=codexTabRects();
   for(let i=0;i<tr.length;i++){ if(inBtn(x,y,tr[i])){ codexTab=CODEX_TABS[i]; codexSel=0; SFX.click(); return; } }
@@ -2558,18 +2738,21 @@ function handleClick(x,y){
  }
  if(state==='settings'){
   const rows=rowRects();
-  for(let i=0;i<rows.length;i++){ if(x>rows[i].x&&x<rows[i].x+rows[i].w&&y>rows[i].y&&y<rows[i].y+rows[i].h){ settingsKey('Digit'+(i+1)); return; } }
+  for(let i=0;i<rows.length;i++){ if(x>rows[i].x&&x<rows[i].x+rows[i].w&&y>rows[i].y&&y<rows[i].y+rows[i].h){
+   // Volume rows: the left half turns down, the right half turns up.
+   if(i===6||i===7){ settingsSel=i; settingsKey(x<rows[i].x+rows[i].w/2?'ArrowLeft':'ArrowRight'); return; }
+   settingsKey('Digit'+(i+1)); return; } }
   if(inBtn(x,y,BTN.back)){ settingsKey('Escape'); }
   return;
  }
   if(state==='help'){ const tr=helpTabRects();
    for(let i=0;i<tr.length;i++){ if(inBtn(x,y,tr[i])){ helpTab=HELP_TABS[i]; SFX.click(); return; } }
    if(inBtn(x,y,BTN.back)) closeHelp(); return; }
-  if(state==='gameover'){
-   if(inBtn(x,y,BTN.endRestart)){ if(endReady()){ SFX.click(); startRun(); } }
-   else if(inBtn(x,y,BTN.endTitle)){ state='title'; ensureTitleMusic(); }
-   return;
-  }
+   if(state==='gameover'){
+    if(inBtn(x,y,BTN.endRestart)){ endSel=0; if(endReady()){ SFX.click(); startRun(); } }
+    else if(inBtn(x,y,BTN.endTitle)){ endSel=1; state='title'; titleSel=0; ensureTitleMusic(); }
+    return;
+   }
   if(state==='levelup'){ // a press only arms a card; the pick lands on release (handleRelease)
    draftPress=-1; if(performance.now()-draftAt<DRAFT_GRACE) return;
    for(let i=0;i<levelChoices.length;i++){ const r=draftRect(i); if(x>r.x&&x<r.x+r.w&&y>r.y&&y<r.y+r.h){ draftPress=i; return; } }
@@ -2580,15 +2763,15 @@ function handleClick(x,y){
    for(const n of galNodes()){ if(Math.hypot(x-n.x,y-n.y)<20){ galaxySel=n.i; if(n.unlocked){ SFX.click(); loadSector(n.i); } else SFX.brk(); return; } }
    return;
   }
-  if(state==='paused'){
-   if(inBtn(x,y,BTN.pauseResume)){ toPlaying(); SFX.click(); }
-  else if(inBtn(x,y,BTN.pauseSet)) openSettings('paused');
-  else if(inBtn(x,y,BTN.pauseHelp)) openHelp('paused');
-  else if(inBtn(x,y,BTN.pauseCodex)) openCodex('paused');
-  else if(inBtn(x,y,BTN.pauseRestart)) pauseRestart();
-  else if(inBtn(x,y,BTN.pauseQuit)) quitToTitle();
-  return;
- }
+   if(state==='paused'){
+    if(inBtn(x,y,BTN.pauseResume)){ pauseSel=0; toPlaying(); SFX.click(); }
+   else if(inBtn(x,y,BTN.pauseSet)){ pauseSel=1; openSettings('paused'); }
+   else if(inBtn(x,y,BTN.pauseHelp)){ pauseSel=2; openHelp('paused'); }
+   else if(inBtn(x,y,BTN.pauseCodex)){ pauseSel=3; openCodex('paused'); }
+   else if(inBtn(x,y,BTN.pauseRestart)){ pauseSel=4; pauseRestart(); }
+   else if(inBtn(x,y,BTN.pauseQuit)){ pauseSel=5; quitToTitle(); }
+   return;
+  }
   if(state==='playing'){
    const wx=x+cam.x, wy=y+cam.y; // clicks arrive in screen space; the world is camera-offset
    if(portal&&dist2(wx,wy,portal.x,portal.y)<50*50){ nextArena(); return; }
@@ -2596,7 +2779,24 @@ function handleClick(x,y){
    if(rc&&dist2(wx,wy,rc.x,rc.y)<40*40){ doPortalKey(); }
   }
 }
-function rowRects(){ const a=[]; for(let i=0;i<9;i++) a.push({x:230,y:176+i*42,w:500,h:38}); return a; }
+function rowRects(){
+ if(H < 560){
+  // Short landscape: two columns so all nine rows stay on-screen.
+  const w2 = Math.max(200, Math.min(360, Math.floor((W - 48) / 2)));
+  const x0 = Math.round((W - (w2 * 2 + 16)) / 2);
+  const y0 = 96, pitch = 26, h = 24;
+  const a = [];
+  for(let i=0;i<9;i++){ const col = i < 5 ? 0 : 1, row = i < 5 ? i : i - 5;
+   a.push({x:x0+col*(w2+16),y:y0+row*pitch,w:w2,h}); }
+  return a;
+ }
+ const w = Math.min(500, Math.max(240, W - 32));
+ const x = Math.round((W - w) / 2);
+ const shift = Math.min(0, H - 640);
+ const a = [];
+ for(let i=0;i<9;i++) a.push({x,y:176+i*42+shift,w,h:38});
+ return a;
+}
 
 // ---------- render ----------
 // ======================================================================
@@ -2670,7 +2870,7 @@ const WORDMARK=[
  {w:0.5,s:[[[0.5,0],[0,0],[0,1],[0.5,1]],[[0,0.5],[0.38,0.5]]]}
 ];
 function drawWordmark(x,y,h,col,bg){
- ctx.save(); ctx.lineJoin='miter'; ctx.lineCap='square';
+ ctx.save(); ctx.lineJoin='bevel'; ctx.lineCap='square';
  const gap=0.32*h;
  const pass=(lw,c)=>{ let px=x; ctx.strokeStyle=c; ctx.lineWidth=lw;
   for(const L of WORDMARK){ for(const s of L.s){ ctx.beginPath(); s.forEach((p,i)=>{ const X=px+p[0]*h, Y=y+p[1]*h; if(i) ctx.lineTo(X,Y); else ctx.moveTo(X,Y); }); ctx.stroke(); } px+=L.w*h+gap; }
@@ -2796,7 +2996,7 @@ function engrave(g,o,Lx,Ly,P){
 function render(){
  if(!fontsReady){ ctx.fillStyle=K.ground; ctx.fillRect(0,0,W,H); return; }
  // Re-assert the device transform every frame: canvas resizes reset context
- // state, and this keeps all draw code in logical 960x640 units.
+ // state, and this keeps all draw code in live viewport (W/H) units.
  try{ ctx.setTransform(devicePx,0,0,devicePx,0,0); }catch(e){}
  ctx.save();
  if(shake>0&&settings.shake) ctx.translate((Math.random()-0.5)*shake,(Math.random()-0.5)*shake);
@@ -2824,8 +3024,9 @@ function render(){
  if(state==='gameover') drawEnd();
  if(bossWarnT>0&&state==='playing'&&hostiles()>0){
   const t=bossWarnTxt||'BOSS';
-  line(W/2-240,PY0+50,W/2+240,PY0+50,K.red,1); line(W/2-240,PY0+84,W/2+240,PY0+84,K.red,1);
-  heading(t,W/2,PY0+75,20,K.red,'center');
+  const hw=Math.min(240,W/2-16);
+  line(W/2-hw,PY0+50,W/2+hw,PY0+50,K.red,1); line(W/2-hw,PY0+84,W/2+hw,PY0+84,K.red,1);
+  heading(t,W/2,PY0+75,Math.min(20,Math.max(14,Math.floor((hw*2-32)/Math.max(4,t.length)))),K.red,'center');
   ctx.textAlign='center'; bossWarnSub.forEach((l,i)=>inkText(l,W/2,PY0+106+i*16,K.text,fM(12,600)));
  }
 }
@@ -3208,46 +3409,86 @@ function drawHUD(){
  line(0,HUD_H-0.5,W,HUD_H-0.5,K.metalDim,1);
  ctx.beginPath(); ctx.strokeStyle=K.metalDim; ctx.lineWidth=1; for(let x=0;x<=W;x+=24){ ctx.moveTo(x+0.5,HUD_H); ctx.lineTo(x+0.5,HUD_H-(x%120===0?7:3)); } ctx.stroke();
  const r1=21, r2=43;
- // hull: the number sits beside the groove, never on it
+ // hull: the number sits beside the groove, never on it.
+ // The strip pins to both edges: the hull block stays left, the sector tally
+ // stays right, and the middle systems yield first on narrow windows so no
+ // two labels ever collide and 12px text never shrinks.
  const low=p.hp<=p.maxhp*0.3;
+ const narrow = W < 860, phone = W < 620;
+ const hullW = phone ? Math.max(70, Math.min(110, W * 0.22)) : narrow ? 110 : 150;
  heading('HULL',14,r1,9,K.textDim);
- groove(64,r1-4,150,p.hp/p.maxhp,low?K.red:K.gold,10);
- mono(Math.ceil(p.hp)+'/'+p.maxhp,224,r1,13,low?K.red:K.text,'left',600);
- heading('LV',14,r2,9,K.textDim); mono(String(p.level),36,r2,12,K.gold,'left',600);
- groove(64,r2-4,150,p.xp/p.xpNeed,K.gold,0);
- mono(Math.floor(p.xp)+'/'+p.xpNeed,224,r2,11,K.textDim);
- // dash and recall
- heading('DASH',326,r1,9,K.textDim);
- if(!p.dashUnlocked){ line(374,r1-4,454,r1-4,K.metalDim,1,[3,3]); mono('LOCKED',462,r1,11,K.textDim); }
- else { const ready=p.dashCd<=0; groove(374,r1-4,80,ready?1:1-(p.dashCd/p.dashCdMax),K.gold,4); mono(ready?'READY':p.dashCd.toFixed(1)+'s',462,r1,11,ready?K.gold:K.textDim,'left',600); }
- heading('GATE',326,r2,9,K.textDim);
- if(!p.recallUnlocked) mono('LOCKED',374,r2,11,K.textDim);
- else { binTicks(376,r2+1,p.charges,5,K.gold); mono(p.recall?(p.recallCd>0?Math.ceil(p.recallCd)+'s':'SET'):'—',412,r2,11,p.recall&&p.recallCd<=0?K.gold:K.textDim,'left',600); }
+ groove(64,r1-4,hullW,p.hp/p.maxhp,low?K.red:K.gold,phone?0:10);
+ mono(Math.ceil(p.hp)+'/'+p.maxhp,64+hullW+10,r1,13,low?K.red:K.text,'left',600);
+ heading('LV',14,r2,9,K.textDim); mono(String(p.level),48,r2,12,K.gold,'left',600);
+ groove(64,r2-4,hullW,p.xp/p.xpNeed,K.gold,0);
+ mono(Math.floor(p.xp)+'/'+p.xpNeed,64+hullW+10,r2,11,K.textDim);
+ const leftEnd = 64 + hullW + 86;
+ const rightReserve = phone ? 170 : narrow ? 210 : 250;
+ const midX = leftEnd + 24;
+ // dash and recall: the label sits in its own column so it never touches the
+ // groove, the ticks or the value beside it.
+ if(!phone && midX + 200 < W - rightReserve){
+  heading('DASH',midX,r1,9,K.textDim);
+  if(!p.dashUnlocked){ line(midX+62,r1-4,midX+128,r1-4,K.metalDim,1,[3,3]); mono('LOCKED',midX+136,r1,11,K.textDim); }
+  else { const ready=p.dashCd<=0; groove(midX+62,r1-4,narrow?56:80,ready?1:1-(p.dashCd/p.dashCdMax),K.gold,4); mono(ready?'READY':p.dashCd.toFixed(1)+'s',midX+150,r1,11,ready?K.gold:K.textDim,'left',600); }
+  heading('GATE',midX,r2,9,K.textDim);
+  if(!p.recallUnlocked) mono('LOCKED',midX+62,r2,11,K.textDim);
+  else { binTicks(midX+62,r2+1,p.charges,5,K.gold); mono(p.recall?(p.recallCd>0?Math.ceil(p.recallCd)+'s':'SET'):'—',midX+98,r2,11,p.recall&&p.recallCd<=0?K.gold:K.textDim,'left',600); }
+ } else if(phone){
+  // Phone: label and value are two inks with a gap, never one string.
+  const ready=p.dashUnlocked&&p.dashCd<=0;
+  heading('DASH',midX,r1,9,K.textDim); mono(!p.dashUnlocked?'—':(ready?'OK':p.dashCd.toFixed(0)+'s'),midX+52,r1,11,ready?K.gold:K.textDim,'left',600);
+  heading('GATE',midX,r2,9,K.textDim); mono(!p.recallUnlocked?'—':(p.charges+'/5'),midX+52,r2,11,p.recallUnlocked?K.gold:K.textDim,'left',600);
+ }
  // discharge charge and auto-fire
- if(p.shockOn){ const f=clamp(p.shockKills/p.shockNeed,0,1);
-  heading('CHARGE',528,r1,9,K.textDim); groove(598,r1-4,56,f,f>=1?K.goldHi:K.gold,0); mono(p.shockKills+'/'+p.shockNeed,662,r1,11,f>=1?K.gold:K.textDim); }
- heading('AUTO',528,r2,9,K.textDim); mono((p.autoFire?'ON':'OFF')+' [T]',574,r2,11,p.autoFire?K.gold:K.textDim,'left',600);
+ if(!narrow){
+  if(p.shockOn){ const f=clamp(p.shockKills/p.shockNeed,0,1);
+   heading('CHARGE',528,r1,9,K.textDim); groove(598,r1-4,56,f,f>=1?K.goldHi:K.gold,0); mono(p.shockKills+'/'+p.shockNeed,662,r1,11,f>=1?K.gold:K.textDim); }
+  heading('AUTO',528,r2,9,K.textDim); mono((p.autoFire?'ON':'OFF')+' [T]',586,r2,11,p.autoFire?K.gold:K.textDim,'left',600);
+ } else if(!phone && p.shockOn && midX + 380 < W - rightReserve){
+  const f=clamp(p.shockKills/p.shockNeed,0,1);
+  heading('CHARGE',midX+200,r1,9,K.textDim); groove(midX+270,r1-4,48,f,f>=1?K.goldHi:K.gold,0); mono(p.shockKills+'/'+p.shockNeed,midX+326,r1,11,f>=1?K.gold:K.textDim);
+ }
  // sector plate label and the tally
- heading(sectorName(arenaIdx)+' · '+(arena?arena.theme.name.toUpperCase():''),W-14,r1,11,K.gold,'right');
+ heading(phone?sectorName(arenaIdx):narrow?sectorName(arenaIdx):sectorName(arenaIdx)+' · '+(arena?arena.theme.name.toUpperCase():''),W-14,r1,phone?12:11,K.gold,'right');
  let fieldXp=0; for(const g of gems) fieldXp+=g.v;
  const foes=hostiles();
  let x=W-14; ctx.textAlign='right';
  // Once the foes are gone, the tally becomes the XP still lying on the field:
  // it is lost on exit, so the HUD says how much is left to collect.
+ // Phones keep the count short so the centred dash readout never collides.
  if(foes>0) mono('FOES '+foes,x,r2,12,K.red,'right',600);
- else if(gems.length) mono('XP ON FIELD '+Math.round(fieldXp*p.xpBonus),x,r2,12,K.hydro,'right',600);
-  else mono('FIELD CLEAR',x,r2,12,K.textDim,'right',600);
-  // shields hang off the instrument's edge as engraved tags
- const tags=[]; if(p.shieldReady) tags.push('AEGIS PULSE'); if(p.wardUp) tags.push('WARDING PLATE'); if(p.bulwark>0) tags.push('BULWARK ×'+p.bulwark); if(p.mirrorUp) tags.push('CRIT WARD'); if(p.barrier>0) tags.push('BARRIER '+Math.ceil(p.barrier)); if(p.stasisN>0) tags.push('STASIS ×'+p.stasisN);
+ else if(gems.length) mono(phone?'XP '+Math.round(fieldXp*p.xpBonus):'XP ON FIELD '+Math.round(fieldXp*p.xpBonus),x,r2,12,K.hydro,'right',600);
+  else mono(phone?'CLEAR':'FIELD CLEAR',x,r2,12,K.textDim,'right',600);
+  // shields hang off the instrument's edge as engraved tags.
+  // One source for the live shield names: the HUD and Help read these same
+  // tags, so the book never disagrees with the instrument.
+function hudShieldTags(p){
+  const t=[];
+  if(p.shieldReady) t.push('AEGIS PULSE');
+  if(p.wardUp) t.push('WARDING PLATE');
+  if(p.bulwark>0) t.push('BULWARK ×'+p.bulwark);
+  if(p.mirrorUp) t.push('CRIT WARD');
+  if(p.barrier>0) t.push('BARRIER '+Math.ceil(p.barrier));
+  if(p.stasisN>0) t.push('STASIS ×'+p.stasisN);
+  return t;
+}
+  const tags=hudShieldTags(p);
  if(tags.length&&state==='playing'){ ctx.font=fM(11,600); const t=tags.join('  ·  '); let tw=t.length*6.6; try{ tw=ctx.measureText(t).width; }catch(e){}
   ctx.fillStyle=K.ground; ctx.fillRect(10,HUD_H,tw+14,18); line(10,HUD_H+18,tw+24,HUD_H+18,K.goldDim,1); mono(t,16,HUD_H+13,11,K.gold,'left',600); }
  // what is being done to you, centred under the strip, in red
  let by=HUD_H+22;
  if(state==='playing'&&(p.jamT>0||p.rootT>0)){ heading(p.jamT>0?'JAMMED':'PETRIFIED',W/2,by,12,K.red,'center'); by+=22; }
- if(portal&&state==='playing'){ const t=gems.length?'SECTOR CLEAR — COLLECT YOUR XP; ANYTHING LEFT IS LOST AT THE EXIT [E]':'SECTOR CLEAR — ENTER THE EXIT [E]';
-  ctx.font=fM(12,600); let tw=t.length*7; try{ tw=ctx.measureText(t).width; }catch(e){}
-  ctx.fillStyle=K.ground; ctx.fillRect(W/2-tw/2-16,by-14,tw+32,20);
-  mono(t,W/2,by,12,K.gold,'center',600); line(W/2-tw/2-16,by+6,W/2+tw/2+16,by+6,K.goldDim,1); }
+ if(portal&&state==='playing'){
+  const lines = gems.length
+   ? (W < 620 ? ['SECTOR CLEAR — COLLECT YOUR XP','ANYTHING LEFT IS LOST AT THE EXIT [E]'] : ['SECTOR CLEAR — COLLECT YOUR XP; ANYTHING LEFT IS LOST AT THE EXIT [E]'])
+   : ['SECTOR CLEAR — ENTER THE EXIT [E]'];
+  ctx.font=fM(12,600); let tw=lines.reduce((m,t)=>{ let w=t.length*7; try{ w=ctx.measureText(t).width; }catch(e){} return Math.max(m,w); },0);
+  tw=Math.min(tw,W-32);
+  ctx.fillStyle=K.ground; ctx.fillRect(W/2-tw/2-16,by-14,tw+32,20*lines.length-4);
+  lines.forEach((t,i)=>mono(t,W/2,by+i*18,12,K.gold,'center',600));
+  line(W/2-tw/2-16,by+(lines.length-1)*18+6,W/2+tw/2+16,by+(lines.length-1)*18+6,K.goldDim,1);
+ }
  // hull critical: an inset double rule in red around the field
  if(p.hp<=p.maxhp*0.3&&state==='playing'){ const a=REDUCED?0.8:0.55+0.3*Math.sin(performance.now()/180);
   ctx.save(); ctx.globalAlpha=a; ctx.strokeStyle=K.red; ctx.lineWidth=1; ctx.strokeRect(6.5,HUD_H+6.5,W-13,H-HUD_H-13); ctx.strokeRect(10.5,HUD_H+10.5,W-21,H-HUD_H-21); ctx.restore(); }
@@ -3297,29 +3538,71 @@ function titleStartRect(){ return readRun()?BTN.titleStart:BTN.titleContinue; }
 function drawTitle(){
  ctx.fillStyle=K.ground; ctx.fillRect(0,0,W,H);
  drawFarStars(0,0);
- drawRecord(806,330,300);
- drawWordmark(64,96,60);
- heading('ROGUELITE',66,190,11,K.textDim);
- mono('Restored from backup. Mandate unchanged.',66,210,12,K.textDim);
- line(66,228,470,228,K.metalDim,1);
- const intro=wrapLines('Fight down an endless galaxy trail — clear each sector, draft an upgrade, push on. Every 5th sector is a boss NEST. Boss kills bank +2% damage forever.',56);
- intro.forEach((l,i)=>mono(l,66,250+i*18,12,K.text));
+ // The disc bleeds off the right edge on desktop; on narrow/tall windows it
+ // shrinks and tucks behind the text instead of swallowing it.
+ const tR = Math.max(140, Math.min(300, Math.min(W * 0.42, H * 0.5)));
+ const discX = W < 620 ? W - tR * 0.35 : W - 154 * (tR / 300);
+ const tCy = Math.min(330, H * 0.52);
+ drawRecord(discX, tCy, tR);
+  const m = W < 600 ? 16 : 64;
+  // Short landscape windows cannot hold the full record cover: wordmark,
+  // entries and records stay, the intro paragraphs yield.
+   if(H < 560){
+    const wH = W < 420 ? 30 : 40;
+    drawWordmark(m, 30, wH);
+    heading('ROGUELITE',m+2,30+wH+22,11,K.textDim);
+    const saved=readRun();
+    const tArmed=titleConfirm&&titleConfirmT>performance.now();
+    if(saved){
+     entry(BTN.titleContinue,'CONTINUE '+sectorName(saved.galaxySel|0),'[Enter]',titleSel===0);
+     entry(BTN.titleStart,tArmed?'ABANDON SAVED RUN?':'NEW RUN',tArmed?'[N again]':'[N]',titleSel===1,tArmed?'danger':undefined);
+     if(tArmed){ mono('[N] again to confirm — the saved run is lost.',m+2,BTN.titleStart.y+BTN.titleStart.h+16,11,K.red); drainBar(BTN.titleStart.x,BTN.titleStart.x+BTN.titleStart.w,BTN.titleStart.y+BTN.titleStart.h-5,confirmFrac(titleConfirmT)); }
+    } else entry(BTN.titleContinue,'START','[Enter]',titleSel===0);
+    if(!saved) mono('No saved run — START begins a fresh trail.',m+2,BTN.titleStart.y+22,11,K.textDim);
+    entry(BTN.titleSet,'SETTINGS',null,saved?titleSel===2:titleSel===1);
+    entry(BTN.titleCodex,'CODEX',null,saved?titleSel===3:titleSel===2);
+    entry(BTN.titleHelp,'HELP',null,saved?titleSel===4:titleSel===3);
+    const pr=codexProgress();
+    mono('[↑↓] select · [O] settings  ·  [C] codex '+pr.n+'/'+pr.tot+'  ·  [H] help',m+2,H-40,11,K.textDim);
+   if(best>0||depth>0) mono('BEST '+best+'   ·   DEPTH S'+depth,m+2,H-20,12,K.gold,'left',600);
+   else mono('No records yet — the Wake remembers.',m+2,H-20,12,K.textDim,'left');
+   return;
+  }
+  const shift = Math.min(0, H - 640);
+  const wordH = W < 420 ? 40 : 60;
+  drawWordmark(m, 96 + Math.min(0, Math.max(-30, H - 640)), wordH);
+ heading('ROGUELITE',m+2,190+shift,11,K.textDim);
+ mono('Restored from backup. Mandate unchanged.',m+2,210+shift,12,K.textDim);
+ line(m+2,228+shift,Math.min(m+406,W-(W<620?tR*0.5+16:64)),228+shift,K.metalDim,1);
+ const wrapN = Math.max(24, Math.min(56, Math.floor((Math.min(W-(W<620?tR*0.7+32:64), 470)-m) / 6.6)));
+ const intro=wrapLines('Fight down an endless galaxy trail — clear each sector, draft an upgrade, push on. Every 5th sector is a boss NEST. Boss kills bank +2% damage forever.',wrapN);
+ intro.forEach((l,i)=>mono(l,m+2,250+i*18+shift,12,K.text));
  const pr=codexProgress();
- mono('46 stackable upgrades · 12 bosses in a chain of command',66,250+intro.length*18+8,11,K.textDim);
- const saved=readRun();
- if(saved){
-  entry(BTN.titleContinue,'CONTINUE '+sectorName(saved.galaxySel|0),'[Enter]',true);
-  if(titleConfirm) entry(BTN.titleStart,'ABANDON SAVED RUN?','[N]',false,'danger');
-  else entry(BTN.titleStart,'NEW RUN','[N]',false);
- } else entry(BTN.titleContinue,'START','[Enter]',true);
- entry(BTN.titleSet,'SETTINGS',null,false);
- entry(BTN.titleCodex,'CODEX',null,false);
- entry(BTN.titleHelp,'HELP',null,false);
- mono('[O] settings  ·  [C] codex '+pr.n+'/'+pr.tot+'  ·  [H] help',66,516,11,K.textDim);
- wrapLines('Sniper lasers are telegraphed — dash through them. Brute rings: stay out of the band.',58).forEach((l,i)=>mono(l,66,548+i*16,11,K.textDim));
- mono('BEST '+best+'   ·   DEPTH S'+depth,66,592,12,K.gold,'left',600);
- mono('click or press any key for sound',470,592,11,K.textDim,'right');
- mono('vanilla Canvas · WebAudio synth · BFS-validated maps · no deps',66,616,10,K.textDim);
+ mono('46 stackable upgrades · 12 bosses in a chain of command',m+2,250+intro.length*18+8+shift,11,K.textDim);
+  const saved=readRun();
+  const tArmed=titleConfirm&&titleConfirmT>performance.now();
+  if(saved){
+   entry(BTN.titleContinue,'CONTINUE '+sectorName(saved.galaxySel|0),'[Enter]',titleSel===0);
+   entry(BTN.titleStart,tArmed?'ABANDON SAVED RUN?':'NEW RUN',tArmed?'[N again]':'[N]',titleSel===1,tArmed?'danger':undefined);
+   if(tArmed){ mono('[N] again to confirm — the saved run is lost.',BTN.titleStart.x+22,BTN.titleStart.y+BTN.titleStart.h+16,11,K.red); drainBar(BTN.titleStart.x,BTN.titleStart.x+BTN.titleStart.w,BTN.titleStart.y+BTN.titleStart.h-5,confirmFrac(titleConfirmT)); }
+  } else entry(BTN.titleContinue,'START','[Enter]',titleSel===0);
+  if(!saved) mono('No saved run — START begins a fresh trail.',m+2,BTN.titleStart.y+22,11,K.textDim);
+  entry(BTN.titleSet,'SETTINGS',null,saved?titleSel===2:titleSel===1);
+  entry(BTN.titleCodex,'CODEX',null,saved?titleSel===3:titleSel===2);
+  entry(BTN.titleHelp,'HELP',null,saved?titleSel===4:titleSel===3);
+  mono('[↑↓] select · [O] settings  ·  [C] codex '+pr.n+'/'+pr.tot+'  ·  [H] help',m+2,516+shift,11,K.textDim);
+ wrapLines('Sniper lasers are telegraphed — break the line. Brute rings: stay out of the band.',Math.max(24,Math.min(58,Math.floor((W-m*2)/6.6)))).forEach((l,i)=>mono(l,m+2,548+i*16+shift,11,K.textDim));
+ const recTxt=(best>0||depth>0)?('BEST '+best+'   ·   DEPTH S'+depth):'No records yet — the Wake remembers.';
+ mono(recTxt,m+2,592+shift,12,(best>0||depth>0)?K.gold:K.textDim,'left',600);
+ // The sound hint is transient: once audio unlocks it goes away. Its slot is
+ // measured off the records line, never a fixed x, so a large BEST cannot collide.
+ if(!audioUnlocked()){
+  const hint='click or press any key for sound';
+  ctx.font=fM(12,600); let lw=recTxt.length*7; try{ lw=ctx.measureText(recTxt).width; }catch(e){}
+  ctx.font=fM(11); let hw=hint.length*6; try{ hw=ctx.measureText(hint).width; }catch(e){}
+  if(m+2+lw+16+hw<=W-64) mono(hint,W-64,592+shift,11,K.textDim,'right');
+ }
+ mono('vanilla Canvas · WebAudio synth · BFS-validated maps · no deps',m+2,616+shift,10,K.textDim);
 }
 // ---------- galaxy hub: the pulsar map ----------
 function drawGalaxy(){
@@ -3327,10 +3610,10 @@ function drawGalaxy(){
  const s=galaxySel, th=THEMES[s%THEMES.length];
  ctx.fillStyle=th.pal.ground; ctx.fillRect(0,0,W,H);
  drawFarStars(runSeed%512,0);
- heading('SECTOR '+String(s+1).padStart(2,'0')+' · '+th.name.toUpperCase(),64,86,18,K.gold);
- line(64,104,560,104,th.pal.dim,1);
- mono('The pulsar map: every line runs home. Its ticks count the sector in binary.',64,124,11,K.textDim);
- const ns=galNodes(), HX=24, HY=H/2+40;
+ heading('SECTOR '+String(s+1).padStart(2,'0')+' · '+th.name.toUpperCase(),W<600?16:64,86,18,K.gold);
+ line(W<600?16:64,104,Math.min(W<600?W-16:560,W-64),104,th.pal.dim,1);
+ mono('The pulsar map: every line runs home. Its ticks count the sector in binary.',W<600?16:64,124,11,K.textDim);
+ const ns=galNodes(), HX=W<600?16:64, HY=H/2+40;
  // home, the origin every line runs back to
  ctx.strokeStyle=K.gold; ctx.lineWidth=1; ctx.beginPath(); ctx.arc(HX,HY,6,0,6.283); ctx.stroke(); ctx.fillStyle=K.gold; ctx.fillRect(HX-1.5,HY-1.5,3,3);
  mono('HOME',HX+12,HY+20,10,K.textDim);
@@ -3358,33 +3641,50 @@ function drawGalaxy(){
   mono('S'+(n.i+1),n.x,n.y+(boss?44:32),11,n.cleared?K.gold:(n.unlocked?K.text:K.textDim),'center',600);
  }
  const lore=galaxyLore(s,th.name);
- line(64,H-150,W-64,H-150,K.metalDim,1);
+ const gm = W<600?16:64;
+ line(gm,H-150,W-gm,H-150,K.metalDim,1);
  mono(lore,W/2,H-124,13,K.text,'center');
- mono('[←→] select · [Enter / click] set course · [C] codex · [H] help · [O] settings · [Esc] title',W/2,H-98,11,K.textDim,'center');
- if(player&&Object.keys(upgradeCounts).length){ heading('BUILD',64,H-44,9,K.textDim); drawBuild(130,H-62,W-194,1); }
+ mono(W<620?'[tap] set course · [C] codex · [Esc] title':'[←→] select · [Enter / click] set course · [C] codex · [H] help · [O] settings · [Esc] title',W/2,H-98,11,K.textDim,'center');
+ if(player&&Object.keys(upgradeCounts).length){ heading('BUILD',gm,H-44,9,K.textDim); drawBuild(gm+66,H-62,W-gm*2-66,1); drawBuildTip(); }
  const pr=codexProgress();
  entry(BTN.galCodex,'CODEX',pr.n+'/'+pr.tot+'  [C]',false);
 }
 // ---------- settings ----------
 // One list of settings rows, drawn by the screen and read by the live region.
 function settingsRows(armed,armLeft){
-  return [['1','SCREEN SHAKE',settings.shake?'ON':'OFF',settings.shake],['2','PARTICLES',settings.particles?'FULL':'LOW',settings.particles],['3','MUSIC',settings.music?'ON':'OFF',settings.music],['4','AUTO-FIRE DEFAULT',settings.autofire?'ON':'OFF',settings.autofire],['5','SHOW SECTOR SEED',settings.showSeed?'ON':'OFF',settings.showSeed],['6',armed?('PRESS 6 AGAIN TO WIPE · '+armLeft+'S'):'RESET RECORDS','BEST · DEPTH · BOSSES · CODEX',false,'danger'],['7','MUSIC VOLUME',Math.round(settings.musicVol*100)+'%',null],['8','SFX VOLUME',Math.round(settings.sfxVol*100)+'%',null],['9','DAMAGE NUMBERS',settings.dmgNums?'ON':'OFF',settings.dmgNums]];
+  return [['1','SCREEN SHAKE',settings.shake?'ON':'OFF',settings.shake],['2','PARTICLES',settings.particles?'FULL':'LOW',settings.particles],['3','MUSIC',settings.music?'ON':'OFF',settings.music],['4','AUTO-FIRE DEFAULT',settings.autofire?'ON':'OFF',settings.autofire],['5','SHOW SECTOR SEED',settings.showSeed?'ON':'OFF',settings.showSeed],['6',armed?'WIPE RECORDS?':'WIPE RECORDS',armed?('[6] AGAIN · '+armLeft+'S'):'BEST · DEPTH · BOSSES · CODEX',false,'danger'],['7','MUSIC VOLUME',Math.round(settings.musicVol*100)+'%',null],['8','SFX VOLUME',Math.round(settings.sfxVol*100)+'%',null],['9','DAMAGE NUMBERS',settings.dmgNums?'ON':'OFF',settings.dmgNums]];
 }
 function drawSettings(){
- heading('SETTINGS',W/2,132,22,K.gold,'center');
- mono('[1–9] or click to change · [O / Esc] back',W/2,156,11,K.textDim,'center');
+ const short = H < 560;
+ heading('SETTINGS',W/2,short?58:132,short?18:22,K.gold,'center');
+ mono('[1–9 / ↑↓ + Enter / ←→ volume / click] change · [O / Esc] back',W/2,short?78:156,11,K.textDim,'center');
  const armed=wipeArmT>performance.now();
  const armLeft=armed?Math.max(1,Math.ceil((wipeArmT-performance.now())/1000)):0;
  const rows=settingsRows(armed,armLeft);
  const rr=rowRects();
- rows.forEach((r,i)=>{ const b=rr[i], cy=b.y+b.h/2+2, hot=hovered(b), danger=r[4]==='danger';
+ rows.forEach((r,i)=>{ const b=rr[i], cy=b.y+b.h/2+2, hot=hovered(b)||settingsSel===i, danger=r[4]==='danger';
   mono('['+r[0]+']',b.x,cy,11,K.textDim,'left');
-  heading(r[1],b.x+42,cy,11,danger?K.red:(hot?K.gold:K.text));
-  if(r[3]===null){ const v=i===6?settings.musicVol:settings.sfxVol; groove(b.x+b.w-190,cy-4,120,v,K.gold,10); mono(r[2],b.x+b.w,cy,12,K.gold,'right',600); }
-  else mono(r[2],b.x+b.w,cy,12,danger?K.red:(r[3]?K.gold:K.textDim),'right',600);
+  const label=r[1], value=r[2], labelX=b.x+42, rightEdge=b.x+b.w, gap=16;
+  ctx.font=fD(11); track(Math.round(11*0.18)); let lw=label.length*9; try{ lw=ctx.measureText(label).width; }catch(e){} track(0);
+  ctx.font=fM(12,600); let vw=value.length*7; try{ vw=ctx.measureText(value).width; }catch(e){}
+  const labelCol=danger?K.red:(hot?K.gold:K.text);
+  if(r[3]===null){ const v=i===6?settings.musicVol:settings.sfxVol;
+   // The groove is measured into the space between label and value, never fixed over either.
+   let gx=Math.max(b.x+b.w-190,labelX+lw+gap);
+   let gw=rightEdge-vw-gap-gx;
+   if(gw<40) gw=40;
+   if(gx+gw+gap+vw>rightEdge) gx=Math.max(labelX+lw+gap,rightEdge-vw-gap-gw);
+   heading(label,labelX,cy,11,labelCol);
+   if(gx+gw+gap+vw<=rightEdge+1){ groove(gx,cy-4,gw,v,K.gold,10); mono(value,rightEdge,cy,12,K.gold,'right',600); }
+   else mono(value,rightEdge,cy,12,K.gold,'right',600);
+  }
+  else if(labelX+lw+gap+vw>rightEdge&&danger&&armed){ heading(label,labelX,cy,11,labelCol); }
+  else { heading(label,labelX,cy,11,labelCol); mono(value,rightEdge,cy,12,danger?K.red:(r[3]?K.gold:K.textDim),'right',600); }
   const col=danger?(armed?K.red:K.redDim):(r[3]?K.gold:K.goldDim);
   line(b.x,b.y+b.h-4,b.x+b.w,b.y+b.h-4,col,r[3]||armed?1.5:1,r[3]||armed?null:[4,4]);
+  if(danger&&armed) drainBar(b.x,b.x+b.w,b.y+b.h-4,confirmFrac(wipeArmT));
  });
+ if(armed) mono('[6] again to confirm — best, depth, bosses and codex are lost.',W/2,rr[5].y+rr[5].h+16,11,K.red,'center');
  entry(BTN.back,'BACK','[Esc]',false);
 }
 // ---------- help ----------
@@ -3397,12 +3697,27 @@ function drawHelp(){
   heading(labels[i],r.x+r.w/2,r.y+19,11,on?K.gold:(hot?K.gold:K.text),'center');
   mono(String(i+1),r.x+4,r.y+19,10,K.textDim);
   rule(r.x,r.y+r.h,r.w,on?K.gold:K.goldDim,on); });
- const L=HELP_TXT[helpTab]||HELP_TXT.controls;
- L.forEach((l,i)=>mono(l,80,196+i*23,12,K.text));
- entry(BTN.back,'BACK','[Esc]',false);
+  const L=HELP_TXT[helpTab]||HELP_TXT.controls;
+  // The body starts where the tabs start, so the text sits under the tab row.
+  const hx = W<600?16:(rr.length?rr[0].x:80), hw = W-hx*2;
+  const wrapN = Math.max(24, Math.floor(hw/6.6));
+  let hy=196+Math.min(0,Math.max(-40,H-640));
+  if(H < 560) hy = 170;
+  L.forEach((l)=>{ wrapLines(l,wrapN).forEach((w)=>{ if(hy<BTN.back.y-14) mono(w,hx,hy,12,K.text); hy+=20; }); hy+=3; });
+  entry(BTN.back,'BACK','[Esc]',false);
 }
 // ---------- codex ----------
-function codexRects(){ return codexRows().map((r,k)=>({x:48,y:168+k*20,w:210,h:18,row:r})); }
+function codexRects(){
+ // Narrow windows keep the two-pane plate but squeeze both panes so the
+ // detail keeps a readable 12px measure instead of bleeding off-screen.
+ if(W < 720){
+  const w = Math.max(130, Math.min(160, W - 200));
+  const x = 16;
+  const y0 = Math.max(150, 168 + Math.min(0, H - 640));
+  return codexRows().map((r,k)=>({x,y:y0+k*19,w,h:17,row:r}));
+ }
+ return codexRows().map((r,k)=>({x:48,y:168+k*20,w:210,h:18,row:r}));
+}
 // The preview renders the REAL sprite by building a throwaway entity and calling
 // the same draw code the game uses. Every god is drawn at ONE registered scale so
 // their sizes compare honestly; chaff share another. Locked entries use the same
@@ -3467,7 +3782,8 @@ function drawCodexScreen(){
  if(codexSel>=L.length) codexSel=0;
  const pr=codexProgress();
  heading('CODEX',W/2,62,22,K.gold,'center');
- mono('MET '+pr.m+'  ·  DEFEATED '+pr.n+' / '+pr.tot+'  ·  [1/2 ←→] tab  [↑↓] entry  [C / Esc] back',W/2,86,11,K.textDim,'center');
+ mono('MET '+pr.m+' / '+pr.tot+'  ·  DEFEATED '+pr.n+' / '+pr.tot+'  ·  [1/2 ←→] tab  [↑↓] entry  [C / Esc] back',W/2,86,11,K.textDim,'center');
+ mono('◆ defeated  ·  ◇ met, not yet defeated  ·  ? ? ? ? ? unmet',W/2,102,11,K.textDim,'center');
  const tr=codexTabRects();
  ['BESTIARY','BOSSES'].forEach((lab,i)=>{ const r=tr[i], on=codexTab===CODEX_TABS[i], hot=on||hovered(r);
   heading(lab,r.x+r.w/2,r.y+19,11,hot?K.gold:K.text,'center'); mono(String(i+1),r.x+4,r.y+19,10,K.textDim);
@@ -3486,16 +3802,27 @@ function drawCodexScreen(){
  const entryE=L[codexSel];
  if(!entryE){ entry(BTN.back,'BACK','[Esc]',false); return; }
  const known=codexSeen(codexId(entryE)), killed=codexKnown(codexId(entryE)), boss=codexTab==='bosses';
- // detail: an engraved plate with corner ticks, the portrait at registered scale
- const px=286, pw=W-px-46, py=168, tx=px+164;
- plate(px,py,pw,378,K.goldDim);
- plate(px+14,py+14,134,134,K.metalDim,false,true);
- drawCodexSprite(entryE,px+81,py+81,!known);
+ // detail: an engraved plate with corner ticks, the portrait at registered scale.
+ // Wide windows keep the shipped side-by-side plate; narrow windows squeeze the
+ // same plate so it stays centred with a readable 12px measure.
+ const wide = W >= 800;
+ const idxW = wide ? 210 : Math.max(130, Math.min(160, W - 200));
+ const px = wide ? 286 : 16 + idxW + 12;
+ const pw = wide ? W-px-46 : W-px-16;
+ const py = wide ? 168 : Math.max(130, 168 + Math.min(0, H - 640));
+ const ph = wide ? Math.min(378, Math.max(220, H - py - 90)) : Math.min(378, Math.max(80, H - py - 100));
+ const portrait = wide ? 134 : 100;
+ const tx = px + portrait + 30;
+ plate(px,py,pw,ph,K.goldDim);
+ plate(px+14,py+14,portrait,portrait,K.metalDim,false,true);
+ drawCodexSprite(entryE,px+14+portrait/2,py+14+portrait/2,!known);
+ const wrapRole = Math.max(20, Math.min(60, Math.floor((pw-portrait-48)/6)));
+ const wrapBody = Math.max(20, Math.min(84, Math.floor((pw-36)/6)));
  if(!known){
   heading('? ? ? ? ?',tx,py+44,18,K.textDim);
   mono(boss?'Unidentified  ·  first met around S'+BOSSDEF[entryE.id].debut:'Unidentified hostile',tx,py+68,12,K.textDim);
   mono('Not yet met.',px+18,py+178,13,K.text);
-  mono('Meet one to open its rank, tells and counters. The field note waits for the first kill.',px+18,py+200,12,K.textDim);
+   mono('Meet one to open its rank, tells and counters. Kill it to recover the field note.',px+18,py+200,12,K.textDim);
   entry(BTN.back,'BACK','[Esc]',false);
   return;
  }
@@ -3503,19 +3830,21 @@ function drawCodexScreen(){
  heading(name,tx,py+42,18,K.text);
  if(pg) line(tx,py+51,tx+56,py+51,pg.c,2); // its pigment, as seen in the field
  const rank=boss?TIER_NAMES[BOSSDEF[entryE.id].tier]+'  ·  ':'';
- wrapLines(rank+entryE.role+'  ·  '+entryE.threat+(boss?'  ·  first seen S'+BOSSDEF[entryE.id].debut:''),60).forEach((l,i)=>mono(l,tx,py+66+i*15,11,K.textDim));
- if(boss) wrapLines(commandLine(entryE.id),60).forEach((l,i)=>mono(l,tx,py+100+i*15,11,K.textDim));
+ wrapLines(rank+entryE.role+'  ·  '+entryE.threat+(boss?'  ·  first seen S'+BOSSDEF[entryE.id].debut:''),wrapRole).forEach((l,i)=>mono(l,tx,py+66+i*15,11,K.textDim));
+ if(boss) wrapLines(commandLine(entryE.id),wrapRole).forEach((l,i)=>mono(l,tx,py+100+i*15,11,K.textDim));
  let y=py+170;
  const block=(label,text,col,italic)=>{
+  if(y+32>py+ph-8) return;
   heading(label,px+18,y,9,col);
-  const lines=wrapLines(text,84);
-  lines.forEach((l,i)=>{ ctx.font=fM(12); ctx.fillStyle=italic?K.textDim:K.text; ctx.textAlign='left'; ctx.fillText(l,px+18,y+17+i*15); });
-  y+=17+lines.length*15+11;
+  const lines=wrapLines(text,wrapBody);
+  const room=Math.max(0,Math.floor((py+ph-10-(y+17))/15));
+  lines.slice(0,Math.max(1,room)).forEach((l,i)=>{ ctx.font=fM(12); ctx.fillStyle=italic?K.textDim:K.text; ctx.textAlign='left'; ctx.fillText(l,px+18,y+17+i*15); });
+  y+=17+Math.min(lines.length,Math.max(1,room))*15+11;
  };
  block('TELL',entryE.tell,K.red);
  block('COUNTER',entryE.counter,K.gold);
  if(killed) block('FIELD NOTE',entryE.lore,K.metal,true);
- else block('FIELD NOTE','Recovered on the first kill.',K.metal,true);
+  else block('FIELD NOTE','Kill it to recover the field note.',K.metal,true);
  entry(BTN.back,'BACK','[Esc]',false);
 }
 // Arrow navigation walks entries in the order they are LISTED (rank order for
@@ -3526,8 +3855,8 @@ function codexStep(dir){
  codexSel=order[(k+dir+order.length)%order.length];
 }
 // ---------- refit icons ----------
-// One engraving hand for all 46: monoline strokes in the ink of the current
-// ground (gold on the dark field, black on the inverted nest draft).
+// One engraving hand for all 46: monoline gold strokes on the dark ground,
+// nest draft included.
 let II={m:K.gold,b:K.goldHi,d:K.hull,t:K.goldWash,r:K.goldDim};
 function iconInk(inverted){ II=inverted?{m:K.ground,b:K.ground,d:K.gold,t:K.inkWash,r:K.ground}:{m:K.gold,b:K.goldHi,d:K.hull,t:K.goldWash,r:K.goldDim}; }
 function drawIcon(id,cx,cy,s){
@@ -3644,7 +3973,56 @@ function drawIcon(id,cx,cy,s){
 // ---------- the draft ----------
 // Card rects shared by drawing and click hit-testing. The returning core unlock
 // is a wide strip under the three cards rather than a fourth column.
-function draftRect(i){ return levelChoices[i]===levelBack?{x:250,y:446,w:460,h:62}:{x:130+i*240,y:220,w:220,h:204}; }
+// Row layout at 960x640 reproduces the shipped rects exactly; narrow windows
+// stack the cards vertically so they stay centred and tappable instead of
+// bleeding off-screen.
+function draftLayout(){
+ const idx = levelChoices.map((u,i)=>i).filter(i=>levelChoices[i]!==levelBack);
+ const backIdx = levelChoices.indexOf(levelBack);
+ const n = idx.length || levelChoices.length;
+ const gap = 20;
+ // Prefer a centred row whenever the cards fit — shrinking the card width
+ // first (down to 160) and the height on short windows, so landscape phones
+ // keep the row instead of overflowing a stacked column.
+ const fitW = Math.floor((W - 32 - (n - 1) * gap) / Math.max(1, n));
+ const rects = {};
+ if(fitW >= 160){
+  const cardW = Math.min(220, fitW);
+  const cardH = H < 500 ? 140 : 204;
+  const totalW = n * cardW + (n - 1) * gap;
+  const x0 = Math.round((W - totalW) / 2);
+  const y = H < 500 ? Math.max(56, Math.round(H / 2 - cardH / 2 - 30)) : Math.round(H / 2 - 100);
+  idx.forEach((li,k)=>{ rects[li] = {x:x0+k*(cardW+gap),y,w:cardW,h:cardH}; });
+  if(backIdx >= 0){
+   const bw = Math.min(460, W - 32);
+   rects[backIdx] = {x:Math.round((W-bw)/2),y:y+cardH+22,w:bw,h:backIdx>=0&&H<500?56:62};
+  }
+  return {kind:'row', rects, headerY:Math.max(70, y-56), cardsY:y};
+ }
+ // Stacked: one centred column. Card height shrinks just enough to fit the
+ // viewport, but width stays generous so 11-12px text never wraps to shards.
+ const bw = Math.min(460, W - 32);
+ const shortH = H < 500;
+ const availH = Math.max(shortH?200:320, H - (shortH?150:200));
+ const chLo = shortH?84:108, chHi = shortH?120:150;
+ const ch = Math.max(chLo, Math.min(chHi, Math.floor((availH - (backIdx>=0?74:0) - (n-1)*12) / Math.max(1,n))));
+ const totalH = n * ch + (n - 1) * 12 + (backIdx >= 0 ? 12 + 62 : 0);
+ let y0 = Math.round(H / 2 - totalH / 2 + 16);
+ y0 = Math.max(shortH?72:120, y0);
+ // Clamp the column into the viewport so a short window with a back offer
+ // still keeps every card tappable instead of bleeding past the edge.
+ if(y0 + totalH > H - 8) y0 = Math.max(64, H - 8 - totalH);
+ idx.forEach((li,k)=>{ rects[li] = {x:Math.round((W-bw)/2),y:y0+k*(ch+12),w:bw,h:ch}; });
+ if(backIdx >= 0) rects[backIdx] = {x:Math.round((W-bw)/2),y:y0+n*ch+(n-1)*12+12,w:bw,h:62};
+ return {kind:'stack', rects, headerY:Math.max(84, y0-56), cardsY:y0, stackH:ch};
+}
+function draftRect(i){
+ try{
+  const L = draftLayout();
+  if(L.rects[i]) return L.rects[i];
+ }catch(e){}
+ return levelChoices[i]===levelBack?{x:Math.round((W-460)/2),y:Math.round(H/2+126),w:460,h:62}:{x:130+i*240,y:220,w:220,h:204};
+}
 function drawBackOffer(u,i,ink){
  const r=draftRect(i), dn=(typeof u.dyn==='function')?u.dyn(player):null, hot=hovered(r);
  ctx.strokeStyle=ink.main; ctx.lineWidth=hot?1.5:1; if(!hot) ctx.setLineDash([5,4]); ctx.strokeRect(r.x+0.5,r.y+0.5,r.w,r.h); ctx.setLineDash([]);
@@ -3655,65 +4033,135 @@ function drawBackOffer(u,i,ink){
 }
 function drawLevelUp(){
  const inv=nestDraftAt>0;
- let a=1; if(inv&&!REDUCED) a=clamp((performance.now()-nestDraftAt)/350,0,1);
- // the one inversion: a nest's bonus draft turns the field to the gold record
- // cover, black engraving on gold, and back again once the pick is made
+ // quieter nest peak: dark ground stays; a gold engraved disc rises behind
+ // the cards. The fade is brightness, so it always runs — even under
+ // reduced motion. Only the rise is movement, gated on REDUCED.
+ let t=1, a=1;
+ if(inv){ t=clamp((performance.now()-nestDraftAt)/350,0,1); a=1-Math.pow(1-t,4); }
  ctx.fillStyle=K.scrim; ctx.fillRect(0,0,W,H);
- if(inv){ ctx.save(); ctx.globalAlpha=a; ctx.fillStyle=K.gold; ctx.fillRect(0,0,W,H);
-  ctx.strokeStyle=K.groundGroove; ctx.lineWidth=1; for(let r=40;r<760;r+=4){ ctx.beginPath(); ctx.arc(W/2,H+80,r,0,6.283); ctx.stroke(); } ctx.restore(); }
- const ink=inv&&a>0.5?{main:K.ground,text:K.ground,dim:K.onGold}:{main:K.gold,text:K.text,dim:K.textDim};
- iconInk(inv&&a>0.5);
- const keysLine='press '+levelChoices.map((_,i)=>i+1).join(' / ')+' or click · [C] codex · [H] help';
+ if(inv){
+  ctx.save(); ctx.globalAlpha=a;
+  const R=Math.max(320,Math.min(460,W*0.45));
+  const rise=REDUCED?0:(1-t)*60;
+  const cx=W/2, cy=H+80+rise;
+  ctx.fillStyle=K.goldFaint; ctx.beginPath(); ctx.arc(cx,cy,R,0,6.283); ctx.fill();
+  ctx.strokeStyle=K.goldGroove; ctx.lineWidth=1;
+  for(let r=40;r<R;r+=6){ ctx.beginPath(); ctx.arc(cx,cy,r,0,6.283); ctx.stroke(); }
+  ctx.strokeStyle=K.goldDim; ctx.lineWidth=1.5;
+  ctx.beginPath(); ctx.arc(cx,cy,R,0,6.283); ctx.stroke();
+  ctx.restore();
+ }
+ const ink={main:K.gold,text:K.text,dim:K.textDim};
+ iconInk(false);
+  const keysLine='['+levelChoices.map((_,i)=>i+1).join(' / ')+'] pick · [←→] select + [Enter] · click · [C] codex · [H] help';
  const lead=inv&&nestTally.kinds.length?BOSSDEF[nestTally.kinds[0]]:null;
+ let HY=164, SY=192, KY=192;
+ try{ const L0=draftLayout(); HY=L0.headerY; SY=HY+26; KY=HY+(lead?44:28); }catch(e){}
  if(lead){ // the peak: which god fell, and what the fall is worth
-  heading(nestTally.kinds.length>1?lead.name+"'S COURT FALLS":lead.name+' FALLS',W/2,164,20,ink.main,'center');
-  mono(TIER_NAMES[lead.tier]+(nestTally.banked?' · +'+nestTally.banked+'% DAMAGE BANKED FOR EVERY HULL':'')+(nestTally.firsts.length?' · FIELD NOTE RECOVERED [C]':''),W/2,190,12,ink.main,'center',600);
-  mono(keysLine,W/2,208,11,ink.dim,'center');
- } else {
-  heading(inv?'NEST CLEARED — CHOOSE UPGRADE':'LEVEL '+player.level+' — CHOOSE UPGRADE',W/2,164,20,ink.main,'center');
-  mono(keysLine,W/2,192,12,ink.dim,'center'); }
- levelChoices.forEach((u,i)=>{
-  if(u===levelBack){ drawBackOffer(u,i,ink); return; }
-  const r=draftRect(i), hot=hovered(r), dn=(typeof u.dyn==='function')?u.dyn(player):null;
+  heading(nestTally.kinds.length>1?lead.name+"'S COURT FALLS":lead.name+' FALLS',W/2,HY,20,ink.main,'center');
+  mono(TIER_NAMES[lead.tier]+(nestTally.banked?' · +'+nestTally.banked+'% DAMAGE BANKED FOR EVERY HULL':'')+(nestTally.firsts.length?' · FIELD NOTE RECOVERED [C]':''),W/2,SY,12,ink.main,'center',600);
+  mono(keysLine,W/2,KY,11,ink.dim,'center');
+  } else {
+   heading('CHOOSE AN UPGRADE',W/2,HY,20,ink.main,'center');
+   mono(keysLine,W/2,KY,12,ink.dim,'center'); }
+  levelChoices.forEach((u,i)=>{
+   if(u===levelBack){ drawBackOffer(u,i,ink); return; }
+   const r=draftRect(i), hot=hovered(r)||draftSel===i, dn=(typeof u.dyn==='function')?u.dyn(player):null;
   plate(r.x,r.y,r.w,r.h,ink.main,hot);
   // rarity as rim ticks: one, two or three cuts along the top edge
   const n=u.r===2?3:(u.r===1?2:1); for(let k=0;k<n;k++){ const tx=r.x+r.w/2+(k-(n-1)/2)*8; line(tx,r.y-4,tx,r.y+4,ink.main,1.5); }
+  if(r.h < 170){
+   // Stacked phone card: icon left, text right, so a short centred card
+   // still reads at 11-12px instead of clipping.
+   drawIcon(u.id,r.x+34,r.y+r.h/2,13);
+   mono('['+(i+1)+']',r.x+58,r.y+24,11,ink.dim);
+   if(u.r===2) heading('RARE',r.x+r.w-12,r.y+24,9,ink.main,'right');
+   const nm=((dn&&dn.name)||u.name).toUpperCase();
+   heading(nm,r.x+58,r.y+44,11,ink.text);
+   const wrapN=Math.max(20,Math.floor((r.w-76)/6.6));
+   const dl=wrapLines((dn&&dn.desc)||u.desc,Math.min(48,wrapN)); dl.slice(0,2).forEach((l,k)=>mono(l,r.x+58,r.y+62+k*15,11,ink.dim));
+   const df=draftDiffs()[i]||[];
+   if(df.length&&r.h>=128) mono(df[0],r.x+58,r.y+r.h-12,11,ink.main,'left',600);
+   return;
+  }
   mono('['+(i+1)+']',r.x+12,r.y+22,11,ink.dim);
   if(u.r===2) heading('RARE',r.x+r.w-12,r.y+22,9,ink.main,'right');
   drawIcon(u.id,r.x+r.w/2,r.y+66,19);
   const nm=((dn&&dn.name)||u.name).toUpperCase();
   const nl=wrapLines(nm,18); ctx.font=fD(11); nl.forEach((l,k)=>heading(l,r.x+r.w/2,r.y+118+k*17,11,ink.text,'center'));
-  const dl=wrapLines((dn&&dn.desc)||u.desc,28); dl.forEach((l,k)=>mono(l,r.x+r.w/2,r.y+124+nl.length*17+10+k*16,11,ink.dim,'center'));
-  // what it does to this hull, and how much of it the hull already carries
-  const own=upgradeCounts[u.id]||0; if(own>0) mono('OWNED '+own+(u.max?' OF '+u.max:''),r.x+r.w-12,r.y+(u.r===2?38:22),10,ink.dim,'right',600);
-  const df=draftDiffs()[i]||[], dy0=r.y+124+nl.length*17+10+dl.length*16+6;
-  df.slice(0,2).forEach((l,k)=>{ const yy=dy0+k*15; if(yy<r.y+r.h-6) mono(l,r.x+r.w/2,yy,11,ink.main,'center',600); });
- });
- iconInk(false);
+   const dl=wrapLines((dn&&dn.desc)||u.desc,28); dl.forEach((l,k)=>mono(l,r.x+r.w/2,r.y+124+nl.length*17+10+k*16,11,ink.dim,'center'));
+   // what it does to this hull: one true change line, never a bare count.
+   // The BUILD plate below already carries every stack count.
+   const df=draftDiffs()[i]||[], dy0=r.y+124+nl.length*17+10+dl.length*16+6;
+   df.slice(0,2).forEach((l,k)=>{ const yy=dy0+k*15; if(yy<r.y+r.h-6) mono(l,r.x+r.w/2,yy,11,ink.main,'center',600); });
+  });
+  // the hull so far: one row in the empty lower third, level draft and nest
+  // draft alike. Hover names the refit and its true count.
+  if(H>=500){
+   let cardsBottom=0; try{ levelChoices.forEach((u,i)=>{ const r=draftRect(i); cardsBottom=Math.max(cardsBottom,r.y+r.h); }); }catch(e){}
+   const bx=W<600?16:64, bw=W-bx*2;
+   let headY=cardsBottom+32; if(headY+58>H-8) headY=H-66;
+   heading('BUILD',bx,headY,9,ink.dim); line(bx,headY+8,bx+bw,headY+8,K.metalFaint,1);
+   drawBuild(bx,headY+10,bw,1,ink);
+   drawBuildTip();
+  }
+  iconInk(false);
 }
 function wrapText(t,x,y,mw){ wrapLines(t,20).forEach((l,i)=>{ ctx.textAlign='center'; ctx.fillText(l,x,y+i*20); }); }
 // ---------- pause ----------
 function drawPaused(){
  ctx.fillStyle=K.scrim; ctx.fillRect(0,0,W,H);
- heading(autoPaused?'AUTO-PAUSED':'PAUSED',W/2,212,26,K.gold,'center');
- mono(autoPaused?'tab hidden — ESC / click resume':'ESC resume · H help · C codex · O settings · R restart · Q quit',W/2,244,12,K.text,'center');
- mono('The run is saved. Quitting replays this sector from its start.',W/2,266,11,K.textDim,'center');
- entry(BTN.pauseResume,'RESUME','[Esc]',true);
- entry(BTN.pauseSet,'SETTINGS','[O]',false);
- entry(BTN.pauseHelp,'HELP','[H]',false);
- entry(BTN.pauseCodex,'CODEX','[C]',false);
+ const short = H < 560;
+ const ty = short ? Math.max(34, BTN.pauseResume.y - 64) : Math.min(212, BTN.pauseResume.y - 78);
+ heading(autoPaused?'AUTO-PAUSED':'PAUSED',W/2,ty,short?20:26,K.gold,'center');
+ if(short) mono('ESC resume · ↑↓ select · H help · C codex',W/2,ty+26,12,K.text,'center');
+ else {
+  mono(W<620?'ESC resume · ↑↓ select · H help · C codex':autoPaused?'tab hidden — ESC / click resume':'ESC resume · ↑↓ select · H help · C codex · O settings · R abandon · Q title',W/2,ty+32,12,K.text,'center');
+  mono('The run is saved. Returning replays this sector from its start.',W/2,ty+54,11,K.textDim,'center');
+ }
+ entry(BTN.pauseResume,'RESUME','[Esc]',pauseSel===0);
+ entry(BTN.pauseSet,'SETTINGS','[O]',pauseSel===1);
+ entry(BTN.pauseHelp,'HELP','[H]',pauseSel===2);
+ entry(BTN.pauseCodex,'CODEX','[C]',pauseSel===3);
  const armed=restartArm>performance.now();
- entry(BTN.pauseRestart,armed?'ABANDON THIS RUN?':'RESTART','[R]',false,armed?'danger':undefined);
- entry(BTN.pauseQuit,'QUIT TO TITLE','[Q]',false);
- // the hull as it stands: its refits on the left, its systems on the right
+ entry(BTN.pauseRestart,armed?'ABANDON RUN?':'ABANDON RUN',armed?'[R again]':'[R]',pauseSel===4,'danger');
+ if(armed){ mono('[R] again to confirm — the saved run is lost.',W/2,BTN.pauseRestart.y+BTN.pauseRestart.h+14,11,K.red,'center'); drainBar(BTN.pauseRestart.x,BTN.pauseRestart.x+BTN.pauseRestart.w,BTN.pauseRestart.y+BTN.pauseRestart.h-5,confirmFrac(restartArm)); }
+ entry(BTN.pauseQuit,'RETURN TO TITLE','[Q]',pauseSel===5);
+ // the hull as it stands: its refits on the left, its systems on the right.
+ // Narrow windows stack the two columns so neither squeezes to a sliver.
  if(player){ const p=player;
-  heading('BUILD',48,300,9,K.textDim); line(48,308,288,308,K.metalFaint,1); drawBuild(48,318,240,6);
-  heading('SYSTEMS',672,300,9,K.textDim); line(672,308,912,308,K.metalFaint,1);
-  const sys=[['HULL',Math.ceil(p.hp)+'/'+p.maxhp],['DMG','×'+p.dmgMult.toFixed(2)],['RATE',p.fireRate.toFixed(1)+'/s'],['SHOTS',p.shots],['CRIT',Math.round(p.critCh*100)+'%'],['SPEED',Math.round(p.speed)],['MAGNET',Math.round(p.magnet)]];
-  if(p.pierce) sys.push(['PIERCE',p.pierce]); if(p.bounce) sys.push(['RICOCHET',p.bounce]); if(p.homing) sys.push(['SEEK',p.homing]);
-  sys.push(['BOSS BONUS','+'+Math.round(bosses*2)+'%']);
-  sys.forEach(([k,v],i)=>{ const yy=330+i*20; mono(k,672,yy,11,K.textDim); mono(String(v),912,yy,11,K.text,'right',600); });
-  let s='KILLS '+kills+'   SCORE '+scoreCalc()+'   BEST '+best+'   DEPTH S'+depth;
+  const byY = BTN.pauseQuit.y + BTN.pauseQuit.h + 24;
+  // Short landscape windows have no room for the hull record: the six
+  // entries already fill the viewport, so the record yields.
+  if(H < 560){
+   let s='KILLS '+kills+'   SCORE '+scoreCalc()+'   BEST '+best;
+   if(settings.showSeed&&arena) s+='   SEED '+arena.seed;
+   mono(s,W/2,H-14,11,K.textDim,'center');
+   return;
+  }
+  if(W >= 700){
+   heading('BUILD',48,300,9,K.textDim); line(48,308,288,308,K.metalFaint,1); drawBuild(48,318,240,6);
+   heading('SYSTEMS',672,300,9,K.textDim); line(672,308,912,308,K.metalFaint,1);
+   const sys=[['HULL',Math.ceil(p.hp)+'/'+p.maxhp],['DMG','×'+p.dmgMult.toFixed(2)],['RATE',p.fireRate.toFixed(1)+'/s'],['SHOTS',p.shots],['CRIT',Math.round(p.critCh*100)+'%'],['SPEED',Math.round(p.speed)],['MAGNET',Math.round(p.magnet)]];
+   if(p.pierce) sys.push(['PIERCE',p.pierce]); if(p.bounce) sys.push(['RICOCHET',p.bounce]); if(p.homing) sys.push(['SEEK',p.homing]);
+   sys.push(['BOSS BONUS','+'+Math.round(bosses*2)+'%']);
+   sys.forEach(([k,v],i)=>{ const yy=330+i*20; mono(k,672,yy,11,K.textDim); mono(String(v),912,yy,11,K.text,'right',600); });
+  } else {
+   const bw = Math.min(420, W - 32), bx = Math.round((W - bw) / 2);
+   heading('BUILD',bx,byY,9,K.textDim); line(bx,byY+8,bx+bw,byY+8,K.metalFaint,1);
+   const bh = drawBuild(bx,byY+18,bw,2);
+   const sy = byY + 18 + bh + 12;
+   heading('SYSTEMS',bx,sy,9,K.textDim); line(bx,sy+8,bx+bw,sy+8,K.metalFaint,1);
+   const sys=[['HULL',Math.ceil(p.hp)+'/'+p.maxhp],['DMG','×'+p.dmgMult.toFixed(2)],['RATE',p.fireRate.toFixed(1)+'/s'],['SHOTS',p.shots],['CRIT',Math.round(p.critCh*100)+'%'],['SPEED',Math.round(p.speed)],['MAGNET',Math.round(p.magnet)]];
+   if(p.pierce) sys.push(['PIERCE',p.pierce]); if(p.bounce) sys.push(['RICOCHET',p.bounce]); if(p.homing) sys.push(['SEEK',p.homing]);
+   sys.push(['BOSS BONUS','+'+Math.round(bosses*2)+'%']);
+   const per = 2, rows = Math.ceil(sys.length / per);
+   sys.forEach(([k,v],i)=>{ const c=i%per, r=Math.floor(i/per), cx=bx+c*(bw/per), yy=sy+20+r*18;
+    if(yy>H-50) return;
+    mono(k,cx,yy,11,K.textDim); mono(String(v),cx+bw/per-4,yy,11,K.text,'right',600); });
+   }
+   drawBuildTip();
+   let s='KILLS '+kills+'   SCORE '+scoreCalc()+'   BEST '+best+'   DEPTH S'+depth;
   if(settings.showSeed&&arena) s+='   SEED '+arena.seed;
   line(120,H-34,W-120,H-34,K.metalDim,1);
   mono(s,W/2,H-14,11,K.textDim,'center'); }
@@ -3736,6 +4184,9 @@ function fmtStat(f,v){ return f?f(v):(Number.isInteger(v)?String(v):v.toFixed(2)
 let previewing=false;
 function statDiff(u){
  if(!player||!u||typeof u.apply!=='function') return [];
+ // Unlocks change what the keys do, not a number: name the change itself.
+ if(u.id==='spd'&&!player.dashUnlocked) return ['DASH LOCKED → SPACE'];
+ if(u.id==='pcell'&&!player.recallUnlocked) return ['RECALL LOCKED → E'];
  let q=null; previewing=true; try{ q=JSON.parse(JSON.stringify(player)); u.apply(q); }catch(e){ return []; } finally{ previewing=false; }
  const out=[]; for(const [k,label,f] of STAT_VIEW){ const a=player[k], b=q[k]; if(typeof a==='number'&&typeof b==='number'&&Math.abs(a-b)>1e-9) out.push(label+' '+fmtStat(f,a)+' → '+fmtStat(f,b)); }
  return out;
@@ -3745,15 +4196,39 @@ function draftDiffs(){ if(diffCache.of!==levelChoices){ diffCache={of:levelChoic
 // ---------- the build plate ----------
 // Everything KRIEFNE has bolted on this hull, in the order it was drafted:
 // the refit's engraving, and a count under it once it stacks (MAX at cap).
-// Shared by the end screen, pause and the hub. Returns the height it used.
+// Shared by the draft, the end screen, pause and the hub. Returns the height
+// it used. Every icon registers a 40x44 hit rect in buildRects so the plate
+// can name the refit and its true count on hover (mouse and touch share it).
+let buildRects=[];
+function buildTipFor(id){
+ const n=upgradeCounts[id]||0, u=UPGRADES.find(q=>q.id===id);
+ if(!u) return {name:id,sub:'×'+n};
+ let nm=u.name; try{ const dn=(player&&typeof u.dyn==='function')?u.dyn(player):null; if(dn&&dn.name) nm=dn.name; }catch(e){}
+ const sub=(u.max&&n>=u.max)?('MAX '+n+'/'+u.max):('×'+n);
+ return {name:nm,sub};
+}
 function drawBuild(x,y,w,rows,ink){
+ buildRects=[];
  const ids=Object.keys(upgradeCounts).filter(id=>upgradeCounts[id]>0), cell=40, per=Math.max(1,Math.floor(w/cell)), cap=per*(rows||2);
  if(!ids.length){ mono('No refits drafted on this hull.',x,y+18,11,(ink&&ink.dim)||K.textDim); return 26; }
  ids.slice(0,ids.length>cap?cap-1:cap).forEach((id,i)=>{ const cx=x+cell/2+(i%per)*cell, cy=y+16+Math.floor(i/per)*46;
+  buildRects.push({id,x:cx-20,y:cy-16,w:40,h:44,cx,cy});
   drawIcon(id,cx,cy,9); const n=upgradeCounts[id], u=UPGRADES.find(q=>q.id===id);
   if(u&&u.max&&n>=u.max) mono('MAX',cx,cy+28,10,K.gold,'center',600); else if(n>1) mono('×'+n,cx,cy+28,10,(ink&&ink.text)||K.text,'center',600); });
  if(ids.length>cap){ const i=cap-1, cx=x+cell/2+(i%per)*cell, cy=y+16+Math.floor(i/per)*46; mono('+'+(ids.length-cap+1),cx,cy+4,11,K.textDim,'center',600); }
  return Math.ceil(Math.min(ids.length,cap)/per)*46;
+}
+function drawBuildTip(){
+ for(const b of buildRects){ if(!hovered(b)) continue;
+  const t=buildTipFor(b.id), label=t.name.toUpperCase()+'  '+t.sub;
+  ctx.font=fM(11,600); let tw=label.length*7; try{ tw=ctx.measureText(label).width; }catch(e){}
+  const pw=tw+20, px=clamp(b.cx-pw/2,8,W-pw-8);
+  let py=b.cy-52; if(py<8) py=b.cy+36;
+  ctx.fillStyle=K.ground; ctx.fillRect(px,py,pw,26);
+  plate(px,py,pw,26,K.gold,true);
+  mono(label,px+pw/2,py+17,11,K.gold,'center',600);
+  return;
+ }
 }
 // ---------- game over ----------
 // The end screen is a record of the hull: what brought it down and how to
@@ -3762,23 +4237,26 @@ function nextGodLine(){
  const order=BOSS_KINDS.slice().sort((a,b)=>BOSSDEF[a].debut-BOSSDEF[b].debut);
  const k=order.find(q=>!codexKnown(q));
  if(!k) return 'Every god has fallen once. Past S110 the trail is a wall.';
- const d=BOSSDEF[k], rank=TIER_NAMES[d.tier];
- return codexSeen(k)?'Unfinished: '+d.name+', '+rank+', first met at S'+d.debut+'.':'Next on the trail: a '+rank+' holds S'+d.debut+'.';
+  const d=BOSSDEF[k], rank=TIER_NAMES[d.tier];
+  const art=/^[AEIOU]/.test(rank)?'An ':'A ';
+  return codexSeen(k)?'Unfinished: '+d.name+', '+rank+', first met at S'+d.debut+'.':art+rank+' holds S'+d.debut+'.';
 }
 function drawEnd(){
  ctx.fillStyle=K.scrim; ctx.fillRect(0,0,W,H);
- const src=endInfo.src, L=150, T=252;
+ const src=endInfo.src, narrow = W < 700;
+ const L=narrow?16:150, T=narrow?118:252;
+ const wrapN = Math.max(24, Math.floor((W-T-16)/6.6));
  const ent=src&&(CODEX_FOES.find(f=>f.type===src.id)||CODEX_BOSSES.find(b=>b.id===src.id));
- const tl=ent?wrapLines(ent.tell,74).slice(0,2):[], cl=ent?wrapLines(ent.counter,74).slice(0,2):[];
- const nIds=Object.keys(upgradeCounts).filter(id=>upgradeCounts[id]>0).length, per=Math.floor((W-L-T)/40);
+ const tl=ent?wrapLines(ent.tell,wrapN).slice(0,2):[], cl=ent?wrapLines(ent.counter,wrapN).slice(0,2):[];
+ const nIds=Object.keys(upgradeCounts).filter(id=>upgradeCounts[id]>0).length, per=Math.max(1,Math.floor((W-L-T)/40));
  const buildH=nIds?Math.min(2,Math.ceil(nIds/per))*46:26;
  // measure first, then centre the record in the space above RETRY
  const causeH=src?26+28+(ent?tl.length*15+8+cl.length*15:0):30;
  const blockH=34+30+causeH+22+26+buildH+10+44;
- let y=Math.max(96,Math.round((BTN.endRestart.y-24-blockH)/2)+34);
- heading('HULL LOST',W/2,y,34,K.red,'center'); line(W/2-220,y+18,W/2+220,y+18,K.redDim,1); y+=52;
+ let y=Math.max(80,Math.round((BTN.endRestart.y-24-blockH)/2)+34);
+ heading('HULL LOST',W/2,y,narrow?26:34,K.red,'center'); line(W/2-Math.min(220,W/2-16),y+18,W/2+Math.min(220,W/2-16),y+18,K.redDim,1); y+=52;
  if(src){
-  const pg=PIG[src.id], nm=src.name+(src.lt?' LT':''), what=' · '+src.what;
+   const pg=PIG[src.id], nm=src.name+(src.lt?' (LIEUTENANT)':''), what=' · '+src.what;
   mono('BROUGHT DOWN BY',W/2,y,11,K.textDim,'center'); y+=26;
   ctx.font=fD(16); track(3); let w1=nm.length*14; try{ w1=ctx.measureText(nm).width; }catch(e){} track(0);
   ctx.font=fM(13,600); let w2=what.length*8; try{ w2=ctx.measureText(what).width; }catch(e){}
@@ -3791,12 +4269,19 @@ function drawEnd(){
  } else { mono('The last blow went unrecorded.',W/2,y+16,12,K.textDim,'center'); y+=30; }
  y+=22; line(L,y-12,W-L,y-12,K.metalFaint,1);
  if(endInfo.newBest) heading('NEW BEST',L,y+4,9,K.gold);
- mono('Score '+scoreCalc()+'   Best '+best+'   Kills '+kills+'   Level '+player.level+'   Time '+Math.floor(timeSec)+'s   Reached '+sectorName(arenaIdx),T,y+4,12,K.text); y+=26;
+ if(narrow){
+  mono('Score '+scoreCalc()+'   Best '+best+'   Kills '+kills,T,y+4,12,K.text); y+=18;
+  mono('Level '+player.level+'   Time '+Math.floor(timeSec)+'s   Reached '+sectorName(arenaIdx),T,y+4,12,K.text); y+=26;
+ } else {
+  mono('Score '+scoreCalc()+'   Best '+best+'   Kills '+kills+'   Level '+player.level+'   Time '+Math.floor(timeSec)+'s   Reached '+sectorName(arenaIdx),T,y+4,12,K.text); y+=26;
+ }
  heading('BUILD',L,y+20,9,K.textDim); y+=drawBuild(T,y,W-L-T,2)+14;
  mono('Restored at the Wake. Boss kills stay banked: +2% damage each.',W/2,y+8,12,K.gold,'center');
- mono(nextGodLine(),W/2,y+26,11,K.textDim,'center');
- entry(BTN.endRestart,'RETRY','[R]',endReady());
- entry(BTN.endTitle,'TITLE','[Esc]',false);
+  mono(nextGodLine(),W/2,y+26,11,K.textDim,'center');
+  entry(BTN.endRestart,'RETRY','[R]',endSel===0&&endReady());
+  entry(BTN.endTitle,'TITLE','[Esc]',endSel===1);
+  mono('[↑↓] select · [Enter] confirm',W/2,BTN.endTitle.y+BTN.endTitle.h+16,11,K.textDim,'center');
+ drawBuildTip();
 }
 
 // ---------- screen reader ----------
@@ -3809,8 +4294,8 @@ try{ if(window.matchMedia&&window.matchMedia('(pointer:coarse)').matches&&canvas
 try{ srEl=document.getElementById?document.getElementById('sr'):null; }catch(e){}
 function srSummary(){
  const keys=' Settings O, codex C, help H.';
- if(state==='title'){ const sv=readRun();
-  if(titleConfirm) return 'Abandon the saved run? Press N again to confirm, or Enter to continue it.';
+  if(state==='title'){ const sv=readRun();
+   if(titleConfirm&&titleConfirmT>performance.now()) return 'Abandon the saved run? Press N again to confirm — the saved run is lost. Or Enter continues it.';
   return 'KRIEFNE, roguelite. '+(sv?'Enter continues at '+sectorName(sv.galaxySel|0)+'. N starts a new run.':'Enter starts a run.')+keys; }
  if(state==='galaxy'){ const th=THEMES[galaxySel%THEMES.length];
   return 'Galaxy chart. Sector '+(galaxySel+1)+', '+th.name+(isBossSector(galaxySel)?', boss nest':'')+'. '+galaxyLore(galaxySel,th.name)+' Arrows select, Enter sets course, Escape returns to title.'; }
@@ -3818,9 +4303,16 @@ function srSummary(){
   const where='Sector '+(arenaIdx+1)+', '+(arena&&arena.theme?arena.theme.name:'')+'.';
   if(portal) return where+' Sector clear.'+(gems.length?' Salvage left on the field is lost at the exit.':'')+' Exit with E.';
   const low=player.hp<=player.maxhp*0.3?' Hull critical.':'';
-  return where+(isBossSector(arenaIdx)?' Boss nest: '+bossKindsFor(arenaIdx).join(' and ')+'.':' Hostiles inbound.')+low; }
- if(state==='levelup') return (nestDraftAt>0&&nestTally.kinds.length?BOSSDEF[nestTally.kinds[0]].name+(nestTally.kinds.length>1?"'s court falls.":' falls.')+(nestTally.banked?' +'+nestTally.banked+'% damage banked.':''):(nestDraftAt>0?'Nest cleared.':'Level '+(player?player.level:'')+'.'))+' Choose an upgrade; C opens the codex, H help. '+levelChoices.map((u,i)=>{ const dn=(typeof u.dyn==='function')?u.dyn(player):null; return (i+1)+': '+((dn&&dn.name)||u.name)+', '+((dn&&dn.desc)||u.desc)+(u===levelBack?', offered again':'')+'.'; }).join(' ');
- if(state==='paused') return restartArm>performance.now()?'Abandon this run? Press R again to restart; the saved run is lost.':'Paused. Escape resumes. O settings, H help, C codex, R restart, Q quit to title.';
+  const nestNames=()=>bossKindsFor(arenaIdx).map(k=>(BOSSDEF[k]&&BOSSDEF[k].name)||k).join(' and ');
+  return where+(isBossSector(arenaIdx)?' Boss nest: '+nestNames()+'.':' Hostiles inbound.')+low; }
+ if(state==='levelup'){
+  const head=(nestDraftAt>0&&nestTally.kinds.length?BOSSDEF[nestTally.kinds[0]].name+(nestTally.kinds.length>1?"'s court falls.":' falls.')+(nestTally.banked?' +'+nestTally.banked+'% damage banked.':''):(nestDraftAt>0?'Nest cleared.':'Level '+(player?player.level:'')+'.'))+' Choose an upgrade; C opens the codex, H help. ';
+  const cards=levelChoices.map((u,i)=>{ const dn=(typeof u.dyn==='function')?u.dyn(player):null; let s=(i+1)+': '+((dn&&dn.name)||u.name)+', '+((dn&&dn.desc)||u.desc); try{ const df=statDiff(u); if(df&&df.length) s+=' Changes: '+df.join('; ')+'.'; }catch(e){} if(u===levelBack) s+=', offered again'; return s+'.'; }).join(' ');
+  let build='';
+  try{ const ids=Object.keys(upgradeCounts).filter(id=>upgradeCounts[id]>0); if(ids.length) build=' Build: '+ids.map(id=>{ try{ return buildTipFor(id).name+' '+buildTipFor(id).sub; }catch(e){ const u=UPGRADES.find(q=>q.id===id); return (u?u.name:id)+' ×'+upgradeCounts[id]; } }).join(', ')+'.'; }catch(e){}
+  return head+cards+build;
+ }
+  if(state==='paused') return restartArm>performance.now()?'Abandon this run? Press R again to confirm; the saved run is lost.':'Paused. Escape resumes. Arrows select, Enter confirms. O settings, H help, C codex, R abandons the run, Q returns to title.';
  if(state==='settings'){ const armed=wipeArmT>performance.now(), left=armed?Math.max(1,Math.ceil((wipeArmT-performance.now())/1000)):0;
   return 'Settings. '+settingsRows(armed,left).map(r=>r[0]+', '+r[1]+(r[1].indexOf('PRESS')===0?'':': '+r[2])).join('. ')+'. Escape goes back.'; }
  if(state==='help') return 'Help, '+helpTab+'. '+(HELP_TXT[helpTab]||[]).join(' ')+' Keys 1 to 4 switch tab; Escape goes back.';
@@ -3828,7 +4320,7 @@ function srSummary(){
   const id=codexId(en), nm=en.name||(BOSSDEF[en.id]&&BOSSDEF[en.id].name)||'';
   if(!codexSeen(id)) return 'Codex, '+codexTab+'. Not yet met. Up and down change entry.';
   const b=BOSSDEF[en.id], rank=b?TIER_NAMES[b.tier]+', ':'';
-  return 'Codex, '+codexTab+'. '+nm+'. '+rank+en.role+', '+en.threat+'.'+(b?' '+commandLine(en.id)+'.':'')+' Tell: '+en.tell+' Counter: '+en.counter+' '+(codexKnown(id)?'Field note: '+en.lore:'Field note recovered on the first kill.')+' Up and down change entry.'; }
+   return 'Codex, '+codexTab+'. '+nm+'. '+rank+en.role+', '+en.threat+'.'+(b?' '+commandLine(en.id)+'.':'')+' Tell: '+en.tell+' Counter: '+en.counter+' '+(codexKnown(id)?'Field note: '+en.lore:'Kill it to recover the field note.')+' Up and down change entry.'; }
  if(state==='gameover'){ const sr=endInfo.src, ent=sr&&(CODEX_FOES.find(f=>f.type===sr.id)||CODEX_BOSSES.find(b=>b.id===sr.id));
   return 'Hull lost.'+(sr?' Brought down by '+sr.name+', '+sr.what+'.'+(ent?' Tell: '+ent.tell+' Counter: '+ent.counter:''):'')+(endInfo.newBest?' New best.':'')+' Score '+scoreCalc()+'. Reached sector '+(arenaIdx+1)+'. '+nextGodLine()+' R retries, Escape returns to title.'; }
  return '';
@@ -3854,13 +4346,14 @@ arena={seed:1337, obs:[], theme:THEMES[0], spawns:[], port:{x:800,y:500}, valida
    get codexTab(){ return codexTab; }, setCodexTab(t){ codexTab=t; codexSel=0; }, get codexSel(){ return codexSel; },
   pool(){ return UPGRADES.filter(u=>(!u.req||u.req(player))&&(!u.max||(upgradeCounts[u.id]||0)<u.max)).map(u=>u.id); },
   get autoPaused(){ return autoPaused; }, get queue(){ return spawnQueue; }, get cam(){ return cam; },
-  get pendingLevels(){ return pendingLevels; }, get pity(){ return pity; }, get runSeed(){ return runSeed; }, get upgradeCounts(){ return upgradeCounts; },
+  get pendingLevels(){ return pendingLevels; }, get pendingNest(){ return pendingNest; }, get pity(){ return pity; }, get runSeed(){ return runSeed; }, get upgradeCounts(){ return upgradeCounts; },
   get titleConfirm(){ return titleConfirm; }, get levelBack(){ return levelBack; },
   get depth(){ return depth; }, get bosses(){ return bosses; }, get best(){ return best; },
   get cleared(){ return clearedMax; }, get galaxySel(){ return galaxySel; }, get time(){ return timeSec; },
    get ebullets(){ return ebullets; }, get hostileRings(){ return rings.filter(g=>g.dmg>0&&!g.own); }, get hazardList(){ return hazards; },
    get state(){return state;}, get player(){return player;}, get enemies(){return enemies;}, get gems(){return gems;}, get settings(){return settings;}, get arena(){return arena;}, get portal(){return portal;}, get choices(){return levelChoices;}, keys, mouse, touch, fitCanvas,
-   get viewScale(){ return viewScale; }, get devicePx(){ return devicePx; } }; }catch(e){}
+   get viewScale(){ return viewScale; }, get devicePx(){ return devicePx; },
+   get vw(){ return W; }, get vh(){ return H; }, get btn(){ return BTN; }, draftLayout, draftRect, rowRects, helpTabRects, codexTabRects, codexRects, layoutButtons }; }catch(e){}
 fitCanvas();
 requestAnimationFrame(frame);
 })();

@@ -20,7 +20,7 @@ colors:
   metal-faint: "#262b34"
   text: "#dde2e8"
   text-dim: "#9ca5b0"
-  pigment-stalker: "oklch(0.66 0.063 122)"
+  pigment-stalker: "oklch(0.66 0.06 128)"
   pigment-brute: "oklch(0.71 0.111 176)"
   pigment-tempest: "oklch(0.59 0.119 160)"
   pigment-sniper: "oklch(0.61 0.098 231)"
