@@ -2051,6 +2051,7 @@ function stampNext(e){
  stampActor=e; stampB=ebullets.length; stampR=rings.length; stampH=hazards.length; }
 function hurtPlayer(dmg,heavy,src){
  const p=player; if(p.invuln>0||p.dashT>0||state!=='playing') return;
+ if(__dev&&__dev.hurt(dmg,heavy,src)) return; // DevX lab only: god mode / damage log
  if(heavy&&p.mirrorUp){ p.mirrorUp=false; shieldBlock('CRIT BLOCKED',K.goldHi); return; }
  if(p.wardUp){ p.wardUp=false; shieldBlock('WARDED',K.gold); return; }
  if(p.bulwark>0){ p.bulwark--; if(p.bulwark<=0){ addFloater(p.x,p.y-20,'BULWARK DOWN',K.gold); SFX.brk(); } else shieldBlock('BLOCKED ('+p.bulwark+' left)',K.gold); p.invuln=Math.max(p.invuln,0.4); return; }
@@ -2496,6 +2497,7 @@ function update(dt){
   const esnap=enemies.slice(); stampReset();
   for(let j=esnap.length-1;j>=0;j--){ const e=esnap[j]; stampNext(e); if(e.dead) continue; if(!codexSeenMap[e.kind||e.type]) markSeen(e.kind||e.type); e.t+=dt; e.flash-=dt; e.contactCd-=dt; if(e.orbCd>0)e.orbCd-=dt; if(e.spawnT>0)e.spawnT-=dt;
    if(e.burnT>0){ e.burnT-=dt; if(!e.phased){ e.hp-=e.burnDps*dt; e.lastHit=timeSec; e.flash=Math.max(e.flash,0.05); if(Math.random()<dt*10) pushPart({x:e.x+(Math.random()-0.5)*10,y:e.y+(Math.random()-0.5)*10,vx:0,vy:-40,life:0.3,maxlife:0.3,col:K.gold,r:3}); if(e.hp<=0){ killEnemy(enemies.indexOf(e)); continue; } } }
+   if(__dev&&__dev.frz) continue; // DevX lab only: AI freeze
    const sF=e.slowT>0?0.55:1; if(e.slowT>0)e.slowT-=dt;
    const dx=p.x-e.x, dy=p.y-e.y, d=len(dx,dy), nx=dx/d, ny=dy/d;
    for(const o of enemies){ if(o===e) continue; const d2=dist2(e.x,e.y,o.x,o.y); const rr=e.r+o.r; if(d2<rr*rr&&d2>0.01){ const dd=Math.sqrt(d2); const push=(rr-dd)*0.4; e.x+=(e.x-o.x)/dd*push*0.5; e.y+=(e.y-o.y)/dd*push*0.5; } }
@@ -2608,7 +2610,7 @@ function update(dt){
   }
   // wave director: reinforcements stream in from off-screen as the round progresses.
   // Deeper sectors trickle faster, in bigger packs (max 3), against a higher alive cap.
-  if(spawnQueue.length>0){
+  if(spawnQueue.length>0&&!(__dev&&__dev.spawnsOff)){ // DevX lab only: spawns off
    spawnT-=dt;
    const cap=8+Math.min(8,arenaIdx);
    if(spawnT<=0&&enemies.length<cap){
@@ -3519,6 +3521,7 @@ function render(){
   heading(t,W/2,PY0+75,Math.min(20,Math.max(14,Math.floor((hw*2-32)/Math.max(4,t.length)))),K.red,'center');
   ctx.textAlign='center'; bossWarnSub.forEach((l,i)=>inkText(l,W/2,PY0+106+i*16,K.text,fM(12,600)));
  }
+ if(__dev) __dev.draw(); // DevX lab only: hitbox / meter overlay
 }
 // Entering a sector, KRIEFNE takes a pulsar fix: lines from the rim converge on
 // the ship, then fade. Skipped entirely under reduced motion.
@@ -5066,7 +5069,7 @@ function srTick(now){ try{ syncDraftSr(); }catch(e){} if(!srEl||now-srT<250) ret
 
 // ---------- main loop ----------
 let last=performance.now(), acc=0; const STEP=1000/60;
-function frame(now){ requestAnimationFrame(frame); let dt=now-last; last=now; if(dt>250) dt=250; acc+=dt; let n=0; while(acc>=STEP&&n<5){ update(STEP/1000); acc-=STEP; n++; } if(n===5) acc=0; render(); srTick(now); }
+function frame(now){ requestAnimationFrame(frame); let dt=now-last; last=now; if(dt>250) dt=250; acc+=dt*(__dev?__dev.ts:1); let n=0; while(acc>=STEP&&n<5){ update(STEP/1000); acc-=STEP; n++; } if(n===5) acc=0; render(); srTick(now); }
 arena={seed:1337, obs:[], theme:THEMES[0], spawns:[], port:{x:800,y:500}, validated:true, ratio:1};
   try{ window.__kriefne={ startRun, continueRun, saveRun, readRun, loadArena, loadSector, killEnemy, nextArena, gainXp, pickUpgrade, hurtPlayer, doPortalKey, tryExitPortal, cancelBlink, fieldXpAtRisk, exitArmed, tryDash, update, render, focusWatch, xpNeedFor, openHelp, handleKeyPress, handleClick,
    spawnEnemy, steer, hostiles, collectGems, isBossSector, bossKindsFor, compFor, sectorName, sectorWorld, galNodes, reflectBullet, bulletBlocked,
@@ -5112,6 +5115,287 @@ try{ Object.assign(window.__kriefne,{
    return { map:g, bounds:{x0:PX0,y0:PY0,x1:PX1,y1:PY1}, drop:{x:(PX0+PX1)/2,y:(PY0+PY1)/2} }; }
   finally{ [WW,HH,PX0,PY0,PX1,PY1]=keep; } }
 }); }catch(e){}
+// ---------- DevX lab hooks ----------
+// Inert unless window.__KRIEFNE_DEV===true is set before this file loads (only
+// DevX/lab.html does). `__dev` is read by five one-line guarded touch-points:
+// hurtPlayer (god / damage log), the enemy loop (AI freeze), the wave director
+// (spawns off), render (overlay) and frame (time scale). Production never
+// assigns it, so each touch-point costs one null check.
+var __dev=null;
+try{ if(window.__KRIEFNE_DEV===true&&window.__kriefne){
+ const D={ ts:1, frz:false, spawnsOff:false, god:false, logOnly:false, infDash:false, hit:false, nums:false, meter:true, target:0, lastTtk:null };
+ // Mid-run reference builds (~S20-25 worth of picks). The fight simulator owns
+ // the drafted versions; these are fixed stacks so a lab fight is repeatable.
+ const PRESETS={
+  balanced:{dmg:4,hp:3,rate:3,ward:1,array:2,vamp:2,crit:2,aegis:1,spd:2,shock:1,bulwark:1,seek:1,repair:1,pcell:1},
+  greedy:{dmg:6,rate:5,array:3,crit:3,slug:2,overcharge:2,flak:2,minigun:1,split:1,spd:1},
+  hose:{array:3,seek:2,dmg:4,rate:3},
+  empty:{}
+ };
+ const HC={ body:'#39d0ff', part:'#ffd23c', seg:'#c38bff', haz:'#ff9a3c', mark:'#ff5ad1', beam:'#ff5ad1', ring:'#ff6b6b', player:'#7dff7a', pb:'#bfe8f3', eb:'#ff6b6b' };
+ const hpSeen=new Map(), removed=new Set(), fights=[];
+ let lastArena=null, lastHp=null, fight=null, fightN=0, dpsWin=[];
+ const r1=v=>Math.round(v*10)/10;
+  function liveBoss(uid){ return enemies.find(e=>e.type==='boss'&&!e.dead&&(!uid||e.uid===uid))||null; }
+ function targetBoss(uid){ return (uid&&liveBoss(uid))||(D.target&&liveBoss(D.target))||liveBoss(); }
+ function roleOf(e){ return e.labRole||(e.thrall?'thrall':((e.lieutenant||e.summoned)?'summoned':'lead')); }
+ function kitOf(kind){ try{ return (typeof BOSS_KITS!=='undefined'&&BOSS_KITS&&BOSS_KITS[kind])||null; }catch(_){ return null; } }
+ function attacksFor(kind){
+  const k=kitOf(kind);
+  if(k&&k.attacks){ const a=k.attacks; return Array.isArray(a)?a.map(x=>typeof x==='string'?x:(x&&(x.id||x.name))).filter(Boolean):Object.keys(a); }
+  const d=BOSSDEF[kind]; return d&&d.phases?Array.from(new Set(d.phases)):[];
+ }
+ function phasesFor(kind){
+  const k=kitOf(kind);
+  if(k&&k.phases!=null){ const n=Array.isArray(k.phases)?k.phases.length:(+k.phases||0); if(n>0) return n; }
+  const s=BOSSDEF[kind]?BOSSDEF[kind].debut:5; return s>=100?2:(s>=50?3:(s>=25?2:1)); // SPEC §3.7 bands
+ }
+ // ----- fight record -----
+ function newFight(reason){
+  if(fight&&fight.dealt===0&&fight.hits===0&&timeSec-fight.startT<0.5) fight=null; // an empty fight is noise, not history
+  endFight('replaced'); fightN++; dpsWin=[];
+  fight={ id:fightN, reason:reason||'manual', sector:arenaIdx+1, startT:timeSec, endT:null, ended:null,
+   level:player?player.level:0, build:Object.assign({},upgradeCounts),
+   flags:{god:false,logOnly:false,frozen:false,spawnsOff:false,infDash:false,ts:[]}, // anything on at any point in the fight
+   dealt:0, dealtBoss:0, dealtChaff:0, kills:0, taken:0, hits:0, blocked:0, hull:0, lethal:0, bySrc:{}, bosses:[] };
+  return fight;
+ }
+ function endFight(why){ if(!fight) return; fight.endT=timeSec; fight.ended=why||'manual'; fights.push(fight); if(fights.length>30) fights.shift(); fight=null; }
+ function fightJSON(f){
+  if(!f) return null;
+  const dur=Math.max(0,(f.endT==null?timeSec:f.endT)-f.startT);
+  const src=Object.keys(f.bySrc).map(k=>({source:k,dmg:Math.round(f.bySrc[k].dmg),hits:f.bySrc[k].hits,blocked:f.bySrc[k].blocked,heavy:f.bySrc[k].heavy})).sort((a,b)=>b.dmg-a.dmg);
+  return { id:f.id, sector:'S'+String(f.sector).padStart(2,'0'), started:f.reason, ended:f.ended||'live', duration:r1(dur), level:f.level, build:f.build, flags:f.flags,
+   dealt:{ total:Math.round(f.dealt), boss:Math.round(f.dealtBoss), chaff:Math.round(f.dealtChaff), dps:dur>0?Math.round(f.dealt/dur):0, kills:f.kills },
+   taken:{ incoming:Math.round(f.taken), hits:f.hits, blocked:f.blocked, hull:Math.round(f.hull), lethal:f.lethal, bySource:src },
+   bosses:f.bosses.map(b=>({ name:b.name, kind:b.kind, role:b.role, maxhp:Math.round(b.maxhp), spawnAt:r1(b.spawnAt-f.startT), ttk:b.ttk==null?null:r1(b.ttk), hpLeftPct:b.ttk==null?b.hpPct:0, removed:!!b.removed })) };
+ }
+ function dps(){ if(!fight) return 0; let s=0; for(const w of dpsWin) s+=w[1]; return s/Math.min(3,Math.max(0.5,timeSec-fight.startT)); }
+ function credit(d,isBoss){ if(!fight) return; fight.dealt+=d; if(isBoss) fight.dealtBoss+=d; else fight.dealtChaff+=d; dpsWin.push([timeSec,d]); }
+ function trackBoss(e){ if(!fight) newFight('boss'); fight.bosses.push({uid:e.uid,kind:e.kind,name:e.bname||(e.def&&e.def.name)||e.kind,role:roleOf(e),maxhp:e.maxhp,spawnAt:timeSec,ttk:null,hpPct:100}); }
+ // Forced attacks are honoured by the boss engine once BOSS_KITS exists. Until
+ // then the lab loops a forced attack by holding the phase clock inside that
+ // attack's slot of the BOSSDEF cycle (lab-side state only, no AI change).
+ function pinAttack(e){
+  if(e.type!=='boss'||!e.forcedAttack||!e.def||!Array.isArray(e.def.phases)) return;
+  const i=e.def.phases.indexOf(e.forcedAttack); if(i<0) return;
+  const pt=e.def.pt||3, prog=e.phaseT-i*pt; if(prog>=0&&prog<pt-0.15) return;
+  e.phaseT=i*pt+0.01; e.phase=i; e.chargeOn=false; e.ramLx=undefined; e.burstT=0;
+ }
+ // Runs once per rendered frame: HP deltas give damage dealt from every source
+ // (rounds, burns, splash, abilities) without touching the combat code.
+ function sample(){
+  if(!player) return;
+  if(arena!==lastArena){ lastArena=arena; hpSeen.clear(); removed.clear(); lastHp=null; newFight('sector'); }
+  const p=player;
+  if(D.infDash&&p.dashCd>0) p.dashCd=0;
+  if(typeof BOSS_KITS==='undefined') for(const e of enemies) pinAttack(e);
+  const cur=new Set();
+  for(const e of enemies){ cur.add(e.uid); const s=hpSeen.get(e.uid);
+   if(!s){ const b=e.type==='boss'; hpSeen.set(e.uid,{hp:e.hp,boss:b}); if(b) trackBoss(e); continue; }
+   const d=s.hp-e.hp; if(d>0) credit(d,s.boss); s.hp=e.hp;
+   if(s.boss&&fight){ const bt=fight.bosses.find(x=>x.uid===e.uid); if(bt) bt.hpPct=Math.round(100*Math.max(0,e.hp)/e.maxhp); } }
+  for(const [uid,s] of hpSeen){ if(cur.has(uid)) continue; hpSeen.delete(uid);
+   const gone=removed.has(uid); removed.delete(uid);
+   if(!gone){ if(s.hp>0) credit(s.hp,s.boss); if(fight) fight.kills++; }
+   if(s.boss&&fight){ const bt=fight.bosses.find(x=>x.uid===uid);
+    if(bt&&bt.ttk==null&&!bt.removed){ if(gone) bt.removed=true; else { bt.ttk=timeSec-bt.spawnAt; D.lastTtk={name:bt.name,ttk:r1(bt.ttk)}; } } } }
+  if(lastHp!=null&&p.hp<lastHp&&fight) fight.hull+=lastHp-p.hp; lastHp=p.hp;
+  if(fight){ const g=fight.flags; g.god=g.god||D.god; g.logOnly=g.logOnly||D.logOnly; g.frozen=g.frozen||D.frz; g.spawnsOff=g.spawnsOff||D.spawnsOff; g.infDash=g.infDash||D.infDash; if(g.ts.indexOf(D.ts)<0) g.ts.push(D.ts); }
+  if(fight){ const bs=fight.bosses;
+   if(bs.length&&bs.every(b=>b.ttk!=null||b.removed)) endFight('boss down');
+   else if(!bs.length&&hostiles()===0&&timeSec>fight.startT) endFight('cleared'); }
+  while(dpsWin.length&&dpsWin[0][0]<timeSec-3) dpsWin.shift();
+ }
+ // ----- overlay -----
+ function circ(x,y,r,col,w,dash){ if(!(r>0)||!isFinite(x)||!isFinite(y)) return; ctx.setLineDash(dash||[]); ctx.strokeStyle=col; ctx.lineWidth=w||1; ctx.beginPath(); ctx.arc(x,y,r,0,6.283); ctx.stroke(); }
+ // Same shapes enemyHitT tests (all world-space): body at the drawn scale,
+ // hitParts, live parts, segments.
+ function partPos(e,q){ return {x:q.x,y:q.y}; }
+ function paintBeam(b){
+  if(!b) return; ctx.setLineDash(b.live===false||b.warn>0?[6,4]:[]); ctx.strokeStyle=HC.beam; ctx.lineWidth=1;
+  let x1,y1,x2,y2; if(b.x1!=null){ x1=b.x1; y1=b.y1; x2=b.x2; y2=b.y2; } else if(b.a!=null){ x1=b.x; y1=b.y; const L=b.len||b.reach||600; x2=x1+Math.cos(b.a)*L; y2=y1+Math.sin(b.a)*L; } else return;
+  const w=(b.w||b.width||4)/2, nx=-(y2-y1), ny=x2-x1, nl=Math.hypot(nx,ny)||1;
+  ctx.beginPath(); ctx.moveTo(x1+nx/nl*w,y1+ny/nl*w); ctx.lineTo(x2+nx/nl*w,y2+ny/nl*w); ctx.lineTo(x2-nx/nl*w,y2-ny/nl*w); ctx.lineTo(x1-nx/nl*w,y1-ny/nl*w); ctx.closePath(); ctx.stroke();
+ }
+ function arrOpt(v){ return Array.isArray(v)?v:null; }
+ function paintHit(){
+  for(const h of hazards) circ(h.x,h.y,h.r,HC.haz,1,h.t<(h.warn||0)?[4,4]:null);
+  const extra=[]; // boss-engine pools, drawn if this build has them
+  try{ if(typeof marks!=='undefined') extra.push(['mark',arrOpt(marks)]); }catch(_){}
+  try{ if(typeof discs!=='undefined') extra.push(['haz',arrOpt(discs)]); }catch(_){}
+  for(const [k,a] of extra) if(a) for(const m of a) circ(m.x,m.y,m.r,HC[k],1.5,(m.t!=null&&m.warn!=null&&m.t<m.warn)?[6,3]:null);
+  const bl=[beams]; try{ if(typeof bossBeams!=='undefined') bl.push(arrOpt(bossBeams)); }catch(_){} try{ if(typeof eBeams!=='undefined') bl.push(arrOpt(eBeams)); }catch(_){}
+  for(const a of bl) if(a) for(const b of a) paintBeam(b);
+  for(const g of rings) if(g.dmg>0&&!g.own) circ(g.x,g.y,g.r,HC.ring,1,[3,5]);
+  for(const e of enemies){
+   circ(e.x,e.y,e.r*(e.vscale||1),HC.body,e.type==='boss'?1.5:1);
+   if(Array.isArray(e.hitParts)) for(const q of e.hitParts) circ(q.x,q.y,q.r,HC.body,1,[4,2]);
+   if(Array.isArray(e.parts)) for(const q of e.parts){ if(q.dead||q.hp<=0) continue; const c=partPos(e,q); circ(c.x,c.y,q.r,HC.part,1.5,[5,2]); }
+   if(Array.isArray(e.segs)) for(const q of e.segs) circ(q.x,q.y,q.r,HC.seg,1);
+  }
+  ctx.setLineDash([]);
+  for(const b of ebullets) circ(b.x,b.y,b.r,HC.eb,1);
+  ctx.strokeStyle=HC.pb; ctx.lineWidth=1;
+  for(const b of bullets){ circ(b.x,b.y,b.r,HC.pb,1); if(b.px!=null){ ctx.beginPath(); ctx.moveTo(b.px,b.py); ctx.lineTo(b.x,b.y); ctx.stroke(); } }
+  if(player) circ(player.x,player.y,player.r,HC.player,1.5);
+  ctx.setLineDash([]);
+ }
+ function paintNums(){
+  ctx.textAlign='center'; ctx.font=fM(10,600);
+  for(const e of enemies){
+   const R=e.r*(e.vscale||1), t=e.type==='boss'?Math.ceil(e.hp)+'/'+Math.ceil(e.maxhp)+' · '+Math.round(100*e.hp/e.maxhp)+'%':String(Math.ceil(e.hp));
+   ctx.fillStyle=K.deep; ctx.fillText(t,e.x+1,e.y-R-7); ctx.fillStyle=e.type==='boss'?K.goldHi:K.text; ctx.fillText(t,e.x,e.y-R-8);
+   if(Array.isArray(e.parts)) for(const q of e.parts){ if(q.dead||!(q.hp>0)) continue; const c=partPos(e,q); ctx.fillStyle=HC.part; ctx.fillText(String(Math.ceil(q.hp)),c.x,c.y-(q.r||8)-4); }
+  }
+ }
+ function paintMeter(){
+  const f=fight, lines=[];
+  lines.push('LAB  T '+(f?(timeSec-f.startT).toFixed(1):'-.-')+'s   DPS '+Math.round(dps())+'   TTK '+(D.lastTtk?D.lastTtk.ttk.toFixed(1)+'s '+D.lastTtk.name:'--'));
+  const b=targetBoss();
+  if(b) lines.push((b.bname||b.kind)+'  '+Math.round(100*b.hp/b.maxhp)+'%  '+(typeof bossLabel==='function'?bossLabel(b):'')+(b.forcedAttack?'  [FORCED '+String(b.forcedAttack).toUpperCase()+']':'')+(b.forcedPhase?'  [PHASE '+b.forcedPhase+']':''));
+  const fl=[]; if(D.god) fl.push('GOD'); if(D.logOnly) fl.push('NO-DIE'); if(D.infDash) fl.push('INF DASH'); if(D.frz) fl.push('AI FROZEN'); if(D.spawnsOff) fl.push('SPAWNS OFF'); if(D.ts!==1) fl.push(D.ts+'x');
+  lines.push('TAKEN '+(f?Math.round(f.taken):0)+'  DEALT '+(f?Math.round(f.dealt):0)+(fl.length?'   '+fl.join(' · '):''));
+  ctx.font=fM(11,500); let w=0; for(const l of lines){ let lw=l.length*7; try{ lw=ctx.measureText(l).width; }catch(_){} w=Math.max(w,lw); }
+  const x=14, y=H-14-(lines.length-1)*15;
+  ctx.globalAlpha=0.85; ctx.fillStyle=K.deep; ctx.fillRect(x-7,y-14,w+14,lines.length*15+8); ctx.globalAlpha=1;
+  lines.forEach((l,i)=>mono(l,x,y+i*15,11,i===0?K.gold:K.text,'left',500));
+ }
+ D.draw=function(){
+  try{ sample(); }catch(e){}
+  if(!player) return;
+  try{
+   ctx.save();
+   // world overlays only in live play, never over a menu or a draft
+   if((D.hit||D.nums)&&state==='playing'){ ctx.save(); ctx.beginPath(); ctx.rect(0,HUD_H,W,H-HUD_H); ctx.clip(); ctx.translate(-cam.x,-cam.y);
+    if(D.hit) paintHit(); if(D.nums) paintNums(); ctx.restore(); }
+   if(D.meter) paintMeter();
+   ctx.restore();
+  }catch(e){ try{ ctx.restore(); }catch(_){} }
+ };
+ D.hurt=function(dmg,heavy,src){
+  const p=player; if(!fight) newFight('hit');
+  const key=src?((src.name||src.id||'?')+(src.lt?' LT':'')+' · '+(src.what||'?')):'UNKNOWN';
+  const b=fight.bySrc[key]||(fight.bySrc[key]={dmg:0,hits:0,blocked:0,heavy:0});
+  b.hits++; fight.hits++; if(heavy) b.heavy++;
+  if(D.god){ b.dmg+=dmg; fight.taken+=dmg; p.invuln=Math.max(p.invuln,0.35); p.flash=0.15; if(src) p.lastSrc=src; addFloater(p.x+24,p.y-20,'('+Math.round(dmg)+')',K.textDim); return true; }
+  // the same order hurtPlayer resolves shields in: a blocked hit costs no hull
+  if((heavy&&p.mirrorUp)||p.wardUp||p.bulwark>0||p.barrier>=dmg||p.shieldReady){ b.blocked++; fight.blocked++; return false; }
+  b.dmg+=dmg; fight.taken+=dmg;
+  if(D.logOnly){ const rem=Math.max(0,dmg-(p.barrier||0));
+   if(rem>=p.hp&&!(p.stasisN>0)&&!p.secondWind){ fight.lethal++; p.hp=rem+1; addFloater(p.x,p.y-44,'LETHAL · LOGGED',K.red); } }
+  return false;
+ };
+ // ----- actions -----
+ function setLevel(L){ if(!player) return 0; L=Math.max(1,Math.min(300,L|0)); const d=L-player.level; player.level=L; player.xp=0; player.xpNeed=xpNeedFor(L); player.maxhp=Math.max(1,player.maxhp+3*d); player.hp=player.maxhp; return L; }
+ function setHp(v){ if(!player) return 0; v=Math.max(1,Math.round(+v)||1); if(v>player.maxhp) player.maxhp=v; player.hp=v; lastHp=v; return v; }
+ function jump(n,opts){
+  opts=opts||{}; n=Math.max(1,Math.min(150,Math.round(+n)||1)); const i=n-1;
+  if(!player||state==='title'||state==='gameover'||!(player.hp>0)) startRun();
+  clearedMax=i-1; // the frontier, never a replay: replays bank nothing
+  loadSector(i);
+  if(opts.level) setLevel(opts.level);
+  if(opts.hp) setHp(opts.hp);
+  lastArena=arena; hpSeen.clear(); removed.clear(); lastHp=null; D.lastTtk=null; newFight('goto S'+n);
+  return { ok:true, sector:n, nest:isBossSector(i), kinds:isBossSector(i)?bossKindsFor(i):[], state };
+ }
+ function setCards(map){
+  if(!player) return {ok:false,msg:'no run'};
+  map=map||{};
+  const keep={x:player.x,y:player.y,level:player.level,xp:player.xp,aim:player.aim,face:player.face,invuln:player.invuln,lastSrc:player.lastSrc,lastHurt:player.lastHurt};
+  const np=Object.assign(newPlayer(1+0.02*bosses),keep); np.xpNeed=xpNeedFor(np.level); np.maxhp+=3*(np.level-1); np.hp=np.maxhp;
+  player=np; upgradeCounts={};
+  const want={};
+  for(const id in map){ const u=UPGRADES.find(x=>x.id===id), n=Math.max(0,map[id]|0); if(u&&n) want[id]=u.max?Math.min(n,u.max):n; }
+  const st=state, pl=pendingLevels, pn=pendingNest, mu=muted, gs=gems; pendingLevels=0; pendingNest=0; muted=true; gems=[];
+  try{ // passes, so req-gated cards (slip, gatecd, shock*) land after their unlock
+   for(let pass=0,progress=true;progress&&pass<40;pass++){ progress=false;
+    for(const u of UPGRADES){ const c=upgradeCounts[u.id]||0;
+     if(!want[u.id]||c>=want[u.id]||(u.max&&c>=u.max)||(u.req&&!u.req(player))) continue;
+     pickUpgrade(u); progress=true; } }
+  } finally { muted=mu; pendingLevels=pl; pendingNest=pn; gems=gs; state=st; }
+  const skipped={}; for(const id in want){ const got=upgradeCounts[id]||0; if(got<want[id]) skipped[id]=want[id]-got; }
+  player.hp=player.maxhp; lastHp=player.hp; floaters=[];
+  addFloater(player.x,player.y-30,'LAB BUILD · '+Object.values(upgradeCounts).reduce((a,b)=>a+b,0)+' CARDS',K.gold);
+  return { ok:true, counts:Object.assign({},upgradeCounts), skipped };
+ }
+ function clearField(pred){
+  pred=pred||(()=>true); const keep=[]; let n=0;
+  for(const e of enemies){ if(pred(e)){ removed.add(e.uid); e.dead=true; n++; } else keep.push(e); }
+  enemies=keep; return n;
+ }
+ function spawnBoss(kind,role,opts){
+  opts=opts||{}; role=role||'lead';
+  if(!player||!arena||state==='title'||state==='galaxy') return {ok:false,msg:'not in a sector: load one first'};
+  if(!BOSSDEF[kind]) return {ok:false,msg:'unknown kind '+kind};
+  const s=arenaIdx; let mk=null, via=role;
+  if(role==='lead') mk=(x,y)=>mkBoss(kind,x,y,s);
+  else if(role==='summoned'){
+   if(typeof mkSummoned==='function'){ via='mkSummoned'; mk=(x,y)=>mkSummoned(kind,x,y,s,1); }
+   else { via='mkLieutenant'; mk=(x,y)=>mkLieutenant(kind,x,y,s,1,0); }
+  } else if(role==='thrall'){
+   if(typeof mkThrall!=='function') return {ok:false,msg:'thrall: not available in this build (no mkThrall)'};
+   via='mkThrall'; mk=(x,y)=>mkThrall(kind,x,y,s);
+  } else return {ok:false,msg:'unknown role '+role};
+  if(opts.replace) clearField(o=>o.type==='boss');
+  const q=nearSpot(player.x,player.y,300,420,(BOSSDEF[kind].r||30)+10);
+  let e=null; try{ e=mk(q.x,q.y); }catch(err){ return {ok:false,msg:via+' threw: '+(err&&err.message)}; }
+  if(!e||typeof e!=='object') return {ok:false,msg:via+' returned nothing'};
+  e.labRole=role; e.spawnT=0.9; enemies.push(e);
+  rings.push({x:q.x,y:q.y,r:10,maxR:120,spd:300,dmg:0,hit:true});
+  if(role==='lead'){ newFight('spawn '+kind); D.lastTtk=null; bossWarnT=2.4; bossWarnTxt=e.bname||BOSSDEF[kind].name; bossWarnSub=['LAB · '+role.toUpperCase()];
+   if(opts.replace){ try{ nestTally.kinds=[kind]; }catch(_){} } }
+  trackBoss(e); hpSeen.set(e.uid,{hp:e.hp,boss:true});
+  D.target=e.uid;
+  return { ok:true, uid:e.uid, name:e.bname||kind, role, via };
+ }
+ function forceAttack(name,uid){ const e=targetBoss(uid); if(!e) return {ok:false,msg:'no boss alive'};
+  e.forcedAttack=name||null; if(name) pinAttack(e);
+  return { ok:true, uid:e.uid, name:e.bname, attack:e.forcedAttack, engine:!!kitOf(e.kind) }; }
+ function stepAttack(uid){ const e=targetBoss(uid); if(!e) return {ok:false,msg:'no boss alive'};
+  const list=attacksFor(e.kind); if(!list.length) return {ok:false,msg:'no attack list'};
+  return forceAttack(list[(list.indexOf(e.forcedAttack)+1)%list.length],e.uid); }
+ function forcePhase(n,uid){ const e=targetBoss(uid); if(!e) return {ok:false,msg:'no boss alive'};
+  e.forcedPhase=(n==null||n===''||!(+n))?null:(+n|0); return { ok:true, uid:e.uid, name:e.bname, phase:e.forcedPhase }; }
+ function setBossHp(frac,uid){ const e=targetBoss(uid); if(!e) return {ok:false,msg:'no boss alive'};
+  e.hp=e.maxhp*Math.max(0.001,Math.min(1,+frac||0)); const s=hpSeen.get(e.uid); if(s) s.hp=e.hp; return {ok:true,uid:e.uid,hp:Math.ceil(e.hp)}; }
+ function aiFreeze(on){ D.frz=!!on; window.devAiFreeze=D.frz; try{ devAiFreeze=D.frz; }catch(_){} return D.frz; }
+ function killAll(){
+  if(!player) return 0; spawnQueue.length=0; let n=0;
+  for(let pass=0;pass<4&&enemies.length;pass++){ const snap=enemies.slice();
+   for(let j=snap.length-1;j>=0;j--){ const e=snap[j]; if(e.dead) continue; const ix=enemies.indexOf(e); if(ix<0) continue; removed.add(e.uid); e.hp=0; killEnemy(ix); n++; } } // lab kills stay out of the dealt/TTK record
+  return n;
+ }
+ function bossList(){ const t=targetBoss();
+  return enemies.filter(e=>e.type==='boss'&&!e.dead).map(e=>({ uid:e.uid, kind:e.kind, name:e.bname||e.kind, role:roleOf(e), hp:Math.ceil(e.hp), maxhp:Math.ceil(e.maxhp), pct:Math.round(100*e.hp/e.maxhp),
+   attack:typeof bossLabel==='function'?bossLabel(e):'', forcedAttack:e.forcedAttack||null, forcedPhase:e.forcedPhase||null, target:!!t&&t.uid===e.uid })); }
+ function labStatus(){ const f=fight, p=player;
+  return { state, sector:arenaIdx+1, level:p?p.level:0, hp:p?Math.ceil(p.hp):0, maxhp:p?Math.ceil(p.maxhp):0,
+   flags:{god:D.god,logOnly:D.logOnly,infDash:D.infDash,frz:D.frz,spawnsOff:D.spawnsOff,ts:D.ts,hit:D.hit,nums:D.nums,meter:D.meter},
+   fightT:f?r1(timeSec-f.startT):null, dps:Math.round(dps()), lastTtk:D.lastTtk, dealt:f?Math.round(f.dealt):0, taken:f?Math.round(f.taken):0,
+   hostiles:hostiles(), queue:spawnQueue.length, engineKits:typeof BOSS_KITS!=='undefined', counts:Object.assign({},upgradeCounts) }; }
+ window.devAiFreeze=false;
+ __dev=D;
+ Object.assign(window.__kriefne,{
+  dev:true, jump, setLevel, setHp, setCards, preset(name){ return setCards(PRESETS[name]||{}); },
+  spawnBoss, bossList, target(uid){ D.target=uid|0; return D.target; }, attacksFor, phasesFor,
+  forceAttack, stepAttack, forcePhase, setBossHp, aiFreeze,
+  setGod(on){ D.god=!!on; return D.god; }, setLogOnly(on){ D.logOnly=!!on; return D.logOnly; },
+  infiniteDash(on){ D.infDash=!!on; if(D.infDash&&player) player.dashUnlocked=true; return D.infDash; },
+  timeScale(x){ if(x!==undefined) D.ts=Math.max(0.05,Math.min(4,+x||1)); return D.ts; },
+  showHitboxes(on){ D.hit=!!on; return D.hit; }, showHpNumbers(on){ D.nums=!!on; return D.nums; }, showMeter(on){ D.meter=!!on; return D.meter; },
+  killAll, clearField(){ spawnQueue.length=0; return clearField(); }, heal(){ if(!player) return 0; player.hp=player.maxhp; lastHp=player.hp; return player.hp; },
+  setSpawns(on){ D.spawnsOff=!on; return !D.spawnsOff; },
+  newFight(){ newFight('manual'); return fight.id; }, endFight(){ endFight('manual'); }, clearLog(){ fights.length=0; },
+  labStatus
+ });
+ // getters go through defineProperties: Object.assign would copy their value once
+ Object.defineProperties(window.__kriefne,{
+  presets:{ get(){ return PRESETS; }, configurable:true, enumerable:true },
+  bossKits:{ get(){ return typeof BOSS_KITS!=='undefined'?BOSS_KITS:null; }, configurable:true, enumerable:true },
+  fightLog:{ get(){ return { current:fightJSON(fight), history:fights.map(fightJSON) }; }, configurable:true, enumerable:true }
+ });
+}}catch(e){ try{ console.warn('DevX hooks failed', e); }catch(_){} }
 fitCanvas();
 requestAnimationFrame(frame);
 })();
