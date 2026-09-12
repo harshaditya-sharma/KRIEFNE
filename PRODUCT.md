@@ -26,7 +26,7 @@ Success: players start another run after they die, feel that each death was thei
 
 ## Operating Context
 
-- Loop: title → galaxy hub (pick a sector node) → sector fight → clear → XP gems → upgrade draft → EXIT gate → back to the hub. Cleared sectors can be replayed to farm. Death ends the run, and the score and depth are banked.
+- Loop: title → galaxy hub (pick a sector node) → sector fight → clear → XP gems → upgrade draft → EXIT gate → back to the hub. Cleared sectors can be replayed only as a drill: no XP, drafts or boss bonus, and the hull comes back exactly as it went in. Death ends the run, and the score and depth are banked.
 - Persistent progress: best score, deepest sector, total boss kills (each one adds a permanent +2% damage), and codex unlocks. Codex entries open on the first encounter (portrait, name, rank, tells, counters) and complete on the first kill (the field note).
 - Screens: title, galaxy hub, in-sector HUD, upgrade draft, pause, settings (O), help (H: CONTROLS · SHIELDS · ARSENAL · LORE), codex (C, reachable from title, hub, pause and mid-fight), game over.
 - Terminology already in use: sector (S1, S2…), nest, court, lieutenant, command depth, chaff, EXIT gate, Portal Cell, recall, blink, codex, status effects shown in caps (PETRIFIED, JAMMED, PHASED, ENRAGED, RELENTLESS).

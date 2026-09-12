@@ -56,7 +56,12 @@ Neither ever takes away your guns — being unable to shoot is not a mechanic, i
 ## Loop
 
 1. START drops you on the **galaxy hub** — pick a lit sector node (`Enter`/click/`←→`), clear it, come
-   back, pick the next unlocked one. Cleared sectors stay replayable for farming.
+   back, pick the next unlocked one. Cleared sectors can be flown again, but only as a **replay**:
+   a drill that counts for nothing. The hull goes in exactly as it is (say 100/125 HP) and comes back
+   exactly as it went in (100/125, whatever happened inside). No gems drop, XP never banks, nothing
+   levels, no draft opens, and a replayed nest banks no boss damage. The EXIT, quitting, and losing
+   the hull all end a replay the same way: back on the hub with the pre-replay hull, and the hub says
+   what it restored. Codex entries still unlock. The HUD reads `REPLAY` and `NO XP` throughout.
 2. Drop into a procedurally generated themed sector — larger than the viewport with a smooth-follow
    camera, growing every sector from 1200×880 up to 2400×1600 (seed shown in pause when enabled).
 3. An opening pack materializes on load (6 in S1, growing with depth); reinforcements stream in
@@ -264,7 +269,9 @@ seeded runs per depth, for three reference players:
 
 - **Ceiling** — always drafts the strongest offensive card offered (~1.15 picks/sector).
 - **Balanced** — spends about a third of its picks on survival and utility (~1.15 picks/sector).
-- **Farmer** — the balanced build, replaying cleared sectors to level up first (~1.4 picks/sector).
+- **Farmer** — the balanced build at ~1.4 picks/sector. Replays no longer pay anything, so no real
+  run can draft at this rate any more. It stays in the sweep as the upper reference line the curve
+  was tuned against; a real run drafts at the ceiling/balanced ~1.15 rate.
 
 Each nest's time-to-kill counts the starting bosses **plus every lieutenant the nest's budget can
 field**. Assertions: everything through **S100 is winnable** for the farmer and comfortable for a

@@ -463,7 +463,7 @@ The game has four voices, and each has its own rules.
 - Layout archetypes renamed.
 - All 18 codex field notes rewritten (§8, §9).
 - All 12 hub debut lines rewritten (§8).
-- The hub's pacified line (`Salvage logged — replay to strip it, or push deeper.`) plus two new sector lines about home's silence.
+- The hub's pacified line (`Fly it again as a drill, or push deeper.`) plus two new sector lines about home's silence.
 - The Help LORE tab rewritten.
 - No city, street, district, or market wording remains in the game text. The README intro describes the space setting.
 - The death screen reads `HULL LOST`: the hull is lost, and the flight AI is restored at the Wake (Law 5).

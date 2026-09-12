@@ -1570,6 +1570,108 @@ function suiteVoice() {
 // A lost hull must be explained, irreversible input must be deliberate, and an
 // encounter (which always ends in a kill or a lost hull) opens a codex entry.
 function waitMs(ms) { const end = Date.now() + ms; while (Date.now() < end) { } }
+// A cleared sector replays as a drill: the hull goes in as it is and comes
+// back exactly as it went in, and nothing inside can farm the run.
+function suiteReplay() {
+ section('replay, title arrows, draft composition');
+ const hull = a => JSON.stringify({ hp: a.player.hp, maxhp: a.player.maxhp, level: a.player.level, xp: a.player.xp,
+  dmg: a.player.dmgMult, stasis: a.player.stasisN, counts: a.upgradeCounts, kills: a.kills });
+ {
+  const api = boot(); api.startRun();
+  api.loadSector(0); api.forceState('playing');
+  ok('a first visit is not a replay', !api.replay);
+  api.nextArena();
+  eq('clearing S1 returns to the hub', api.state, 'galaxy');
+  eq('and marks it cleared', api.cleared, 0);
+  api.player.hp = api.player.maxhp - 25;
+  const want = hull(api), hpIn = api.player.hp;
+  api.loadSector(0);
+  ok('a cleared sector loads as a replay', api.replay);
+  eq('the replay starts on the hull as it stands', api.player.hp, hpIn);
+  const p = api.player; p.invuln = 0; p.dashT = 0; p.vamp = 6;
+  api.hurtPlayer(20, false);
+  ok('the hull takes damage inside the replay', api.player.hp < hpIn);
+  const lvl = api.player.level, xp = api.player.xp;
+  api.gainXp(api.player.xpNeed * 3);
+  eq('XP never banks in a replay', api.player.xp, xp);
+  eq('nothing levels in a replay', api.player.level, lvl);
+  eq('no draft opens in a replay', api.state, 'playing');
+  const nFoes = api.enemies.length;
+  api.enemies[0].hp = 0; api.killEnemy(0);
+  eq('a replay kill drops no gems', api.gems.length, 0);
+  ok('the kill happened', api.enemies.length < nFoes + 2);
+  eq('the save mid-replay is the hull as it went in', api.readRun().player.hp, hpIn);
+  const c = boot(api.__store); c.continueRun();
+  eq('a reload mid-replay resumes on the hub', c.state, 'galaxy');
+  ok('with the pre-replay hull', hull(c) === want, hull(c));
+  ok('and not inside a replay', !c.replay);
+  api.nextArena();
+  eq('the EXIT from a replay lands on the hub', api.state, 'galaxy');
+  ok('the replay is over', !api.replay);
+  ok('HP, level, XP, cards and kills come back exactly as they went in', hull(api) === want, hull(api) + ' vs ' + want);
+  eq('no new sector is marked cleared', api.cleared, 0);
+  eq('the hub points at the frontier', api.galaxySel, 1);
+  ok('the hub names the restored hull', api.hubNote && api.hubNote.txt.indexOf(Math.ceil(hpIn) + '/' + api.player.maxhp) >= 0, api.hubNote && api.hubNote.txt);
+  let threw = null; try { api.render(); } catch (e) { threw = e; }
+  ok('the hub renders its replay note', !threw, threw && threw.message);
+  // losing the hull in a replay does not end the run
+  api.loadSector(0); api.forceState('playing');
+  const q = api.player; q.invuln = 0; q.dashT = 0; q.stasisN = 0; q.secondWind = false;
+  api.hurtPlayer(1e6, false);
+  eq('a hull lost in a replay returns to the hub, not HULL LOST', api.state, 'galaxy');
+  ok('the run survives it', !!api.readRun());
+  ok('and the hull is restored', hull(api) === want, hull(api));
+  ok('the hub says the hull was restored', api.hubNote && /HULL LOST IN REPLAY/.test(api.hubNote.txt));
+ }
+ {
+  // a replayed nest banks no damage and opens no draft
+  const api = boot(); api.startRun();
+  for (let i = 0; i < 5; i++) { api.loadSector(i); api.forceState('playing'); api.nextArena(); }
+  eq('S1–S5 cleared', api.cleared, 4);
+  const banked = api.bosses, want = hull(api);
+  api.loadSector(4); api.forceState('playing');
+  ok('the S5 nest replays', api.replay);
+  for (let g = 0; g < 40 && bossesIn(api).length; g++) { const e = bossesIn(api)[0]; e.hp = 0; api.killEnemy(api.enemies.indexOf(e)); }
+  eq('every boss in the replayed nest is down', bossesIn(api).length, 0);
+  eq('a replayed nest banks no damage', api.bosses, banked);
+  ok('and opens no bonus draft', api.state === 'playing' && api.pendingNest === 0, api.state);
+  api.nextArena();
+  ok('leaving restores the hull', hull(api) === want);
+  api.loadSector(5); api.forceState('playing');
+  ok('the next new sector is a real one', !api.replay);
+  const lv = api.player.level; api.gainXp(api.player.xpNeed + 1);
+  ok('and XP banks there again', api.player.level > lv || api.state === 'levelup');
+ }
+ {
+  // the title menu moves the way it is laid out
+  const api = boot(); api.startRun(); api.forceState('title');
+  const k = c => api.handleKeyPress(c);
+  eq('with a saved run the menu starts on CONTINUE', api.titleSel, 0);
+  k('ArrowRight'); eq('←→ do nothing on the column', api.titleSel, 0);
+  k('ArrowDown'); k('ArrowDown'); eq('↓↓ drops from CONTINUE into the row at SETTINGS', api.titleSel, 2);
+  k('ArrowRight'); eq('→ moves to CODEX', api.titleSel, 3);
+  k('ArrowRight'); eq('→ moves to HELP', api.titleSel, 4);
+  k('ArrowRight'); eq('→ wraps back to SETTINGS', api.titleSel, 2);
+  k('ArrowLeft'); eq('← wraps to HELP', api.titleSel, 4);
+  k('ArrowUp'); eq('↑ climbs out of the row to NEW RUN', api.titleSel, 1);
+  k('ArrowDown'); eq('↓ returns to the column it left', api.titleSel, 4);
+  k('ArrowDown'); eq('↓ from the row wraps to CONTINUE', api.titleSel, 0);
+  k('ArrowUp'); eq('↑ from CONTINUE wraps into the row', api.titleSel, 4);
+  eq('arrows never leave the title', api.state, 'title');
+ }
+ {
+  // the draft is one composition: the offered-again slot is held open
+  for (const [w, h] of [[960, 640], [1380, 640], [1440, 900], [1024, 560]]) {
+   const api = boot(); api.setViewport(w, h); api.startRun(); api.loadSector(2); api.forceState('playing');
+   api.gainXp(api.player.xpNeed + 1);
+   const L = api.draftLayout(), r0 = L.rects[0];
+   ok(w + 'x' + h + ': the draft has a BUILD line', L.buildY != null);
+   atLeast(w + 'x' + h + ': BUILD clears the held slot under the cards', L.buildY - (r0.y + r0.h + 84), 28);
+   ok(w + 'x' + h + ': BUILD stays on screen', L.buildY + 58 <= h - 8, L.buildY);
+   ok(w + 'x' + h + ': the header clears the HUD', L.headerY - 20 >= 56, L.headerY);
+  }
+ }
+}
 function suiteSafety() {
  section('death, input safety, encounters');
  {
@@ -1688,7 +1790,8 @@ const SUITES = [
  ['save', suiteSave],
  ['pigment', suitePigment],
  ['voice', suiteVoice],
- ['safety', suiteSafety]
+ ['safety', suiteSafety],
+ ['replay', suiteReplay]
 ];
 
 // Importable so ad-hoc diagnostics can drive the same stubs without running the

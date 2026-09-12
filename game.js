@@ -504,7 +504,7 @@ function nestLore(s){
 }
 function galaxyLore(s,thName){
  if(isBossSector(s)) return nestLore(s);
- if(s<=clearedMax) return 'Sector pacified. Salvage logged — replay to strip it, or push deeper.';
+ if(s<=clearedMax) return 'Sector pacified. Fly it again as a drill, or push deeper.';
  const pools=[
   'Static on the fringe channels. Something out there is counting your kills.',
   'The trail bends through '+thName+'. The locals stopped transmitting.',
@@ -1147,6 +1147,7 @@ function startRun(){
  upgradeCounts={};
  player=newPlayer(1+0.02*bosses);
  starterOffered=false; pendingLevels=0; pendingNest=0; pity={spd:0,pcell:0};
+ replaySnap=null; hubNote=null;
  loadArena(0); // live world behind the hub; entering S1 reloads it fresh
  galaxySel=0; clearedMax=-1;
  setMusicCfg(TITLE_MUS);
@@ -1161,12 +1162,50 @@ function startRun(){
 // it is not saved: quitting mid-sector replays the sector from its start, so a
 // reload can never duplicate XP, drafts or kills.
 const RUN_V=1;
-function saveRun(){
- if(!player) return;
- const snap={ v:RUN_V, runSeed, arenaIdx, kills, arenasCleared, timeSec, upgradeCounts,
+function runSnap(){
+ return { v:RUN_V, runSeed, arenaIdx, kills, arenasCleared, timeSec, upgradeCounts,
    starterOffered, pendingLevels, pendingNest, clearedMax, galaxySel, pity,
   player:Object.assign({},player,{recall:null,channel:null}) };
- lsSet('run',JSON.stringify(snap));
+}
+// A replay saves the hull as it went in, never what happens inside it, so a
+// reload mid-replay resumes on exactly the same state the replay restores.
+function saveRun(){
+ if(!player) return;
+ lsSet('run',JSON.stringify(replaySnap||runSnap()));
+}
+// Shared by CONTINUE and the end of a replay: the run exactly as snapshotted.
+function applySnap(r){
+ runSeed=r.runSeed>>>0;
+ kills=r.kills|0; arenasCleared=r.arenasCleared|0; timeSec=+r.timeSec||0;
+ upgradeCounts=Object.assign({},r.upgradeCounts);
+ // Merge onto fresh defaults, so a save written before a field existed still loads.
+ player=Object.assign(newPlayer(1),r.player,{recall:null,channel:null});
+ starterOffered=!!r.starterOffered; pendingLevels=r.pendingLevels|0; pendingNest=r.pendingNest|0;
+ pity=Object.assign({spd:0,pcell:0},r.pity);
+ clearedMax=Math.max(-1,r.clearedMax|0); galaxySel=clamp(r.galaxySel|0,0,clearedMax+1);
+ arenaIdx=r.arenaIdx|0;
+}
+// ---------- replays ----------
+// A cleared sector can be flown again, but only as a drill. The hull goes in
+// exactly as it is and comes back exactly as it went in: HP, level, XP,
+// shields, stasis and every card are restored on the way out, whether the
+// replay ends at the EXIT, by quitting, or by losing the hull. Inside, no gems
+// drop, XP never banks, nothing levels, no draft opens and a boss banks no
+// damage — so sitting on an early sector can never farm a run overpowered.
+// Codex entries still unlock: knowing a foe is not power.
+let replaySnap=null;   // the run as it entered the replay; null outside one
+let hubNote=null;      // {txt, at}: the hub says what a finished replay restored
+function inReplay(){ return !!replaySnap; }
+function endReplay(lost){
+ const r=replaySnap; if(!r) return;
+ replaySnap=null; applySnap(r);
+ bullets=[]; ebullets=[]; gems=[]; rings=[]; hazards=[]; strikes=[]; beams=[]; portal=null; spawnQueue=[]; enemies=[]; floaters=[]; parts=[];
+ exitArm=0; nestDraftAt=0;
+ galaxySel=clearedMax+1; // back at the frontier: the way on is the next new sector
+ const hull=Math.ceil(player.hp)+'/'+player.maxhp;
+ hubNote={txt:lost?'HULL LOST IN REPLAY — restored from backup at '+hull+'. Nothing carried over.':'REPLAY OVER — hull back at '+hull+'. Nothing carried over.', at:performance.now()};
+ setMusicCfg(TITLE_MUS); state='galaxy'; autoPaused=false;
+ saveRun();
 }
 function clearRun(){ lsDel('run'); }
 // The title parses the saved run every frame (draw + hit-test + input), so
@@ -1185,18 +1224,11 @@ function readRun(){
 }
 function continueRun(){
  const r=readRun(); if(!r){ startRun(); return; }
- runSeed=r.runSeed>>>0;
- titleMusOk=false;
- kills=r.kills|0; arenasCleared=r.arenasCleared|0; timeSec=+r.timeSec||0;
+ titleMusOk=false; replaySnap=null; hubNote=null;
  bullets=[]; ebullets=[]; gems=[]; parts=[]; floaters=[]; rings=[]; hazards=[]; strikes=[]; beams=[]; portal=null;
  spawnQueue=[]; spawnT=0;
- upgradeCounts=Object.assign({},r.upgradeCounts);
- // Merge onto fresh defaults, so a save written before a field existed still loads.
- player=Object.assign(newPlayer(1),r.player,{recall:null,channel:null});
- starterOffered=!!r.starterOffered; pendingLevels=r.pendingLevels|0; pendingNest=r.pendingNest|0;
- pity=Object.assign({spd:0,pcell:0},r.pity);
+ applySnap(r);
  loadArena(0); // live world behind the hub, as in startRun
- clearedMax=Math.max(-1,r.clearedMax|0); galaxySel=clamp(r.galaxySel|0,0,clearedMax+1);
  arenaIdx=r.arenaIdx|0;
  setMusicCfg(TITLE_MUS);
  state='galaxy'; autoPaused=false; titleConfirm=false;
@@ -1262,7 +1294,7 @@ function drawCoach(){
 }
 // Arrow selection rides alongside the number/letter shortcuts: every menu
 // answers both. Indices reset when the menu opens.
-let titleSel=0, pauseSel=0, settingsSel=5, draftSel=0, endSel=0;
+let titleSel=0, titleRowCol=0, pauseSel=0, settingsSel=5, draftSel=0, endSel=0;
 const ARM_MS=3000; // every destructive confirm drains over the same window
 function confirmFrac(armT){ return clamp((armT-performance.now())/ARM_MS,0,1); }
 function drainBar(x0,x1,y,frac){ if(frac<=0) return; line(x0,y,x0+(x1-x0)*clamp(frac,0,1),y,K.red,2); }
@@ -1349,6 +1381,7 @@ function addFloater(x,y,txt,col){ let n=0; for(const f of floaters){ const dx=f.
 // silently swallowed the rest, so the biggest payout in the game paid the least.
 // Levels are now queued and drafted one after another.
 function gainXp(v){
+ if(replaySnap) return; // a replay never banks XP, so it never levels or drafts
  player.xp+=v*player.xpBonus; SFX.pickup();
  while(player.xp>=player.xpNeed){
   player.xp-=player.xpNeed; player.level++; player.xpNeed=xpNeedFor(player.level); pendingLevels++;
@@ -1847,7 +1880,7 @@ function hurtPlayer(dmg,heavy,src){
  if(settings.shake) shake=Math.min(10,shake+4);
  addFloater(p.x+24,p.y-20,'-'+Math.round(dmg),K.red); SFX.hurt();
  spawnBurst(p.x,p.y,8,K.red,200,0.5,3);
- if(p.hp<=0){ if(p.stasisN>0){ p.stasisN--; p.hp=p.stasisTier>=3?p.maxhp:(p.stasisTier===2?Math.ceil(p.maxhp*0.25):1); p.invuln=2.5; rings.push({x:p.x,y:p.y,r:20,maxR:260,spd:420,dmg:0,hit:true,own:true}); spawnBurst(p.x,p.y,40,K.goldHi,300,0.9,4); addFloater(p.x,p.y-28,'STASIS ('+p.stasisN+' left)',K.goldHi); SFX.stasis(); return; } if(p.secondWind){ p.secondWind=false; p.hp=Math.ceil(p.maxhp*0.5); p.invuln=2; rings.push({x:p.x,y:p.y,r:20,maxR:200,spd:380,dmg:0,hit:true,own:true}); spawnBurst(p.x,p.y,30,K.goldHi,260,0.8,4); addFloater(p.x,p.y-28,'SECOND WIND',K.goldHi); SFX.levelup(); return; } p.hp=0; die(); }
+ if(p.hp<=0){ if(p.stasisN>0){ p.stasisN--; p.hp=p.stasisTier>=3?p.maxhp:(p.stasisTier===2?Math.ceil(p.maxhp*0.25):1); p.invuln=2.5; rings.push({x:p.x,y:p.y,r:20,maxR:260,spd:420,dmg:0,hit:true,own:true}); spawnBurst(p.x,p.y,40,K.goldHi,300,0.9,4); addFloater(p.x,p.y-28,'STASIS ('+p.stasisN+' left)',K.goldHi); SFX.stasis(); return; } if(p.secondWind){ p.secondWind=false; p.hp=Math.ceil(p.maxhp*0.5); p.invuln=2; rings.push({x:p.x,y:p.y,r:20,maxR:200,spd:380,dmg:0,hit:true,own:true}); spawnBurst(p.x,p.y,30,K.goldHi,260,0.8,4); addFloater(p.x,p.y-28,'SECOND WIND',K.goldHi); SFX.levelup(); return; } p.hp=0; if(replaySnap){ SFX.lose(); endReplay(true); return; } die(); }
 }
 // A kill can cascade (Shrapnel, Discharge, mite splits) and remove OTHER entries,
 // so any loop that can kill walks a snapshot of `enemies` and skips `dead` ones —
@@ -1870,7 +1903,7 @@ function killEnemy(j){
  SFX.die();
   const n=e.type==='brute'?3:(e.type==='boss'?8:1);
   const gemV=Math.max(1,Math.round(e.xp/n*(1+0.12*arenaIdx))); // later arenas pay more: pacing stays smooth
-  for(let k=0;k<n;k++) gems.push({x:e.x+(Math.random()-0.5)*24,y:e.y+(Math.random()-0.5)*24,v:gemV,t:0});
+  if(!replaySnap) for(let k=0;k<n;k++) gems.push({x:e.x+(Math.random()-0.5)*24,y:e.y+(Math.random()-0.5)*24,v:gemV,t:0});
  if(player.vamp>0&&!over){ player.hp=Math.min(player.maxhp,player.hp+player.vamp); addFloater(player.x,player.y-26,'+'+player.vamp,K.gold); }
  if(player.surgeLvl>0){ player.surgeT=Math.min(5,player.surgeT+2.5); }
  // SHRAPNEL CORE: the corpse is the weapon
@@ -1897,11 +1930,13 @@ function killEnemy(j){
  if(e.type==='boss'){
   // Lieutenants are somebody else's minions: they do not bank the permanent
   // +2% damage, or an ARCHON nest would be a damage-meta farm.
-  if(!e.lieutenant){ bosses++; saveMeta(); nestTally.banked+=2; }
+  // A replayed nest banks nothing either: the +2% is for a god felled on the trail.
+  if(!e.lieutenant&&!replaySnap){ bosses++; saveMeta(); nestTally.banked+=2; }
   if(over) return;
   player.hp=Math.min(player.maxhp,player.hp+(e.lieutenant?10:30));
   const left=enemies.filter(o=>o.type==='boss').length;
   if(left>0){ addFloater(player.x,player.y-34,'BOSS DOWN — '+left+' LEFT',K.gold); SFX.win(); }
+  else if(replaySnap){ addFloater(player.x,player.y-34,'NEST CLEARED · REPLAY — NO DRAFT',K.gold); SFX.win(); }
   else { addFloater(player.x,player.y-34,'NEST CLEARED · bonus draft',K.goldHi); SFX.win();
    // A draft already on screen must not be replaced by the bonus: queue it
    // as its own entry behind the open one and pickUpgrade opens it inverted.
@@ -1917,8 +1952,16 @@ function killEnemy(j){
  }
 }
 // clearing a sector returns to the galaxy hub with the next sector unlocked
-function nextArena(){ if(state!=='playing') return; SFX.portal(); exitArm=0; try{ if(arenaIdx===0){ markCoach('move'); markCoach('dash'); markCoach('gate'); } }catch(e){} arenasCleared=Math.max(arenasCleared,arenaIdx+1); clearedMax=Math.max(clearedMax,arenaIdx); galaxySel=arenaIdx+1; setMusicCfg(TITLE_MUS); state='galaxy'; saveRun(); }
-function loadSector(i){ loadArena(i); galaxySel=i; state='playing'; autoPaused=false; saveRun(); }
+function nextArena(){ if(state!=='playing') return; SFX.portal(); exitArm=0; if(replaySnap){ endReplay(false); return; } try{ if(arenaIdx===0){ markCoach('move'); markCoach('dash'); markCoach('gate'); } }catch(e){} arenasCleared=Math.max(arenasCleared,arenaIdx+1); clearedMax=Math.max(clearedMax,arenaIdx); galaxySel=arenaIdx+1; setMusicCfg(TITLE_MUS); state='galaxy'; saveRun(); }
+function loadSector(i){
+ hubNote=null;
+ // a cleared sector is a replay: snapshot the run (deep, so nothing inside can
+ // reach it) before the sector touches the hull
+ replaySnap=null;
+ if(i<=clearedMax){ replaySnap=JSON.parse(JSON.stringify(runSnap())); replaySnap.galaxySel=i; }
+ loadArena(i); galaxySel=i; state='playing'; autoPaused=false; saveRun();
+ if(replaySnap) addFloater(player.x,player.y-30,'REPLAY · NO XP · NOTHING CARRIES OVER',K.textDim);
+}
 function galaxyConfirm(){ if(galaxySel<=clearedMax+1){ SFX.click(); loadSector(galaxySel); } else SFX.brk(); }
 // node layout shared by draw + click hit-testing: 9-node scrolling window.
 // Node y is clamped to a band so the S-labels (drawn below each node) can
@@ -2388,7 +2431,22 @@ function handleKeyPress(code){
     if(titleConfirm&&titleConfirmT<=performance.now()){ titleConfirm=false; titleConfirmT=0; }
     const saved=!!readRun(), nT=saved?5:4;
     titleSel=clamp(titleSel,0,nT-1);
-    if(code==='ArrowDown'||code==='ArrowUp'){ titleSel=(titleSel+(code==='ArrowDown'?1:nT-1))%nT; SFX.click(); return; }
+    // The menu is a column (CONTINUE / NEW RUN) over a row (SETTINGS · CODEX ·
+    // HELP), so the arrows move the way the entries sit: ←→ walk the row,
+    // ↑↓ step the column and drop into / climb out of the row, which
+    // remembers the column it was left on.
+    const rowStart=nT-3, inRow=titleSel>=rowStart;
+    if(code==='ArrowLeft'||code==='ArrowRight'){
+     if(inRow){ titleRowCol=(titleSel-rowStart+(code==='ArrowRight'?1:2))%3; titleSel=rowStart+titleRowCol; SFX.click(); }
+     return;
+    }
+    if(code==='ArrowDown'||code==='ArrowUp'){
+     const down=code==='ArrowDown';
+     if(inRow){ titleRowCol=titleSel-rowStart; titleSel=down?0:rowStart-1; }
+     else if(down) titleSel=titleSel<rowStart-1?titleSel+1:rowStart+titleRowCol;
+     else titleSel=titleSel>0?titleSel-1:rowStart+titleRowCol;
+     SFX.click(); return;
+    }
     if(code==='Space'){ SFX.click(); if(saved) continueRun(); else startRun(); return; }
     if(code==='Enter'){
      SFX.click();
@@ -2810,7 +2868,8 @@ function layoutButtons(){
    keys.forEach((k,i)=>{ BTN[k].x = cX; BTN[k].w = cW; BTN[k].h = ph; BTN[k].y = Math.round(sy + i * pitch); });
   }
   const gW = Math.min(180, Math.max(120, W - 32)), gM = W < 600 ? 16 : 56;
-  BTN.galCodex.w = gW; BTN.galCodex.x = W - gW - gM; BTN.galCodex.y = 60;
+  // phones lift CODEX above the sector heading so the two never share a line
+  BTN.galCodex.w = W < 600 ? Math.min(gW, 150) : gW; BTN.galCodex.x = W - BTN.galCodex.w - gM; BTN.galCodex.y = W < 600 ? 20 : 60;
   BTN.endRestart.x = cX; BTN.endRestart.w = cW; BTN.endRestart.y = H - 108;
   BTN.endTitle.x = cX; BTN.endTitle.w = cW; BTN.endTitle.y = H - 56;
   BTN.back.x = cX; BTN.back.w = cW; BTN.back.y = H - 80;
@@ -3524,7 +3583,8 @@ function drawHUD(){
  mono(Math.ceil(p.hp)+'/'+p.maxhp,64+hullW+10,r1,13,low?K.red:K.text,'left',600);
  heading('LV',14,r2,9,K.textDim); mono(String(p.level),48,r2,12,K.gold,'left',600);
  groove(64,r2-4,hullW,p.xp/p.xpNeed,K.gold,0);
- mono(Math.floor(p.xp)+'/'+p.xpNeed,64+hullW+10,r2,11,K.textDim);
+ if(replaySnap) mono('NO XP',64+hullW+10,r2,11,K.textDim,'left',600);
+ else mono(Math.floor(p.xp)+'/'+p.xpNeed,64+hullW+10,r2,11,K.textDim);
  const leftEnd = 64 + hullW + 86;
  const rightReserve = phone ? 170 : narrow ? 210 : 250;
  const midX = leftEnd + 24;
@@ -3553,7 +3613,8 @@ function drawHUD(){
   heading('CHARGE',midX+200,r1,9,K.textDim); groove(midX+270,r1-4,48,f,f>=1?K.goldHi:K.gold,0); mono(p.shockKills+'/'+p.shockNeed,midX+326,r1,11,f>=1?K.gold:K.textDim);
  }
  // sector plate label and the tally
- heading(phone?sectorName(arenaIdx):narrow?sectorName(arenaIdx):sectorName(arenaIdx)+' · '+(arena?arena.theme.name.toUpperCase():''),W-14,r1,phone?12:11,K.gold,'right');
+ const rp=replaySnap?'REPLAY · ':'';
+ heading(rp+(phone?sectorName(arenaIdx):narrow?sectorName(arenaIdx):sectorName(arenaIdx)+' · '+(arena?arena.theme.name.toUpperCase():'')),W-14,r1,phone?12:11,K.gold,'right');
  let fieldXp=0; for(const g of gems) fieldXp+=g.v;
  const foes=hostiles();
  let x=W-14; ctx.textAlign='right';
@@ -3681,8 +3742,8 @@ function drawTitle(){
     const introMaxS=Math.max(1,Math.floor((H-60-introTopS)/18));
     introS.slice(0,introMaxS).forEach((l,i)=>mono(l,m+2,introTopS+i*18,12,K.text));
     if(introS.length<=introMaxS&&introTopS+introS.length*18+8<=H-60)
-     mono('46 stackable upgrades · 12 bosses in a chain of command',m+2,introTopS+introS.length*18+8,11,K.textDim);
-    mono('[↑↓] select · [O] settings  ·  [C] codex '+pr.n+'/'+pr.tot+'  ·  [H] help',m+2,H-40,11,K.textDim);
+     mono(W<480?'46 upgrades · 12 bosses':'46 stackable upgrades · 12 bosses in a chain of command',m+2,introTopS+introS.length*18+8,11,K.textDim);
+    mono(W<480?'[↑↓←→] select · [C] codex '+pr.n+'/'+pr.tot:'[↑↓←→] select · [O] settings  ·  [C] codex '+pr.n+'/'+pr.tot+'  ·  [H] help',m+2,H-40,11,K.textDim);
    if(best>0||depth>0) mono('BEST '+best+'   ·   DEPTH S'+depth,m+2,H-20,12,K.gold,'left',600);
    else mono('No records yet — the Wake remembers.',m+2,H-20,12,K.textDim,'left');
    return;
@@ -3697,7 +3758,7 @@ function drawTitle(){
  const intro=wrapLines('Fight down an endless galaxy trail — clear each sector, draft an upgrade, push on. Every 5th sector is a boss NEST. Boss kills bank +2% damage forever.',wrapN);
  intro.forEach((l,i)=>mono(l,m+2,250+i*18+shift,12,K.text));
  const pr=codexProgress();
- mono('46 stackable upgrades · 12 bosses in a chain of command',m+2,250+intro.length*18+8+shift,11,K.textDim);
+ mono(W<480?'46 upgrades · 12 bosses':'46 stackable upgrades · 12 bosses in a chain of command',m+2,250+intro.length*18+8+shift,11,K.textDim);
   const saved=readRun();
   const tArmed=titleConfirm&&titleConfirmT>performance.now();
   if(saved){
@@ -3709,7 +3770,7 @@ function drawTitle(){
   entry(BTN.titleSet,'SETTINGS',null,saved?titleSel===2:titleSel===1);
   entry(BTN.titleCodex,'CODEX',null,saved?titleSel===3:titleSel===2);
   entry(BTN.titleHelp,'HELP',null,saved?titleSel===4:titleSel===3);
-  mono('[↑↓] select · [O] settings  ·  [C] codex '+pr.n+'/'+pr.tot+'  ·  [H] help',m+2,516+shift,11,K.textDim);
+  mono(W<480?'[↑↓←→] select · [C] codex '+pr.n+'/'+pr.tot:'[↑↓←→] select · [O] settings  ·  [C] codex '+pr.n+'/'+pr.tot+'  ·  [H] help',m+2,516+shift,11,K.textDim);
  // The tip yields first: it is drawn only when it clears the records line.
  const tipLines=wrapLines('Sniper lasers are telegraphed — break the line. Brute rings: stay out of the band.',Math.max(24,Math.min(58,Math.floor((W-m*2)/6.6))));
  const recY=592+shift;
@@ -3724,7 +3785,7 @@ function drawTitle(){
   ctx.font=fM(11); let hw=hint.length*6; try{ hw=ctx.measureText(hint).width; }catch(e){}
   if(m+2+lw+16+hw<=W-64) mono(hint,W-64,592+shift,11,K.textDim,'right');
  }
- mono('vanilla Canvas · WebAudio synth · BFS-validated maps · no deps',m+2,616+shift,10,K.textDim);
+ if(W>=480) mono('vanilla Canvas · WebAudio synth · BFS-validated maps · no deps',m+2,616+shift,10,K.textDim);
 }
 // ---------- galaxy hub: the pulsar map ----------
 function drawGalaxy(){
@@ -3732,9 +3793,13 @@ function drawGalaxy(){
  const s=galaxySel, th=THEMES[s%THEMES.length];
  ctx.fillStyle=th.pal.ground; ctx.fillRect(0,0,W,H);
  drawFarStars(runSeed%512,0);
- heading('SECTOR '+String(s+1).padStart(2,'0')+' · '+th.name.toUpperCase(),W<600?16:64,86,18,K.gold);
+ heading('SECTOR '+String(s+1).padStart(2,'0')+' · '+th.name.toUpperCase(),W<600?16:64,86,W<420?13:(W<600?14:18),K.gold);
  line(W<600?16:64,104,Math.min(W<600?W-16:560,W-64),104,th.pal.dim,1);
- mono('The pulsar map: every line runs home. Its ticks count the sector in binary.',W<600?16:64,124,11,K.textDim);
+ // The sub-line says what a replay is before you take one, and what it gave
+ // back after: the restored hull, in numbers, for a few seconds.
+ const note=hubNote&&performance.now()-hubNote.at<8000?hubNote:null;
+ const subTxt=note?note.txt:(s<=clearedMax?'Replay: a drill. No XP, no drafts — the hull comes back exactly as it goes in.':'The pulsar map: every line runs home. Its ticks count the sector in binary.');
+ wrapLines(subTxt,Math.max(30,Math.floor((W-(W<600?32:128))/6.6))).slice(0,2).forEach((l,k)=>mono(l,W<600?16:64,124+k*16,11,note?K.gold:K.textDim));
  const ns=galNodes(), HX=W<600?16:64, HY=H/2+40;
  // home, the origin every line runs back to
  ctx.strokeStyle=K.gold; ctx.lineWidth=1; ctx.beginPath(); ctx.arc(HX,HY,6,0,6.283); ctx.stroke(); ctx.fillStyle=K.gold; ctx.fillRect(HX-1.5,HY-1.5,3,3);
@@ -3765,7 +3830,10 @@ function drawGalaxy(){
  const lore=galaxyLore(s,th.name);
  const gm = W<600?16:64;
  line(gm,H-150,W-gm,H-150,K.metalDim,1);
- mono(lore,W/2,H-124,13,K.text,'center');
+ // the lore wraps to two lines on narrow glass instead of running off it
+ const loreL=wrapLines(lore,Math.max(28,Math.floor((W-32)/7.2)));
+ if(loreL.length>1) loreL.slice(0,2).forEach((l,k)=>mono(l,W/2,H-132+k*16,13,K.text,'center'));
+ else mono(lore,W/2,H-124,13,K.text,'center');
  mono(W<620?'[tap] set course · [C] codex · [Esc] title':'[←→] select · [Enter / click] set course · [C] codex · [H] help · [O] settings · [Esc] title',W/2,H-98,11,K.textDim,'center');
  if(player&&Object.keys(upgradeCounts).length){ heading('BUILD',gm,H-44,9,K.textDim); drawBuild(gm+66,H-62,W-gm*2-66,1); drawBuildTip(); }
  const pr=codexProgress();
@@ -4237,7 +4305,7 @@ function drawIcon(id,cx,cy,s){
 // ---------- the draft ----------
 // Card rects shared by drawing and click hit-testing. The returning core unlock
 // is a wide strip under the three cards rather than a fourth column.
-// Row layout at 960x640 reproduces the shipped rects exactly; narrow windows
+// Row layout keeps one composition (cards, held slot, BUILD); narrow windows
 // stack the cards vertically so they stay centred and tappable instead of
 // bleeding off-screen.
 function draftLayout(){
@@ -4255,13 +4323,26 @@ function draftLayout(){
   const cardH = H < 500 ? 140 : 204;
   const totalW = n * cardW + (n - 1) * gap;
   const x0 = Math.round((W - totalW) / 2);
-  const y = H < 500 ? Math.max(56, Math.round(H / 2 - cardH / 2 - 30)) : Math.round(H / 2 - 100);
+  // One composition, offered-again card or not: header, the cards, a slot
+  // held open for the offered-again card, a clear gap, then the BUILD plate.
+  // The slot sits empty on an ordinary draft, so nothing jumps when the
+  // fourth card does appear — it simply fills its place.
+  let y, buildY = null;
+  if(H < 500) y = Math.max(56, Math.round(H / 2 - cardH / 2 - 30));
+  else {
+   const head = 56, slot = 22 + 62, plate = 60;
+   const top = HUD_H + 24, bottom = H - 8, content = head + cardH + slot + plate;
+   const gapB = clamp(bottom - top - content, 28, 76);
+   const free = bottom - top - content - gapB;
+   y = top + head + Math.max(-16, Math.round(free / 2));
+   buildY = Math.min(y + cardH + slot + gapB, H - 66);
+  }
   idx.forEach((li,k)=>{ rects[li] = {x:x0+k*(cardW+gap),y,w:cardW,h:cardH}; });
   if(backIdx >= 0){
    const bw = Math.min(460, W - 32);
    rects[backIdx] = {x:Math.round((W-bw)/2),y:y+cardH+22,w:bw,h:backIdx>=0&&H<500?56:62};
   }
-  return {kind:'row', rects, headerY:Math.max(70, y-56), cardsY:y};
+  return {kind:'row', rects, headerY:Math.max(70, y-56), cardsY:y, buildY};
  }
  // Stacked: one centred column. Card height shrinks just enough to fit the
  // viewport, but width stays generous so 11-12px text never wraps to shards.
@@ -4278,7 +4359,11 @@ function draftLayout(){
  if(y0 + totalH > H - 8) y0 = Math.max(64, H - 8 - totalH);
  idx.forEach((li,k)=>{ rects[li] = {x:Math.round((W-bw)/2),y:y0+k*(ch+12),w:bw,h:ch}; });
  if(backIdx >= 0) rects[backIdx] = {x:Math.round((W-bw)/2),y:y0+n*ch+(n-1)*12+12,w:bw,h:62};
- return {kind:'stack', rects, headerY:Math.max(84, y0-56), cardsY:y0, stackH:ch};
+ // BUILD sits under the held-open slot, as in the row, pinned up from the
+ // bottom edge when the column runs long.
+ let buildY = y0 + n*ch + (n-1)*12 + 12 + 62 + 40;
+ if(buildY + 58 > H - 8) buildY = H - 66;
+ return {kind:'stack', rects, headerY:Math.max(84, y0-56), cardsY:y0, stackH:ch, buildY:shortH?null:buildY};
 }
 function draftRect(i){
  try{
@@ -4318,17 +4403,19 @@ function drawLevelUp(){
  }
  const ink={main:K.gold,text:K.text,dim:K.textDim};
  iconInk(false);
-  const keysLine='['+levelChoices.map((_,i)=>i+1).join(' / ')+'] pick · [←→] select + [Enter] · click · [C] codex · [H] help';
+  // phones get the short line and a smaller header, so neither runs off the glass
+  const keysLine=W<600?('[1–'+levelChoices.length+'] pick · [←→] + [Enter] · [C] codex'):('['+levelChoices.map((_,i)=>i+1).join(' / ')+'] pick · [←→] select + [Enter] · click · [C] codex · [H] help');
+  const hSz=W<600?16:20;
  const lead=inv&&nestTally.kinds.length?BOSSDEF[nestTally.kinds[0]]:null;
  let HY=164, SY=192, KY=192;
  try{ const L0=draftLayout(); HY=L0.headerY; SY=HY+26; KY=HY+(lead?44:28); }catch(e){}
  if(lead){ // the peak: which god fell, and what the fall is worth
-  heading(nestTally.kinds.length>1?lead.name+"'S COURT FALLS":lead.name+' FALLS',W/2,HY,20,ink.main,'center');
+  heading(nestTally.kinds.length>1?lead.name+"'S COURT FALLS":lead.name+' FALLS',W/2,HY,hSz,ink.main,'center');
   mono(TIER_NAMES[lead.tier]+(nestTally.banked?' · +'+nestTally.banked+'% DAMAGE BANKED FOR EVERY HULL':'')+(nestTally.firsts.length?' · FIELD NOTE RECOVERED [C]':''),W/2,SY,12,ink.main,'center',600);
   mono(keysLine,W/2,KY,11,ink.dim,'center');
   } else {
-   heading('CHOOSE AN UPGRADE',W/2,HY,20,ink.main,'center');
-   mono(keysLine,W/2,KY,12,ink.dim,'center'); }
+   heading('CHOOSE AN UPGRADE',W/2,HY,hSz,ink.main,'center');
+   mono(keysLine,W/2,KY,W<600?11:12,ink.dim,'center'); }
   levelChoices.forEach((u,i)=>{
    if(u===levelBack){ drawBackOffer(u,i,ink); return; }
    const r=draftRect(i), sel=draftSel===i, hot=hovered(r)||sel, dn=(typeof u.dyn==='function')?u.dyn(player):null;
@@ -4365,10 +4452,9 @@ function drawLevelUp(){
   });
   // the hull so far: one row in the empty lower third, level draft and nest
   // draft alike. Hover names the refit and its true count.
-  if(H>=500){
-   let cardsBottom=0; try{ levelChoices.forEach((u,i)=>{ const r=draftRect(i); cardsBottom=Math.max(cardsBottom,r.y+r.h); }); }catch(e){}
+  let headY=null; try{ headY=draftLayout().buildY; }catch(e){}
+  if(H>=500&&headY!=null){
    const bx=W<600?16:64, bw=W-bx*2;
-    let headY=cardsBottom+56; if(headY+58>H-8) headY=H-66;
    heading('BUILD',bx,headY,9,ink.dim); line(bx,headY+8,bx+bw,headY+8,K.metalFaint,1);
    drawBuild(bx,headY+10,bw,1,ink);
    drawBuildTip();
@@ -4385,7 +4471,7 @@ function drawPaused(){
  if(short) mono('ESC resume · ↑↓ select · H help · C codex',W/2,ty+26,12,K.text,'center');
  else {
   mono(W<620?'ESC resume · ↑↓ select · H help · C codex':autoPaused?'tab hidden — ESC / click resume':'ESC resume · ↑↓ select · H help · C codex · O settings · R abandon · Q title',W/2,ty+32,12,K.text,'center');
-  mono('The run is saved. Returning replays this sector from its start.',W/2,ty+54,11,K.textDim,'center');
+  mono(replaySnap?'Replay: nothing here carries over. Leaving restores the hull as it went in.':'The run is saved. Returning replays this sector from its start.',W/2,ty+54,11,K.textDim,'center');
  }
  entry(BTN.pauseResume,'RESUME','[Esc]',pauseSel===0);
  entry(BTN.pauseSet,'SETTINGS','[O]',pauseSel===1);
@@ -4614,10 +4700,11 @@ function srSummary(){
    if(titleConfirm&&titleConfirmT>performance.now()) return 'Abandon the saved run? Press N again to confirm — the saved run is lost. Or Enter continues it.';
   return 'KRIEFNE, roguelite. '+(sv?'Enter continues at '+sectorName(sv.galaxySel|0)+'. N starts a new run.':'Enter starts a run.')+keys; }
  if(state==='galaxy'){ const th=THEMES[galaxySel%THEMES.length];
-  return 'Galaxy chart. Sector '+(galaxySel+1)+', '+th.name+(isBossSector(galaxySel)?', boss nest':'')+'. '+galaxyLore(galaxySel,th.name)+' Arrows select, Enter sets course, Escape returns to title.'; }
+  const note=hubNote&&performance.now()-hubNote.at<8000?hubNote.txt+' ':'';
+  return note+'Galaxy chart. Sector '+(galaxySel+1)+', '+th.name+(isBossSector(galaxySel)?', boss nest':'')+'. '+galaxyLore(galaxySel,th.name)+(galaxySel<=clearedMax?' Cleared: a replay banks no XP and restores the hull after.':'')+' Arrows select, Enter sets course, Escape returns to title.'; }
  if(state==='playing'){ if(!player) return '';
   let coach=''; try{ const cs=coachStep(); if(cs) coach=' Coach: '+coachLines(cs).join(' ')+' Enter dismisses.'; }catch(e){}
-  const where='Sector '+(arenaIdx+1)+', '+(arena&&arena.theme?arena.theme.name:'')+'.';
+  const where=(replaySnap?'Replay, no XP. ':'')+'Sector '+(arenaIdx+1)+', '+(arena&&arena.theme?arena.theme.name:'')+'.';
   if(portal){ if(!gems.length) return where+' Sector clear. Exit with E.'+coach;
    const atRisk=fieldXpAtRisk();
    if(exitArmed()) return where+' Sector clear. Lose '+atRisk+' XP? Press E again to confirm — '+atRisk+' XP is lost.'+coach;
@@ -4674,7 +4761,7 @@ arena={seed:1337, obs:[], theme:THEMES[0], spawns:[], port:{x:800,y:500}, valida
   get pendingLevels(){ return pendingLevels; }, get pendingNest(){ return pendingNest; }, get pity(){ return pity; }, get runSeed(){ return runSeed; }, get upgradeCounts(){ return upgradeCounts; },
   get titleConfirm(){ return titleConfirm; }, get levelBack(){ return levelBack; },
   get depth(){ return depth; }, get bosses(){ return bosses; }, get best(){ return best; },
-  get cleared(){ return clearedMax; }, get galaxySel(){ return galaxySel; }, get time(){ return timeSec; },
+  get cleared(){ return clearedMax; }, get replay(){ return !!replaySnap; }, get kills(){ return kills; }, get titleSel(){ return titleSel; }, get hubNote(){ return hubNote; }, get galaxySel(){ return galaxySel; }, get time(){ return timeSec; },
    get ebullets(){ return ebullets; }, get hostileRings(){ return rings.filter(g=>g.dmg>0&&!g.own); }, get hazardList(){ return hazards; },
    get state(){return state;}, get player(){return player;}, get enemies(){return enemies;}, get gems(){return gems;}, get settings(){return settings;}, get arena(){return arena;}, get portal(){return portal;}, get choices(){return levelChoices;}, keys, mouse, touch, fitCanvas,
    get viewScale(){ return viewScale; }, get devicePx(){ return devicePx; },
