@@ -2669,6 +2669,337 @@ function suiteBullets() {
  return null;
 }
 
+
+// ======================================================================
+//  SUITE 8a3 -- boss primitives, ship status, phases, stream (spec §3-§4)
+// ======================================================================
+// A quiet room: one god frozen in place 300px right of the ship, no cover, no
+// chaff, so each primitive is measured on its own.
+function primRoom(kind, sector) {
+ const a = boot(); seedRandom(a, 3030);
+ a.startRun(); a.loadSector(sector === undefined ? 29 : sector); a.forceState('playing');
+ a.arena.obs.length = 0; a.enemies.length = 0; a.queue.length = 0;
+ const p = a.player; p.autoFire = false; a.mouse.down = false;
+ const b = a.mkBoss(kind || 'warden', p.x + 300, p.y, sector === undefined ? 29 : sector); b.spawnT = 0; b.lead = true; a.enemies.push(b);
+ a.__sandbox.window.devAiFreeze = true;
+ p.hp = p.maxhp = 1e6; p.invuln = 0;
+ return { a, p, b };
+}
+function hold(a, secs, f) { seconds(a, secs, () => { if (f) f(); a.mouse.down = false; if (a.state !== 'playing') a.forceState('playing'); }); }
+function suitePrims() {
+ section('boss primitives, status, phases');
+ // -- beam: telegraph, then ticks; cover blocks it
+ {
+  const { a, p, b } = primRoom();
+  const bm = a.bossBeam(b, { a: Math.PI, warn: 0.1, live: 1.0, dmg: 50 });
+  ok('a beam never telegraphs for less than 0.5s', bm && bm.warn >= 0.5);
+  hold(a, 0.45, () => { p.invuln = 0; });
+  eq('no damage lands during the telegraph', p.hp, 1e6);
+  hold(a, 0.5, () => { p.invuln = 0; });
+  ok('the live beam ticks the ship', p.hp < 1e6);
+  hold(a, 1.5);
+  eq('and is gone when its time is up', a.bossBeams.length, 0);
+ }
+ {
+  const { a, p, b } = primRoom();
+  a.arena.obs.push({ kind: 'circle', x: b.x - 150, y: b.y, r: 30 });
+  a.bossBeam(b, { a: Math.PI, warn: 0.5, live: 1.0, dmg: 50 });
+  hold(a, 1.2, () => { p.invuln = 0; });
+  eq('cover blocks the beam', p.hp, 1e6);
+  range('the beam stops at the obstacle', a.rayObs(b.x, b.y, -1, 0, 1600), 115, 125);
+  a.arena.obs.push({ kind: 'rect', x: b.x + 100, y: b.y - 20, w: 40, h: 40 });
+  range('ray casts stop at rects', a.rayObs(b.x, b.y, 1, 0, 1600), 99, 101);
+ }
+ // -- marks: the escape gap is guaranteed, they detonate together after the fill
+ {
+  const { a, p, b } = primRoom();
+  const pts = [{ x: p.x, y: p.y, r: 60 }];
+  for (let k = 0; k < 16; k++) { const g = k / 16 * 6.283; pts.push({ x: p.x + Math.cos(g) * 130, y: p.y + Math.sin(g) * 130, r: 70 }); }
+  const placed = a.bossMarks(b, pts, { warn: 1.1, dmg: 40 });
+  atMost('marks stay under their cap', a.marks.length, 16);
+  atLeast('the solver leaves a way out >= 2.2 ship diameters on the 180px ring', a.markEscapeGap(placed.map(m => ({ x: m.x, y: m.y, r: m.r })), p.x, p.y, true), 2.2 * 2 * p.r);
+  ok('the mark under the ship is kept: it is the one to run from', placed.some(m => Math.hypot(m.x - p.x, m.y - p.y) < 1));
+  hold(a, 0.9, () => { p.invuln = 0; });
+  eq('marks are harmless while they fill', p.hp, 1e6);
+  hold(a, 0.4, () => { p.invuln = 0; });
+  ok('staying on one when it detonates hurts', p.hp < 1e6);
+  eq('and they all go off together', a.marks.length, 0);
+ }
+ // -- trail discs: a harmless first moment, then a 0.5s tick, then gone
+ {
+  const { a, p, b } = primRoom();
+  a.dropDisc(b, p.x, p.y, 40, { life: 1.2, dmg: 10 });
+  hold(a, 0.2, () => { p.invuln = 0; });
+  eq('a fresh disc is harmless for 0.25s', p.hp, 1e6);
+  let hits = 0, last = p.hp;
+  hold(a, 0.7, () => { p.invuln = 0; if (p.hp < last) hits++; last = p.hp; });
+  range('then it ticks, twice a second at most', hits, 1, 2);
+  hold(a, 0.5);
+  eq('and shrinks away to nothing', a.discs.length, 0);
+ }
+ // -- freeze from a shockwave: no movement, no dash, guns still fire, then immunity
+ {
+  const { a, p, b } = primRoom();
+  give(a, 'spd', 1); a.forceState('playing'); p.hp = p.maxhp = 1e6;
+  a.__sandbox.window.devAiFreeze = true;
+  a.shockwave(b, p.x + 60, p.y, { fx: 'freeze', dur: 1.0, maxR: 140, spd: 300, warn: 0.5 });
+  hold(a, 0.8, () => { p.invuln = 0; p.dashCd = 0; });
+  ok('a freeze wave freezes the ship', p.status.freeze > 0, 'freeze ' + p.status.freeze);
+  ok('the HUD names it', a.statusTags(p).indexOf('FROZEN') >= 0);
+  const x0 = p.x, nb = a.bullets.length; p.autoFire = true; p.fireCd = 0;
+  a.keys.KeyA = true; a.tryDash(); hold(a, 0.3); a.keys.KeyA = false;
+  ok('frozen, the ship cannot move or dash', Math.abs(p.x - x0) < 1 && p.dashT <= 0);
+  ok('and its guns keep firing (the holmgang clause)', a.bullets.length > nb);
+  p.autoFire = false;
+  hold(a, 1.0);
+  ok('freeze lasts at most 1.2s', p.status.freeze <= 0);
+  ok('and leaves immunity: a second freeze is refused', !a.applyStatus('freeze', 1));
+  hold(a, 1.6);
+  ok('the immunity lapses after 1.5s', a.applyStatus('freeze', 1));
+ }
+ // -- knockback and jam on a shockwave
+ {
+  const { a, p, b } = primRoom();
+  a.shockwave(b, p.x + 60, p.y, { fx: 'knockback', kb: 500, maxR: 140, spd: 300, warn: 0.5 });
+  const x0 = p.x; hold(a, 1.0);
+  atLeast('a knockback wave shoves the ship away', x0 - p.x, 30);
+  a.shockwave(b, p.x + 60, p.y, { fx: 'jam', dur: 2, maxR: 140, spd: 300, warn: 0.5 });
+  hold(a, 0.8);
+  ok('a jam wave jams', p.status.jam > 0 && a.statusTags(p).indexOf('JAMMED') >= 0);
+ }
+ // -- rime bolts (REVENANT) freeze on a landed hit; bouncing rounds survive walls
+ {
+  const { a, p, b } = primRoom('revenant');
+  a.ebullets.push({ x: p.x + 60, y: p.y, vx: -300, vy: 0, r: 7, dmg: 5, life: 3, heavy: true, freeze: 1.0 });
+  hold(a, 0.3, () => { if (p.invuln > 0.3) p.invuln = 0; });
+  ok('a rime bolt that lands freezes the ship', p.status.freeze > 0);
+  const w = a.sectorWorld(29); b.x = 80; b.y = w.h / 2;
+  const r = a.eshotB(b, Math.PI, 300, 5, 1, 4, 1);
+  hold(a, 0.5);
+  ok('a bouncing round reflects off the rim and flies on', a.ebullets.indexOf(r) >= 0 && r.vx > 0 && r.bounce === 0);
+ }
+ // -- reflect arc: capped per second, the rest absorbed
+ {
+  const { a, p, b } = primRoom('sentinel');
+  b.mirror = { arcs: [{ a: Math.PI, half: 1.2 }], cap: 6, budget: 6 };
+  a.ebullets.length = 0;
+  let took = 0;
+  for (let k = 0; k < 30; k++) { const rd = mkRound({ x: b.x - 40, y: b.y + (k - 15), vx: 640, vy: 0, dmg: 20 }); if (a.bossDeflect(b, rd, b.x - b.r, b.y)) took++; }
+  eq('every round into the arc is taken by it', took, 30);
+  atMost('but at most the cap comes back as enemy rounds', a.ebullets.length, 6);
+  ok('a round outside the arc is not the mirror\'s', !a.bossDeflect(b, mkRound({ x: b.x + 40, y: b.y }), b.x + b.r, b.y));
+ }
+ // -- parts: capped, hit, broken, reported to the kit
+ {
+  const { a, p, b } = primRoom('hydra');
+  const made = []; for (let k = 0; k < 10; k++) made.push(a.addPart(b, { lx: 40, ly: (k - 5) * 8, r: 10, hp: 30 }));
+  eq('at most eight parts a god', b.parts.length, 8);
+  let broke = null; b.kit.onPartBreak = (e, q) => { broke = q; };
+  const q = b.parts[0];
+  ok('a blocking part spends the round', a.hitBossPart(b, q, { dmg: 20 }, q.x, q.y) === true && q.hp === 10);
+  a.hitBossPart(b, q, { dmg: 20 }, q.x, q.y);
+  ok('a part at 0 HP breaks, leaves, and tells its kit', broke === q && b.parts.indexOf(q) < 0 && q.dead);
+  delete b.kit.onPartBreak;
+  b.partRot = Math.PI / 2; hold(a, 0.1);
+  const r0 = b.parts[0]; range('parts turn with the god and are written in world space', Math.hypot(r0.x - b.x, r0.y - b.y), 30, 60);
+ }
+ // -- temporary obstacles: never near the ship, never sealing, and they expire
+ {
+  const { a, p, b } = primRoom('colossus', 54);
+  eq('no boulder within 120px of the ship', a.placeTempObs(b, p.x + 90, p.y, 30, 5), null);
+  const o = a.placeTempObs(b, p.x - 400, p.y + 200, 30, 1);
+  ok('a boulder in the open is placed', !!o && a.arena.obs.indexOf(o) >= 0);
+  // a pocket in the top-left corner reached through a 120px gap: a boulder in the gap would seal it
+  const X = 24, Y = 80;
+  a.arena.obs.push({ kind: 'rect', x: X + 220, y: Y, w: 40, h: 340 }, { kind: 'rect', x: X, y: Y + 300, w: 100, h: 40 });
+  eq('a boulder that would seal off ground is refused', a.placeTempObs(b, X + 160, Y + 320, 50, 5), null);
+  const n = []; for (let k = 0; k < 10; k++) { const q = a.placeTempObs(b, p.x - 700 + k * 150, p.y - 350, 24, 20); if (q) n.push(q); }
+  atMost('at most six boulders at once', a.arena.obs.filter(q => q.temp).length, 6);
+  hold(a, 1.2);
+  ok('a boulder is removed when its time is up', a.arena.obs.indexOf(o) < 0);
+ }
+ // -- tether: telegraphed, pulls, a dash breaks it
+ {
+  const { a, p, b } = primRoom('kraken', 74);
+  give(a, 'spd', 1); a.forceState('playing'); p.hp = p.maxhp = 1e6; a.__sandbox.window.devAiFreeze = true;
+  a.bossGrasp(b, { warn: 0.6, life: 3, pull: 180 });
+  hold(a, 0.3); ok('a grasp telegraphs before it holds', !p.status.tether && a.bossGrasps.length === 1);
+  const d0 = Math.hypot(b.x - p.x, b.y - p.y); hold(a, 0.9);
+  ok('then it tethers and pulls the ship in', !!p.status.tether && Math.hypot(b.x - p.x, b.y - p.y) < d0 - 60);
+  p.dashCd = 0; a.keys.KeyA = true; a.tryDash(); hold(a, 0.1); a.keys.KeyA = false;
+  ok('a dash breaks it', !p.status.tether);
+ }
+ // -- erase zones never cover their maker; currents are beatable on foot
+ {
+  const { a, p, b } = primRoom('nullifier', 89);
+  const z = a.eraseZone(b, b.x, b.y, 150, { warn: 0.5, life: 3 }); hold(a, 0.6);
+  ok('an erase zone on its maker leaves the hull edge hittable', !a.bulletErased({ x: b.x + b.r * 0.8, y: b.y, r: 3 }));
+  ok('but eats rounds inside it', a.bulletErased({ x: b.x + 2, y: b.y, r: 3 }));
+  a.addCurrent(b, { pull: 5000, r: 800, warn: 0, life: 3 });
+  const x0 = p.x; a.keys.KeyA = true; hold(a, 1.0); a.keys.KeyA = false;
+  atLeast('a pull is always beatable on foot', x0 - p.x, 25);
+ }
+ // -- caps hold under abuse, and lifecycle clears everything a god owned
+ {
+  const { a, p, b } = primRoom();
+  for (let k = 0; k < 900; k++) a.eshotB(b, k, 200, 5, 1, 4, 1);
+  for (let k = 0; k < 400; k++) a.dropDisc(b, p.x + 500, p.y, 20, { life: 5 });
+  for (let k = 0; k < 20; k++) a.bossBeam(b, { a: k });
+  for (let k = 0; k < 40; k++) a.bossMarks(b, [{ x: p.x - 300, y: p.y + k * 5, r: 20 }]);
+  atMost('enemy rounds capped at 420', a.ebullets.length, 420);
+  atMost('hazards and discs together capped at 260', a.hazards.length + a.discs.length, 260);
+  atMost('beams capped at 8', a.bossBeams.length, 8);
+  atMost('marks capped at 16', a.marks.length, 16);
+  a.placeTempObs(b, p.x - 500, p.y + 300, 30, 20); a.eraseZone(b, b.x + 100, b.y, 60); a.addCurrent(b, {}); a.bossGrasp(b, {});
+  a.killEnemy(a.enemies.indexOf(b));
+  ok('a god\'s death takes its beams, marks, discs, zones, currents, grasps and boulders', a.bossBeams.length + a.marks.length + a.discs.length + a.bossZones.length + a.bossCurrents.length + a.bossGrasps.length === 0 && !a.arena.obs.some(o => o.temp));
+ }
+ {
+  const { a, p, b } = primRoom();
+  a.bossBeam(b, {}); a.dropDisc(b, p.x, p.y, 20); a.addCurrent(b, {}); a.applyStatus('slow', 5, { mul: 0.5 });
+  a.__sandbox.window.devAiFreeze = false;
+  a.loadSector(30);
+  ok('loading a sector clears every pool and the ship\'s status', a.bossBeams.length + a.discs.length + a.bossCurrents.length === 0 && a.player.status.slow === 0);
+ }
+ {
+  // a replay ends clean, and the run snapshot round-trips
+  const a = boot(); seedRandom(a, 4545); a.startRun();
+  for (let i = 0; i < 5; i++) { a.loadSector(i); a.forceState('playing'); a.nextArena(); }
+  a.loadSector(4); a.forceState('playing');
+  const b = bossesIn(a)[0]; a.bossBeam(b, {}); a.dropDisc(b, 500, 500, 20); a.applyStatus('jam', 9);
+  a.nextArena();
+  ok('the end of a replay clears every pool and status', !a.replay && a.bossBeams.length + a.discs.length === 0 && a.player.status.jam === 0);
+  const s1 = a.__store.kriefne_run, c = boot(a.__store); c.continueRun();
+  const norm = raw => { const r = JSON.parse(raw); delete r.player.x; delete r.player.y; return JSON.stringify(r); }; // where the hull sat on the hub is not state
+  eq('the run snapshot round-trips through continue', norm(c.__store.kriefne_run), norm(s1));
+  ok('and continue starts the ship with no status', c.player.status && c.player.status.freeze === 0 && !c.player.status.tether);
+ }
+ // -- phases: a readable beat each, invulnerable only then, once each
+ {
+  const a = boot(); seedRandom(a, 5151); a.startRun(); a.loadSector(49); a.forceState('playing'); a.queue.length = 0;
+  const b = bossesIn(a)[0]; a.player.autoFire = false;
+  let beats = 0, last = b.mode, refunded = true, banner = false;
+  for (let i = 0; i < 60 * 30; i++) {
+   immortal(a); a.mouse.down = false; if (a.state !== 'playing') a.forceState('playing');
+   const t = i / 60; b.hp = Math.min(b.hp, b.maxhp * Math.max(0.2, 1 - t / 20));
+   if (b.mode === 'beat') { const h = b.hp; b.hp -= b.maxhp * 0.05; a.update(DT); if (b.mode === 'beat' && b.hp < h - 1) refunded = false; }
+   else a.update(DT);
+   if (b.mode === 'beat' && last !== 'beat') { beats++; banner = banner || /PHASE II/.test(a.srSummary() + b.bname + a.bossLabel(b)); }
+   last = b.mode;
+  }
+  eq('ARCHON plays its two phase changes, once each', beats, 2);
+  eq('and ends in Phase III', b.ph, 3);
+  ok('damage during the beat is handed back: its one invulnerable window', refunded);
+  b.hp = b.maxhp; seconds(a, 1, () => immortal(a));
+  eq('healing back above a threshold never replays it', b.ph, 3);
+  let threw = null; try { a.render(); } catch (e) { threw = e; } ok('the bar draws its phase ticks without throwing', !threw, threw && threw.message);
+ }
+ {
+  const a = boot(); seedRandom(a, 6161); a.startRun(); a.loadSector(24); a.forceState('playing'); a.queue.length = 0;
+  const lv = bossesIn(a)[0]; a.player.autoFire = false;
+  seconds(a, 3, () => immortal(a));
+  ok('LEVIATHAN leaves a wake of trail discs', a.discs.some(d => d.owner === lv));
+  eq('its Phase I wake lasts 3.5s', a.discs.filter(d => d.owner === lv).every(d => d.life === 3.5), true);
+  lv.hp = lv.maxhp * 0.49; seconds(a, 3, () => immortal(a));
+  ok('from Phase II the wake lasts 5s (the phase framework\'s proof)', lv.ph === 2 && a.discs.some(d => d.owner === lv && d.life === 5));
+  const s = a.mkSummoned('leviathan', 600, 600, 24, 1); ok('a summoned LEVIATHAN runs its Phase I wake', s.wakeLife === 3.5 && s.phAt.length === 0);
+ }
+ // -- HARBINGER's meteor now does something
+ {
+  const a = boot(); seedRandom(a, 7171); a.startRun(); a.loadSector(69); a.forceState('playing'); a.queue.length = 0;
+  const h = bossesIn(a)[0]; h.forcedAttack = 'meteor'; a.player.autoFire = false;
+  let seen = 0; seconds(a, 4, () => { immortal(a); seen = Math.max(seen, a.marks.filter(m => m.owner === h && m.src && m.src.what === 'METEOR').length); });
+  atLeast('HARBINGER\'s meteor lays impact marks', seen, 3);
+ }
+ // -- the nest chaff stream: runs while the god lives, stops with it
+ {
+  const a = boot(); seedRandom(a, 8181); a.startRun(); a.loadSector(24); a.forceState('playing'); a.queue.length = 0;
+  const lead = bossesIn(a)[0], ids = new Set(a.enemies.map(e => e.uid)); a.player.autoFire = false;
+  let fresh = 0; seconds(a, 25, () => { immortal(a); for (const e of a.enemies) if (!ids.has(e.uid)) { ids.add(e.uid); if (e.type !== 'boss') fresh++; } });
+  atLeast('a nest streams chaff while its god lives', fresh, 4);
+  a.killEnemy(a.enemies.indexOf(lead)); let after = 0;
+  seconds(a, 25, () => { immortal(a); if (a.state !== 'playing') a.forceState('playing'); for (const e of a.enemies) if (!ids.has(e.uid)) { ids.add(e.uid); if (e.type !== 'boss') after++; } });
+  eq('and stops when the god dies', after, 0);
+  const b = boot(); seedRandom(b, 8282); b.startRun(); b.loadSector(24); b.forceState('playing');
+  b.enemies.splice(b.enemies.indexOf(bossesIn(b)[0]), 1); // the lab clears the lead without a kill
+  const g = b.mkBoss('warden', b.player.x + 300, b.player.y, 24); b.enemies.push(g);
+  ok('a lab-spawned god (never flagged lead) still drives the stream', b.nestHead() === g);
+ }
+ return null;
+}
+
+// ======================================================================
+//  SUITE 8a4 -- per-boss fuzz (spec §4.7) and the performance floor (§4.6)
+// ======================================================================
+// Every god, as lead and as summoned, 90 simulated seconds at its debut
+// sector, its bar walked down so every threshold fires, against a scripted
+// pilot that circles, fires and dashes on telegraphs. Asserts: no exception,
+// no NaN, everything in bounds, every CAP respected, no illegal jump. The
+// fight-length check (Homing Hose before RELENTLESS + 60s) is report-only.
+function fuzzOne(kind, summoned, bad) {
+ const a = boot(); seedRandom(a, 12000 + kind.length * 97 + (summoned ? 7 : 0));
+ a.startRun(); give(a, 'spd', 1);
+ const n = a.bossdefs[kind].debut;
+ a.loadSector(n - 1); a.forceState('playing');
+ const p = a.player; p.autoFire = true;
+ if (summoned) { for (const e of a.enemies.slice()) if (e.type === 'boss') a.enemies.splice(a.enemies.indexOf(e), 1);
+  a.enemies.push(a.mkSummoned(kind, p.x + 320, p.y, n - 1, 1)); }
+ const w = a.sectorWorld(n - 1), X0 = 24, Y0 = 80, X1 = w.w - 24, Y1 = w.h - 24, OK = a.teleportOk, last = new Map(), C = a.caps;
+ const fin = v => typeof v === 'number' && isFinite(v);
+ let t = 0;
+ try {
+  for (let i = 0; i < 60 * 90; i++) {
+   immortal(a); a.mouse.down = false; if (a.state !== 'playing') a.forceState('playing');
+   const ang = t * 0.7; a.keys.KeyD = Math.cos(ang) > 0.3; a.keys.KeyA = Math.cos(ang) < -0.3; a.keys.KeyS = Math.sin(ang) > 0.3; a.keys.KeyW = Math.sin(ang) < -0.3;
+   if (p.dashCd <= 0 && (a.marks.some(m => Math.hypot(m.x - p.x, m.y - p.y) < m.r + 20) || a.bossGrasps.length)) a.tryDash();
+   for (const e of a.enemies) if (e.type === 'boss') e.hp = Math.min(e.hp, e.maxhp * Math.max(0.05, 1 - 0.95 * t / 80));
+   a.update(DT); t += DT;
+   if (!fin(p.x) || !fin(p.y)) { bad.push(kind + ': ship NaN'); break; }
+   for (const e of a.enemies) {
+    if (!fin(e.x) || !fin(e.y) || !fin(e.hp)) { bad.push(kind + ': NaN on ' + (e.kind || e.type)); return; }
+    if (e.x < X0 - 1 || e.x > X1 + 1 || e.y < Y0 - 1 || e.y > Y1 + 1) { bad.push(kind + ': ' + (e.kind || e.type) + ' out of bounds'); return; }
+    if (e.type === 'boss') {
+     if (e.parts && e.parts.length > C.parts) { bad.push(kind + ': parts over cap'); return; }
+     const q = last.get(e.uid);
+     if (q && Math.hypot(e.x - q.x, e.y - q.y) > a.bossMaxSpeed(e) * DT * 3 && !(OK[e.kind] && e.blinkAt === a.time)) { bad.push(kind + ': illegal jump by ' + e.kind + ' ' + a.bossLabel(e)); return; }
+     last.set(e.uid, { x: e.x, y: e.y });
+    }
+   }
+   for (const b of a.ebullets) if (!fin(b.x) || !fin(b.y)) { bad.push(kind + ': NaN round'); return; }
+   for (const m of a.marks.concat(a.discs)) if (!fin(m.x) || !fin(m.r)) { bad.push(kind + ': NaN mark/disc'); return; }
+   if (a.ebullets.length > C.eb || a.hazards.length + a.discs.length > C.haz || a.marks.length > C.marks || a.bossBeams.length > C.beams
+    || a.arena.obs.filter(o => o.temp).length > C.tempObs || a.enemies.length > C.enemies) { bad.push(kind + ': a cap was broken'); return; }
+  }
+ } catch (err) { bad.push(kind + (summoned ? ' (summoned)' : '') + ' threw: ' + err.message + ' @ ' + (err.stack || '').split('\n')[1]); }
+ for (const k of ['KeyW', 'KeyA', 'KeyS', 'KeyD']) a.keys[k] = false;
+}
+function suiteFuzz() {
+ section('per-boss fuzz');
+ const t0 = Date.now(), api0 = boot(), bad = [];
+ for (const kind of api0.ladder) { fuzzOne(kind, false, bad); fuzzOne(kind, true, bad); }
+ eq('20 gods x lead and summoned, 90s each: no exception, NaN, escape, cap breach or illegal jump', bad.length, 0, bad.slice(0, 6).join('; '));
+ // fight length, report only: the Homing Hose must finish each lead before RELENTLESS + 60s
+ const slow = [];
+ for (const kind of api0.ladder) {
+  const n = api0.bossdefs[kind].debut, r = simRun(n - 1, 'hose', 9300 + n * 37), lim = api0.relentlessFor(n) + 60;
+  if (!r.done || r.t > lim) slow.push('S' + n + ' ' + kind + ' ' + (r.done ? '' : '>') + r.t.toFixed(0) + 's/' + lim + 's');
+ }
+ if (slow.length) console.log('  report: ' + slow.length + ' leads outlast RELENTLESS + 60s with the Homing Hose (not asserted): ' + slow.join(', '));
+ // §4.6: the Apex nest with its chaff stream, 120 simulated seconds
+ {
+  const a = boot(); seedRandom(a, 100100); a.startRun(); a.loadSector(99); a.forceState('playing');
+  const b = bossesIn(a)[0]; a.player.autoFire = true;
+  let ms = 0; const N = 60 * 120;
+  for (let i = 0; i < N; i++) { immortal(a); if (a.state !== 'playing') a.forceState('playing'); b.hp = Math.max(b.hp, b.maxhp * 0.3);
+   const s = process.hrtime.bigint(); a.update(DT); ms += Number(process.hrtime.bigint() - s) / 1e6; }
+  const avg = ms / N;
+  if (VERBOSE) console.log('  S100 + Convocation + chaff: ' + avg.toFixed(3) + ' ms per update');
+  atMost('S100 with its Convocation and chaff stream updates in under 4ms on average', avg, 4);
+ }
+ console.log('  fuzz ran in ' + ((Date.now() - t0) / 1000).toFixed(1) + 's');
+ return null;
+}
+
 const SUITES = [
  ['xp', suiteXp],
  ['boot', suiteBoot],
@@ -2685,6 +3016,8 @@ const SUITES = [
  ['roster', suiteBossRoster],
  ['hierarchy', suiteHierarchy],
  ['teleport', suiteTeleport],
+ ['prims', suitePrims],
+ ['fuzz', suiteFuzz],
  ['live', suiteBossLive],
  ['combos', suiteCombos],
  ['codex', suiteCodex],
