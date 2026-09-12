@@ -143,8 +143,12 @@ function oklch(L,C,H){
 //  * hue outside gold's band and red's (15–118), lightness 0.58–0.74, chroma
 //    at most 0.12: never as bright or as loud as gold, never red;
 //  * at least ΔE 0.13 (OKLab) from gold, red, red-hi and hydrogen;
-//  * at least 0.09 between any two gods (any two can share a court), any two
+//  * at least 0.09 between any two gods that can share a field, any two
 //    servitors, and every god and the servitors it summons.
+// Twenty gods cannot all sit 0.09 apart inside this gamut, and with one lead
+// per nest they no longer need to: a god only ever fights beside the rungs
+// its chain reaches (three below it, spec §2) and the Apex beside the S75-S95
+// Sovereigns its Convocation can bring. test.js checks exactly those pairs.
 // [hue, lightness, chroma], found by a constrained search that held each god
 // as near as it could to its character hue.
 const PIGMENT_DEF={
@@ -161,7 +165,15 @@ const PIGMENT_DEF={
  archon:[303,0.67,0.118],      // amethyst     · the Lawspeaker
  harbinger:[321,0.58,0.111],   // plum         · the Horn
  juggernaut:[336,0.74,0.118],  // orchid       · the Unsteered
- overlord:[356,0.66,0.075]     // madder       · the Berserk
+ overlord:[356,0.66,0.075],    // madder       · the Berserk
+ revenant:[199,0.70,0.030],    // rime         · the Cold-Sleeper
+ hydra:[299,0.74,0.118],       // lilac        · the Three-Throated
+ wyvern:[358,0.58,0.042],      // ash-rose     · the Strafing Wing
+ sentinel:[238,0.72,0.118],    // glacier blue · the Shield-Wall
+ colossus:[0,0.74,0.034],      // pale stone   · the Walled
+ progenitor:[177,0.70,0.118],  // brood jade   · the Brood-Hall
+ kraken:[240,0.59,0.118],      // deep blue    · the Deep-Grasp
+ eclipse:[296,0.66,0.042]      // dusk         · the Dimming
 };
 // c: outline, core, rank · hi: enraged · dim: inner engraving · body: hull
 // fill, the pigment barely present · flash: the hull struck.
@@ -453,84 +465,58 @@ const TITLE_MUS={ bass:[110,0,0,0,130.81,0,0,0,98,0,0,0,146.83,0,0,0], tempo:300
 const PAUSE_MUS={ bass:[110,0,0,0,0,0,0,0,98,0,0,0,0,0,0,0], tempo:340, lwave:'triangle', lead:[220,0,0,0,174.61,0,0,0,196,0,0,0,164.81,0,0,0] };
 // ---------- endless sectors ----------
 // The run never ends: sectors grow larger, denser and meaner forever.
-// Every 5th sector is a boss NEST. Its roster is DERIVED, not hand-typed:
-//   * a signature nest (S5, S50, S100) uses its authored roster
-//   * a debut nest belongs to the boss debuting there, alone
-//   * any other nest is a commander from the top two ranks you have met,
-//     escorted by subordinates from strictly lower ranks
-// Deterministic per sector, so the codex, the hub lore and the tests all agree.
+// Every 5th sector is a boss NEST held by exactly ONE god, the one debuting
+// there (spec §1), so the ladder below IS the schedule. A second god enters a
+// fight only by being summoned, and a god calls the rung directly beneath it:
+// S(n) calls S(n-5) (spec §2). No courts, no escorts, nothing random, so the
+// codex, the hub lore and the tests all read one table.
+// Past S100 comes the Second Winter: the ladder repeats as RETURNED gods. The
+// lead of S(100+k) is ladder level k and it calls level k-5, so the chain
+// restarts with the loop and the returned OVERLORD at S105 calls nobody.
+const LADDER=['overlord','warden','phantom','revenant','leviathan','hydra','wyvern','oracle','sentinel','archon',
+ 'colossus','basilisk','progenitor','harbinger','kraken','juggernaut','eclipse','nullifier','chorus','singularity'];
 function isBossSector(s){ return ((s+1)%5)===0; }
-const _nestCache={}; // deterministic per sector, and mkBoss asks for every boss it builds
-function bossKindsFor(s){
- const n=s+1;
- if(!_nestCache[n]) _nestCache[n]=deriveNest(n);
- return _nestCache[n].slice();
-}
-function deriveNest(n){
- const sig=SIGNATURE_NESTS[n];
- if(sig) return sig.kinds.slice();
- if(DEBUTS[n]) return [DEBUTS[n]];
- const met=BOSS_KINDS.filter(k=>BOSSDEF[k].debut<=n);
- if(!met.length) return ['overlord'];
- const R=mulberry32((n*2654435761)>>>0);
- // Never the same court twice running — back-to-back identical nests read as
- // the schedule being stuck.
- const prev=n>5?bossKindsFor(n-6).join('+'):'';
- let court=null;
- for(let attempt=0;attempt<8;attempt++){ court=pickCourt(met,n,R); if(court.join('+')!==prev) break; }
- return court;
-}
-// A court: a commander from the top two ranks you have met, escorted by its OWN
-// subordinates — one rank below first (distinct kinds), stepping further down
-// only when that rank runs out. Picking escorts from "anything lower" made the
-// lone Enforcer tag along with almost every nest.
-function pickCourt(met,n,R){
- const tierOf=k=>BOSSDEF[k].tier;
- const topT=Math.max.apply(null,met.map(tierOf));
- let leads=met.filter(k=>tierOf(k)>=topT-1&&met.some(j=>tierOf(j)<tierOf(k)));
- if(!leads.length) leads=met.filter(k=>tierOf(k)===topT);
- // the highest rank you have met leads three times as often as the rank below
- const top=leads.filter(k=>tierOf(k)===topT);
- leads=leads.concat(top,top);
- const lead=leads[(R()*leads.length)|0];
- const out=[lead];
- let t=tierOf(lead)-1, pool=[];
- for(let i=0;i<escortsFor(n);i++){
-  while(!pool.length&&t>=1){ pool=met.filter(k=>tierOf(k)===t); t--; }
-  if(!pool.length) break;
-  const j=(R()*pool.length)|0; out.push(pool[j]); pool.splice(j,1);
- }
- return out;
-}
-function nestCommandDepth(s){ const sig=SIGNATURE_NESTS[s+1]; return (sig&&sig.cmd!==undefined)?sig.cmd:commandDepth(s+1); }
+// The ladder level (1..100) a sector plays: itself to S100, then the winter loop.
+function ladderLevel(n){ return n<=100?n:((n-101)%100)+1; }
+function leadFor(n){ return LADDER[clamp(Math.round(ladderLevel(n)/5)-1,0,LADDER.length-1)]; }
+// Kept for every caller that asks for a nest's roster: one lead, always.
+function bossKindsFor(s){ return [leadFor(s+1)]; }
+// Who a god calls when wounded: the rung directly beneath it, unless its kit
+// names its own (ORACLE's two WYVERNs, SINGULARITY's Convocation). OVERLORD,
+// the bottom rung, calls ordinary enemies only.
+function summonsOf(kind){ const k=BOSS_KITS[kind]; if(k&&k.calls) return k.calls.slice(); const i=LADDER.indexOf(kind); return i>0?[LADDER[i-1]]:[]; }
+function callersOf(kind){ return LADDER.filter(k=>summonsOf(k).indexOf(kind)>=0); }
+// A nest's callable gods: the lead's summons, never one before its own debut.
+function nestSummons(s){ const n=s+1; return summonsOf(leadFor(n)).filter(k=>BOSSDEF[k]&&BOSSDEF[k].debut<=n); }
+// Chain depth (spec §2): how many links deep a nest's summons may reach. The
+// lead's own call is link 1; a summoned god may add one beneath itself only
+// while its link is shallower than this. S5-S45 one link, S50-S95 two, the
+// Apex three; a returned god reaches one deeper than at its debut.
+function chainExtra(n){ if(n>100) return Math.min(3,chainExtra(ladderLevel(n))+1); return n<=45?0:(n<=95?1:2); }
+function maxChainDepth(n){ return 1+chainExtra(n); }
+// Nest-wide budget of summoned gods, every link of every chain included. A
+// kit can widen it for a bespoke call (ORACLE re-arms its pair).
+function summonBudgetFor(n){ const lvl=ladderLevel(n), k=BOSS_KITS[leadFor(n)];
+ let b=(k&&k.summons&&k.summons.budget!=null)?k.summons.budget:(lvl<10?0:lvl<=20?1:lvl<=45?2:lvl<=95?4:7);
+ if(n>100&&b>0) b+=2;
+ return b; }
+// HP fractions at which a lead calls (spec §2 bands by its debut), unless its
+// kit sets its own: ARCHON 75/25, ORACLE's Call and the Convocation at 50%.
+function summonAt(kind){ const k=BOSS_KITS[kind]; if(k&&k.summons&&k.summons.at) return k.summons.at.slice();
+ const d=BOSSDEF[kind]?BOSSDEF[kind].debut:5; return d<=5?[]:d<=20?[0.5]:d<=45?[0.6,0.3]:d<=95?[0.7,0.35]:[0.5]; }
 function sectorName(s){ return 'S'+String(s+1).padStart(2,'0'); }
 // galaxy hub flavor: lore that builds the trail instead of restating mechanics.
 // Nest lines name the nightmare; sector lines rotate with the run seed.
-// One bespoke line per boss for its solo debut, naming its RANK — so the hub
-// teaches the chain of command you are climbing, one rung at a time. Codex field
-// notes are separate and longer; these are the headline.
-const DEBUT_LORE={
- overlord:'AN ENFORCER BARS THE TRAIL — OVERLORD, the Berserk, has never yielded a holmgang. End the saga.',
- warden:'A CAPTAIN HOLDS THE BRIDGE — WARDEN guards a lane that leads nowhere now. It still guards it.',
- phantom:'A CAPTAIN WITHOUT A POST — PHANTOM carries a reply that no one is left to read.',
- leviathan:'A LORD OF THE DEEP LANE — LEVIATHAN answers to Sovereigns. Past here, nests call for help.',
- oracle:'A LORD WHO KEEPS THE LEDGER — ORACLE has already calculated this fight. Break its wards.',
- archon:'THE FIRST SOVEREIGN — ARCHON the Lawspeaker wrote the holmgang you fight under.',
- basilisk:'A LORD OF QUARANTINE — do not meet BASILISK\'s eye. Its last visitor is still held there.',
- harbinger:'A LORD WHO SOUNDS THE HORN — HARBINGER wants you to see it coming. Read the walls; find the gap.',
- juggernaut:'A SOVEREIGN THAT CANNOT STEER — JUGGERNAUT commands by momentum alone. Get behind it.',
- nullifier:'A SOVEREIGN OF SILENCE — NULLIFIER needs you ordinary for four seconds. Keep moving.',
- chorus:'A SOVEREIGN IN THREE VOICES — CHORUS was a people once. Every echo tells the truth.',
- singularity:'THE APEX — SINGULARITY, the One-Eyed. Every rank you have fought answers to it alone.'
-};
+// Each god's debut line lives in its own boss block (kit.lore), names its RANK
+// so the hub teaches the ladder one rung at a time, and the hub adds whom it
+// calls. Codex field notes are separate and longer; these are the headline.
+function callNames(kinds){ const c={}; for(const k of kinds) c[k]=(c[k]||0)+1; return Object.keys(c).map(k=>BOSSDEF[k].name+(c[k]>1?' ×'+c[k]:'')).join(', '); }
 function nestLore(s){
- const n=s+1, kinds=bossKindsFor(s), lead=kinds[0], d=BOSSDEF[lead];
- if(kinds.length===1&&DEBUT_LORE[lead]&&d.debut===n) return DEBUT_LORE[lead];
- const esc=kinds.slice(1).map(k=>BOSSDEF[k].name);
- const rank=TIER_NAMES[d.tier], art=/^[AEIOU]/.test(rank)?'AN ':'A ';
- if(n>100) return 'PAST THE APEX — '+d.name+' ('+rank+')'+(esc.length?' with '+esc.join(', '):'')+'. Command runs '+nestCommandDepth(s)+' deep.';
- if(!esc.length) return art+rank+' AT LARGE — '+d.name+' holds this nest alone.';
- return art+rank+'\'S COURT — '+d.name+' leads; '+esc.join(' and ')+(esc.length>1?' answer':' answers')+' to it.';
+ const n=s+1, lead=leadFor(n), d=BOSSDEF[lead], calls=nestSummons(s);
+ const tail=calls.length?' Calls '+callNames(calls)+'.':'';
+ if(n<=100) return (DEBUT_LORE[lead]||(TIER_NAMES[d.tier]+' — '+d.name+' holds this nest.'))+tail;
+ const rank=TIER_NAMES[d.tier], who=rank==='APEX'?'THE APEX':(/^[AEIOU]/.test(rank)?'AN ':'A ')+rank;
+ return 'THE SECOND WINTER — '+d.name+', '+who+', returns.'+tail;
 }
 function galaxyLore(s,thName){
  if(isBossSector(s)) return nestLore(s);
@@ -709,7 +695,6 @@ let levelBack=null; // the core unlock offered again as a fourth card, if any
 let enterT=-1e9;     // when the current sector was entered: drives the pulsar fix
 let wipeArmT=0;      // Reset records asks twice: the first press arms it until this time
 let nestDraftAt=0;   // set when a nest's bonus draft opens: dark ground + gold disc
-let nestLtLeft=0;        // boss-class lieutenants this nest may still field (shared by all bosses)
 
 function newPlayer(dmgBonus){
   return { x:480, y:(PY0+PY1)/2, r:11, hp:100, maxhp:100, speed:240, level:1, xp:0, xpNeed:xpNeedFor(1),
@@ -1206,75 +1191,28 @@ function mkEnemy(type,x,y,a){
    wob:Math.random()*6.28, vscale:0.92+Math.random()*0.16, spawnT:0.5 };
 }
 // ---------- boss roster ----------
-// Twelve kinds. Each one owns a distinct phase cycle drawn from a shared library
-// of attack primitives PLUS a signature mechanic nothing else has, and a distinct
-// silhouette — so they read as different fights, not restatted reskins.
-//   tier      : rank in the chain of command (TIER_NAMES). Load-bearing: a boss
-//               only ever summons bosses from exactly one tier below it.
-//   debut     : the nest where it is first met, alone. The single source of
-//               truth for "first seen" — the schedule and the codex both read it.
+// Twenty gods, one per nest (LADDER). Each god's whole definition (stats, kit,
+// signature, recovery, phases, drawing, hit shape, codex note and debut line)
+// lives in its own delimited block in the ladder section below, registered in
+// BOSS_KITS. BOSSDEF is derived from those blocks, so there is one copy of
+// every number. A kit's `def`:
+//   name, epithet, tier : rank on the ladder (TIER_NAMES). Debut is NOT typed:
+//               it is the god's rung, 5 x (LADDER index + 1).
 //   hp        : pre-scale base, multiplied by eHpScale(sector)
-//   phases    : cycle of primitives, advanced every `pt` seconds
-//   sig       : the mechanic unique to this boss
-//   recov     : null | 'retreat' | 'phase'  (budgeted by the recovery economy)
-//   chaff     : the ordinary enemies it summons (flavour only — boss-class
-//               summons come from the tier table, never from this list)
-//   commander : calls lieutenants on a shorter cadence
-const BOSSDEF={
- overlord:{name:'OVERLORD',tier:1,debut:5,hp:985,r:30,spd:1.00,shape:'octa',pt:3.0,
-  phases:['burst','summon','charge','sweep'],sig:null,recov:null,chaff:['drone','stalker']},
- warden:{name:'WARDEN',tier:2,debut:10,hp:1250,r:34,spd:0.80,shape:'hex',pt:3.5,
-  phases:['spiral','summon','slam','twinwave'],sig:null,recov:'retreat',chaff:['drone','stalker']},
- phantom:{name:'PHANTOM',tier:2,debut:15,hp:760,r:26,spd:1.35,shape:'diamond',pt:9,
-  phases:['skirmish'],sig:'laser',recov:'phase',chaff:['drone','mite']},
- leviathan:{name:'LEVIATHAN',tier:3,debut:30,hp:1700,r:36,spd:0.85,shape:'serpent',pt:4.0,
-  phases:['tailsweep','mines','burrow','spiral'],sig:'segments',recov:'retreat',chaff:['mite','drone']},
- oracle:{name:'ORACLE',tier:3,debut:40,hp:1150,r:30,spd:0.90,shape:'eye',pt:3.6,
-  phases:['clockbeam','zone','summon','burst'],sig:'wards',recov:'phase',chaff:['tempest','drone']},
- archon:{name:'ARCHON',tier:4,debut:50,hp:1800,r:34,spd:0.90,shape:'crown',pt:3.8,
-  phases:['crossbeam','lieutenant','burst','slam'],sig:'command',recov:'retreat',chaff:['stalker','sniper'],commander:true},
- basilisk:{name:'BASILISK',tier:3,debut:60,hp:1350,r:31,spd:1.10,shape:'coil',pt:3.4,
-  phases:['gaze','linecharge','spikes','fan'],sig:'petrify',recov:null,chaff:['stalker','mite']},
- harbinger:{name:'HARBINGER',tier:3,debut:70,hp:1100,r:29,spd:1.00,shape:'star',pt:3.2,
-  phases:['spiralwall','meteor','fan','spiral'],sig:null,recov:null,chaff:['tempest','mite']},
- juggernaut:{name:'JUGGERNAUT',tier:4,debut:80,hp:1700,r:38,spd:0.95,shape:'ram',pt:3.0,
-  phases:['ram','slam','debris','ram'],sig:'vent',recov:null,chaff:['brute','drone']},
- nullifier:{name:'NULLIFIER',tier:4,debut:90,hp:1250,r:30,spd:1.00,shape:'prism',pt:3.4,
-  phases:['disrupt','fan','summon','burst'],sig:'jam',recov:'phase',chaff:['sniper','stalker']},
- chorus:{name:'CHORUS',tier:4,debut:95,hp:1400,r:28,spd:1.05,shape:'triad',pt:3.0,
-  phases:['fan','spiral','summon','burst'],sig:'split',recov:null,chaff:['mite','drone']},
- singularity:{name:'SINGULARITY',tier:5,debut:100,hp:1950,r:40,spd:0.85,shape:'well',pt:4.0,
-  phases:['gravity','debris','lieutenant','spiralwall'],sig:'wellpull',recov:'phase',chaff:['tempest','brute'],commander:true}
-};
-// ---------- the chain of command ----------
-// Rank names are deliberately NOT boss names — "WARDEN" as a rank would collide
-// with the WARDEN boss, so tier 2 is CAPTAIN.
+//   r, spd    : hull radius and speed multiplier
+//   pt        : seconds per slot of the kit's attack `cycle`
+//   sig       : the signature's tag (read by combat code: 'vent' is the prow)
+//   recov     : null | 'retreat' | 'phase'  (the generic recovery beats, until
+//               each kit gets its own, spec §3.6)
+//   chaff     : the ordinary enemies its 'summon' attack throws in
 const TIER_NAMES=['CHAFF','ENFORCER','CAPTAIN','LORD','SOVEREIGN','APEX'];
-const BOSS_KINDS=Object.keys(BOSSDEF);
-// Derived once from BOSSDEF so tier membership is never typed twice.
-const BOSSES_BY_TIER=(()=>{ const t=[]; for(const k of BOSS_KINDS){ const n=BOSSDEF[k].tier; (t[n]=t[n]||[]).push(k); } return t; })();
-const DEBUTS=(()=>{ const m={}; for(const k of BOSS_KINDS) m[BOSSDEF[k].debut]=k; return m; })();
-// Command depth — how many links of boss-class lieutenant a nest may field — is
-// set by SECTOR, not by the boss's own tier. That is what keeps the recursion
-// from exploding early: below S31 nothing can summon a boss at all, however
-// high-ranked it is. A lieutenant inherits one less, so every chain terminates.
-function commandDepth(n){ if(n<=30) return 0; if(n<=60) return 1; if(n<=100) return 2; return Math.min(4,3+(((n-101)/50)|0)); }
-// Nest-wide, shared by every boss in the nest and every link of every chain.
-function ltBudgetFor(n){ if(n<=30) return 0; if(n<=60) return 2; if(n<=100) return 3; return Math.min(6,4+(((n-101)/40)|0)); }
-// Subordinate escorts beside the nest's commander (not lieutenants — these are
-// full bosses present from the start).
-// Past the Apex the courts regrow from one escort: S101-S110 two bosses, S111+
-// three. Jumping straight to a full court at S105 walled the run instantly.
-function escortsFor(n){ if(n<=60) return 1; if(n<=100) return 2; return Math.min(3,1+(((n-101)/10)|0)); }
-const LT_LIVE_CAP=2;     // at most this many lieutenants alive at once, regardless of budget
-const LT_HP_DECAY=0.22;  // a lieutenant at chain depth d has 0.22^d of a full boss
-// Hand-authored set pieces that override the derived schedule. Everything not
-// listed here is derived from tiers and debuts by bossKindsFor.
-const SIGNATURE_NESTS={
- 5:{kinds:['overlord']},             // the gatekeeper: alone, and too early to recover
- 50:{kinds:['archon']},              // the first Sovereign and the first real command stack
- 100:{kinds:['singularity'],cmd:3}   // the Apex: three links of command beneath it
-};
+const BOSS_KITS={}; // kind -> kit, filled by the ladder blocks
+const BOSSDEF={};   // kind -> def, derived from BOSS_KITS once the blocks have run
+// Summoned gods (spec §2): tough enough to justify the sector they appear in,
+// never a copy of the lead. (tune) — the fight simulator sets these.
+const SUMMON_HP=0.45;   // of that kind's lead HP AT THIS SECTOR, again per link
+const SUMMON_DMG=0.85, SUMMON_SIZE=0.85;
+const SUMMON_LIVE_CAP=2; // alive at once, except a kit that calls past it (the Convocation)
 // ---------- recovery economy (applies to EVERY boss, present and future) ----------
 // The old rule was "recover whenever the 8s mode timer expires", which let an
 // S10 PHANTOM phase out eight times in two minutes and knit ~25% of its bar back
@@ -1290,18 +1228,21 @@ const SIGNATURE_NESTS={
 const RECOV_MAX=2, RECOV_CD=30, RECOV_OPEN=12, RECOV_HEAL=0.06, RECOV_FLOOR=0.30;
 const BOSS_HARD_ENRAGE=180; // safety valve: no boss fight may stall past 3 minutes
 function bossHeal(e,amt){ if(e.healPool<=0) return; const h=Math.min(amt,e.healPool,e.maxhp-e.hp); if(h<=0) return; e.hp+=h; e.healPool-=h; }
-function mkBoss(kind,x,y,s){
- const d=BOSSDEF[kind]||BOSSDEF.overlord;
+// Phase thresholds (spec §3.7): a kit's own `phases` list (one entry per
+// phase, phase I first, later entries carry `at`), else its debut band's:
+// one phase to S20, two to S45 (at 50%), three to S95 (66% and 33%).
+function phaseAt(kind){ const k=BOSS_KITS[kind];
+ if(k&&Array.isArray(k.phases)) return k.phases.slice(1).map(q=>q.at).filter(v=>v>0);
+ const d=BOSSDEF[kind]?BOSSDEF[kind].debut:5; return d<=20?[]:d<=45?[0.5]:d<=95?[0.66,0.33]:[]; }
+// One constructor for leads and summoned gods, so the two can never drift.
+function bossCore(kind,x,y,s,chain){
+ const kn=BOSS_KITS[kind]?kind:'overlord', kit=BOSS_KITS[kn], d=kit.def;
  const e=mkEnemy('boss',x,y,s);
- e.kind=kind; e.def=d; e.bname=d.name; e.r=d.r;
- // Shared scaling, not a second inline copy of the formula. The duplicate that
- // used to live here had drifted to a linear curve while regular enemies used
- // the exponential one, so bosses fell further behind the player every nest.
- // Multi-boss nests: total HP rises sub-linearly with count and each boss hits
- // softer, so three bosses is busier and harder — not three times longer.
- const n=bossKindsFor(s).length||1;
- e.maxhp=e.hp=d.hp*eHpScale(s)*(0.34+0.66/n);
- e.dmg=Math.round(15*eDmgScale(s)*(0.75+0.25/n));
+ e.kind=kn; e.def=d; e.kit=kit; e.bname=d.name; e.r=d.r;
+ // Shared scaling, not a second inline copy of the formula. One lead per nest,
+ // so a lead is always a whole god: the old court divisor is gone.
+ e.maxhp=e.hp=d.hp*eHpScale(s);
+ e.dmg=Math.round(15*eDmgScale(s));
  e.mode='hunt'; e.modeT=8;
  // Recovery unlocks past S5 and only for archetypes that own one. The S5
  // OVERLORD is pure aggression — no recovery, ever, so the first nest teaches
@@ -1309,29 +1250,31 @@ function mkBoss(kind,x,y,s){
  e.recovKind=(s>=9)?(d.recov||null):null;
  e.recovLeft=e.recovKind?RECOV_MAX:0; e.recovCd=RECOV_OPEN; e.recovAt=0.66; e.healPool=0;
  e.fightT=0; e.hardEnrage=false; e.hunger=0;
- e.stuckT=0; e.sampleT=0.5; e.lastX=x; e.lastY=y;
+ e.stuckT=0; e.sampleT=0.5; e.lastX=x; e.lastY=y; e.intent=0; e.surgeT=0; e.path=null; e.wedgeT=0;
  e.spdMul=d.spd; e.sp*=d.spd;
- e.phase=0; e.phaseT=0; e.segs=[]; e.wards=[]; e.split=0;
+ e.phase=0; e.phaseT=0; e.atk=null; e.segs=[]; e.wards=[]; e.split=0; e.parts=[]; e.hitParts=[];
  e.gazeT=2.5+Math.random(); e.zoneT=2; e.ramT=1; e.wellT=2;
- e.chain=0; e.cmd=nestCommandDepth(s); e.ltCd=d.commander?5:9;
- if(d.sig==='segments'){ for(let k=0;k<5;k++) e.segs.push({x,y,r:d.r*(0.72-k*0.08)}); }
+ e.ph=1; e.phAt=phaseAt(kn);
+ e.depth=0; e.summoned=false; e.lead=false; e.sumLeft=summonAt(kn); e.sumRetry=0;
+ e.px=x; e.py=y; e.blinkAt=-1;
+ if(chain){
+  // A summoned god (spec §2): SUMMON_HP of that kind's lead HP at THIS sector,
+  // again for every link, SUMMON_DMG of its damage at SUMMON_SIZE. It never
+  // recovers, never banks the permanent bonus, runs its Phase-1 kit only, and
+  // calls once, at 50%, only while the nest's chain depth allows another link.
+  chain=Math.max(1,chain|0);
+  e.maxhp=e.hp=d.hp*eHpScale(s)*Math.pow(SUMMON_HP,chain);
+  e.dmg=Math.round(15*eDmgScale(s)*SUMMON_DMG);
+  e.r=d.r*SUMMON_SIZE;
+  e.summoned=true; e.depth=chain;
+  e.recovKind=null; e.recovLeft=0; e.phAt=[];
+  e.sumLeft=(chain<maxChainDepth(s+1)&&summonsOf(kn).length)?[0.5]:[];
+ }
+ if(kit.init) kit.init(e);
  return e;
 }
-// A boss fielded as another boss's lieutenant. Same behaviour and silhouette,
-// but HP decays by how far down the chain it sits (22% / 4.8% / 1.1%), it hits
-// softer, it inherits one less link of command, and it never recovers —
-// otherwise a deep nest would stack several recovery economies on each other.
-function mkLieutenant(kind,x,y,s,chain,cmd){
- const e=mkBoss(kind,x,y,s);
- const d=e.def;
- e.maxhp=e.hp=d.hp*eHpScale(s)*Math.pow(LT_HP_DECAY,chain);
- e.dmg=Math.round(15*eDmgScale(s)*0.7*Math.pow(0.9,chain-1));
- e.r=d.r*0.8;
- e.lieutenant=true; e.chain=chain; e.cmd=Math.max(0,cmd);
- e.recovKind=null; e.recovLeft=0;
- e.bname=d.name+' LT';
- return e;
-}
+function mkBoss(kind,x,y,s){ return bossCore(kind,x,y,s,0); }
+function mkSummoned(kind,x,y,s,chain){ return bossCore(kind,x,y,s,Math.max(1,chain|0)); }
 // steering: probe ahead and slide around obstacles instead of face-planting into them
 function steer(e,dx,dy){
  const l=len(dx,dy)||1; dx/=l; dy/=l;
@@ -1367,7 +1310,12 @@ function startRun(){
 // the hub with that sector selected. What happens INSIDE a sector after entering
 // it is not saved: quitting mid-sector replays the sector from its start, so a
 // reload can never duplicate XP, drafts or kills.
-const RUN_V=1;
+const RUN_V=2;
+// v1 -> v2 (the ladder, spec §4.5). Level, cards and cleared sectors carry over
+// untouched. No nest roster was ever saved, so every nest is rebuilt from the
+// ladder on entry, and a save sitting inside a nest (galaxySel on it) simply
+// restarts that nest from the hub.
+function migrateRun(r){ if(r&&typeof r==='object'&&r.v===1) return Object.assign({},r,{v:2}); return r; }
 function runSnap(){
  return { v:RUN_V, runSeed, arenaIdx, kills, arenasCleared, timeSec, upgradeCounts,
    starterOffered, pendingLevels, pendingNest, clearedMax, galaxySel, pity,
@@ -1422,7 +1370,7 @@ function readRun(){
  try{
   const raw=lsGet('run')||'null';
   if(runCacheHit&&raw===runCacheRaw) return runCacheVal;
-  const r=JSON.parse(raw);
+  const r=migrateRun(JSON.parse(raw));
   const ok=r&&r.v===RUN_V&&r.player&&typeof r.player==='object'&&isFinite(r.player.hp)&&r.player.hp>0&&isFinite(r.clearedMax)&&isFinite(r.galaxySel);
   runCacheRaw=raw; runCacheVal=ok?r:null; runCacheHit=true;
   return runCacheVal;
@@ -1438,6 +1386,7 @@ function continueRun(){
  arenaIdx=r.arenaIdx|0;
  setMusicCfg(TITLE_MUS);
  state='galaxy'; autoPaused=false; titleConfirm=false;
+ saveRun(); // a migrated save is written back at the current version
 }
 let titleConfirm=false, titleConfirmT=0; // NEW RUN over a saved run asks twice
 let endInfo={src:null,newBest:false,at:0}; // what ended the last hull, for the end screen
@@ -1513,7 +1462,7 @@ function loadArena(i){
  const wz=sectorWorld(s); WW=wz.w; HH=wz.h;
  PX0=WALL; PY0=HUD_H+WALL; PX1=WW-WALL; PY1=HH-WALL;
  bullets=[]; ebullets=[]; gems=[]; rings=[]; hazards=[]; strikes=[]; beams=[]; portal=null; spawnQueue=[]; spawnT=1.4; sectorCleared=false; exitArm=0;
- nestLtLeft=boss?ltBudgetFor(s+1):0;
+ nestSummonLeft=boss?summonBudgetFor(s+1):0;
   player.x=(PX0+PX1)/2; player.y=(PY0+PY1)/2; player.fireCd=0; player.dashT=0; player.invuln=1; player.shieldT=0; player.shieldReady=false; player.surgeT=0; player.recall=null; player.recallCd=0; player.channel=null;
   // round-refresh shields re-arm every arena; barrier pool + stasis persist until spent
   player.wardUp=player.hasWard; player.bulwark=player.bulMax; player.mirrorUp=player.hasMirror;
@@ -1535,12 +1484,14 @@ function loadArena(i){
  types.forEach((ty,k)=>{
   if(k<initial){
    const sp=g.spawns[k]||{x:PX0+80,y:PY0+80};
-   enemies.push(ty.indexOf('boss:')===0?mkBoss(ty.slice(5),sp.x,sp.y,s):mkEnemy(ty,sp.x,sp.y,s));
+   const en=ty.indexOf('boss:')===0?mkBoss(ty.slice(5),sp.x,sp.y,s):mkEnemy(ty,sp.x,sp.y,s);
+   if(en.type==='boss') en.lead=true; // the nest's one god; everything else it fields is summoned
+   enemies.push(en);
   } else spawnQueue.push(ty);
  });
  if(boss){ bossWarnT=3.2; const kinds=bossKindsFor(s), lead=BOSSDEF[kinds[0]];
-   // the arrival states the court's order, the same line the hub gave: who leads, who answers
-   bossWarnTxt=kinds.length>1?lead.name+"'S COURT":lead.name;
+   // the arrival names the god and whom it will call, the same line the hub gave
+   bossWarnTxt=lead.name+(s+1>100?' RETURNS':'');
    const ln=nestLore(s), tail=ln.indexOf(' — ')>=0?ln.slice(ln.indexOf(' — ')+3):ln;
    const sub=TIER_NAMES[lead.tier]+' · '+tail; bossWarnSub=sub.length<=86?[sub]:wrapLines(sub,Math.ceil(sub.length/2)+6).slice(0,2);
    nestTally={kinds:kinds.slice(),banked:0,firsts:[]}; SFX.alarm(); }
@@ -1719,324 +1670,1020 @@ function bossPhase(e){
  rings.push({x:e.x,y:e.y,r:10,maxR:120,spd:320,dmg:0,hit:true});
  addFloater(e.x,calloutY(e),e.bname+' PHASES — kill minions',K.red); SFX.portal();
 }
-// Anti-stuck: a boss wedged in geometry, or one that has kited itself into a
-// corner the player cannot reach, blinks back into the open near the player.
-// Without this a fight can stall indefinitely with nothing to shoot.
-function bossReposition(e,p){
- const spot=nearSpot(p.x,p.y,240,380,e.r+20);
- rings.push({x:e.x,y:e.y,r:8,maxR:80,spd:300,dmg:0,hit:true});
- e.x=clamp(spot.x,PX0+e.r,PX1-e.r); e.y=clamp(spot.y,PY0+e.r,PY1-e.r);
- resolveObstacles(e);
- rings.push({x:e.x,y:e.y,r:8,maxR:80,spd:300,dmg:0,hit:true});
- addFloater(e.x,calloutY(e),(e.bname||'BOSS')+' REPOSITIONS',K.red); SFX.portal();
-}
-// ---------- boss behaviour ----------
-// Twelve bosses share one library of attack primitives; each definition picks a
-// different cycle and owns one signature nothing else has. That keeps every
-// fight readable (a telegraph means the same thing everywhere) while the
-// combinations stay distinct.
-function eshot(e,a,spd,r,dmgMul,life){ ebullets.push({x:e.x,y:e.y,vx:Math.cos(a)*spd,vy:Math.sin(a)*spd,r:r||6,dmg:Math.round(e.dmg*(dmgMul||1)),life:life||3.4,heavy:true}); }
+// ---------- boss engine ----------
+// Every god runs through one dispatcher that reads its kit from BOSS_KITS, so a
+// kit written in one boss block can never change another god's fight. The
+// engine owns what every god shares: the attack cycle, summoning down the
+// ladder, the phase count, the anti-stuck SURGE and the teleport policy.
+// Global caps (spec §4.1): at a cap a spawn is skipped, never thrown.
+const CAP={eb:420, haz:260, marks:16, beams:8, tempObs:6, parts:8, enemies:40};
+// DevX lab: freezes every god's thinking. The lab also sets window.devAiFreeze.
+let devAiFreeze=false;
+function aiFrozen(){ try{ return !!(devAiFreeze||(typeof window!=='undefined'&&window&&window.devAiFreeze)); }catch(e){ return !!devAiFreeze; } }
+let nestSummonLeft=0; // summoned gods this nest may still field, every link of every chain
+const ROMAN=['','I','II','III','IV','V'];
+function eshot(e,a,spd,r,dmgMul,life){ if(ebullets.length>=CAP.eb) return null; const b={x:e.x,y:e.y,vx:Math.cos(a)*spd,vy:Math.sin(a)*spd,r:r||6,dmg:Math.round(e.dmg*(dmgMul||1)),life:life||3.4,heavy:true}; ebullets.push(b); return b; }
+// A round from a point other than the hull centre (a head, a flank, a rim).
+function eshotAt(e,x,y,a,spd,r,dmgMul,life){ const b=eshot(e,a,spd,r,dmgMul,life); if(b){ b.x=x; b.y=y; } return b; }
 // Ordinary enemies a boss throws into the fight. Flavour per boss, no hierarchy.
 function summonChaff(e,n,cap){
  const kinds=(e.def&&e.def.chaff)||['drone'];
  let made=0;
  for(let i=0;i<n;i++){
-  if(enemies.length>=(cap||9)) break;
+  if(enemies.length>=Math.min(cap||9,CAP.enemies)) break;
   const s2=nearSpot(player.x,player.y,260,400,26);
   const m=mkEnemy(kinds[i%kinds.length],s2.x,s2.y,arenaIdx); m.spawnT=0.9; enemies.push(m);
   made++;
  }
  if(made) addFloater(e.x,calloutY(e),'SUMMON',K.red);
 }
-// ---------- command ----------
-// Who a boss may call: exactly one rank below it, and only kinds already met on
-// the trail — every boss is fought alone at its debut before it can ever turn
-// up as somebody's lieutenant.
-function subordinateKinds(tier,n){ return (BOSSES_BY_TIER[tier-1]||[]).filter(k=>BOSSDEF[k].debut<=n); }
-function liveLieutenants(){ let c=0; for(const o of enemies) if(o.lieutenant&&!o.echo) c++; return c; }
-// Four structural limits, all of which must allow it: this boss's own command
-// depth, the nest-wide budget, the live cap, and a rank below that exists yet.
-function canCommand(e){
- if(!e.def||e.cmd<=0||nestLtLeft<=0||liveLieutenants()>=LT_LIVE_CAP) return false;
- return subordinateKinds(e.def.tier,arenaIdx+1).length>0;
+// ---------- the chain of command (spec §2) ----------
+// A wounded god calls the god of the nest directly beneath it, at HP
+// thresholds (summonAt), never on a timer. Four limits must all allow a call:
+// the debut gate (never a god before its own solo nest), the nest budget, the
+// live cap (a call waits for a free slot instead of stacking) and the chain
+// depth (a summoned god calls again only while its link is shallow enough).
+function liveSummoned(){ let c=0; for(const o of enemies) if(o.summoned&&!o.dead) c++; return c; }
+function bossSummonCheck(e){
+ if(!e.sumLeft||!e.sumLeft.length||e.echo) return;
+ if(e.hp/e.maxhp>e.sumLeft[0]||e.sumRetry>0) return;
+ const n=arenaIdx+1;
+ let kinds=summonsOf(e.kind).filter(k=>BOSSDEF[k]&&BOSSDEF[k].debut<=n);
+ if(e.summoned) kinds=kinds.slice(0,1); // a link below the lead calls one god, once
+ if(!kinds.length||nestSummonLeft<=0){ e.sumLeft.shift(); return; }
+ kinds=kinds.slice(0,nestSummonLeft);
+ const pastCap=!e.summoned&&e.kit&&e.kit.summons&&e.kit.summons.pastCap;
+ if((!pastCap&&liveSummoned()+kinds.length>SUMMON_LIVE_CAP)||enemies.length+kinds.length>CAP.enemies){ e.sumRetry=1; return; }
+ e.sumLeft.shift();
+ for(const k of kinds) summonBoss(e,k);
+ addFloater(e.x,calloutY(e),e.bname+' CALLS '+callNames(kinds),K.red); SFX.alarm();
 }
-function callLieutenant(e){
- const opts=subordinateKinds(e.def.tier,arenaIdx+1);
- const kind=opts[(Math.random()*opts.length)|0];
- nestLtLeft--;
- const s2=nearSpot(e.x,e.y,200,330,40);
- const lt=mkLieutenant(kind,s2.x,s2.y,arenaIdx,e.chain+1,e.cmd-1);
- lt.spawnT=0.9; enemies.push(lt);
+function summonBoss(e,kind){
+ const s2=nearSpot(e.x,e.y,200,330,(BOSSDEF[kind].r||30)+10);
+ const m=mkSummoned(kind,s2.x,s2.y,arenaIdx,(e.depth||0)+1);
+ m.caller=e.uid; m.spawnT=0.9; enemies.push(m); nestSummonLeft--;
  rings.push({x:s2.x,y:s2.y,r:10,maxR:120,spd:300,dmg:0,hit:true});
-  addFloater(e.x,calloutY(e),e.bname+' CALLS LIEUTENANT '+lt.def.name+' ('+TIER_NAMES[lt.def.tier]+')',K.red); SFX.alarm();
+ return m;
 }
-function bossBehave(e,C){
- const p=C.p, d=C.d, nx=C.nx, ny=C.ny, dt=C.dt, sF=C.sF, enrage=C.enrage;
- const def=e.def||BOSSDEF.overlord;
+// ---------- phases (spec §3.7) ----------
+// The phase number a kit reads (e.ph, 1-based). Phases only ever advance, and
+// the DevX lab can pin one (e.forcedPhase). A kit's phases[i].enter(e) runs
+// once as phase i+1 begins.
+function bossPhaseTick(e){
+ const kit=e.kit, max=1+e.phAt.length, f=e.hp/e.maxhp;
+ let want=1; for(const a of e.phAt) if(f<=a) want++;
+ want=Math.max(want,e.ph);
+ if(typeof e.forcedPhase==='number'&&e.forcedPhase>0) want=clamp(e.forcedPhase|0,1,max);
+ if(want===e.ph) return;
+ const prev=e.ph; e.ph=want;
+ if(want>prev){ const P=Array.isArray(kit.phases)?kit.phases[want-1]:null; if(P&&P.enter) P.enter(e);
+  addFloater(e.x,calloutY(e),e.bname+' — PHASE '+(ROMAN[want]||want),K.red); SFX.alarm(); }
+}
+// ---------- teleport policy (spec §3.5) ----------
+// A god changes position only by moving. The allow-list below is the whole of
+// the exceptions: PHANTOM's blink is its kit, ECLIPSE and NULLIFIER may step
+// only inside their own recovery, CHORUS may swap its echoes. Every jump goes
+// through bossBlink, which refuses anything else and stamps the ones it allows,
+// so the no-illegal-jump test can tell a legal blink from a bug.
+const TELEPORT_OK={phantom:'always',eclipse:'recovery',nullifier:'recovery',chorus:'swap'};
+function canBlink(e,why){ const r=TELEPORT_OK[e.kind]; if(!r) return false; if(r==='always') return true;
+ if(r==='recovery') return e.mode==='phase'||e.mode==='retreat'||e.mode==='recover'; return r==='swap'&&why==='swap'; }
+function bossBlink(e,x,y,why){
+ if(!canBlink(e,why)) return false;
+ rings.push({x:e.x,y:e.y,r:8,maxR:70,spd:300,dmg:0,hit:true});
+ e.x=clamp(x,PX0+e.r,PX1-e.r); e.y=clamp(y,PY0+e.r,PY1-e.r); resolveObstacles(e);
+ e.blinkAt=timeSec; rings.push({x:e.x,y:e.y,r:8,maxR:70,spd:300,dmg:0,hit:true}); SFX.portal();
+ return true;
+}
+// The fastest a god may legally travel (the no-teleport test's yardstick):
+// enraged and hungry while surging, or its fastest committed charge.
+const SURGE_MUL=1.9, SURGE_T=1.6;
+function bossMaxSpeed(e){ const k=e.kit||{}; return Math.max(e.sp*1.35*1.35*SURGE_MUL+60,k.vmax||0,420); }
+// Anti-stuck, without ever jumping. A god that is TRYING to move but goes
+// nowhere (its intent, summed by mv/orbit/charges, far outruns its travel),
+// or one that has drifted far from the fight, SURGES: a visible speed burst
+// along a BFS path through open cells toward the ship. One wedged for over
+// 4 s eases out along the nearest obstacle's normal. The old blink back to the
+// player is gone, and so is the DESPERATE relocation (its minion surge stays).
+function bossWatchdog(e,C){
+ e.sampleT-=C.dt;
+ if(e.sampleT<=0){ e.sampleT=0.5;
+  const moved=Math.hypot(e.x-e.lastX,e.y-e.lastY); e.lastX=e.x; e.lastY=e.y;
+  const hold=e.mode!=='hunt'; // a recovery beat holds its ground on purpose
+  if(!hold&&e.intent>24&&moved<e.intent*0.35) e.stuckT+=0.5; else { e.stuckT=0; e.wedgeT=0; }
+  e.intent=0;
+  if(e.surgeT<=0&&!hold&&(e.stuckT>=1.5||C.d>900)) bossSurge(e,C.p);
+ }
+ if(e.stuckT>=4) bossSlide(e,C.dt);
+}
+function bossSurge(e,p){
+ e.surgeT=SURGE_T; e.chargeOn=false; e.ramLx=undefined;
+ e.path=bossPath(e,p.x,p.y);
+ rings.push({x:e.x,y:e.y,r:e.r,maxR:e.r+46,spd:160,dmg:0,hit:true});
+ addFloater(e.x,calloutY(e),(e.bname||'BOSS')+' SURGES',K.red); SFX.dash();
+}
+function bossSurgeMove(e,C){
+ let tx=C.p.x, ty=C.p.y;
+ if(e.path&&e.path.length){ if(Math.hypot(e.path[0].x-e.x,e.path[0].y-e.y)<30) e.path.shift(); if(e.path.length){ tx=e.path[0].x; ty=e.path[0].y; } }
+ if(C.d<140){ e.surgeT=0; return; }
+ const dx=tx-e.x, dy=ty-e.y, l=len(dx,dy), sv=steer(e,dx/l,dy/l), v=e.sp*SURGE_MUL*C.sF*(1+0.35*e.hunger);
+ e.x+=sv[0]*v*C.dt; e.y+=sv[1]*v*C.dt; e.intent+=v*C.dt;
+}
+// BFS over the 40px grid from the god to (tx,ty); world waypoints, or null.
+const NB4=[[1,0],[-1,0],[0,1],[0,-1]];
+function bossPath(e,tx,ty){
+ const obs=arena&&arena.obs; if(!obs) return null;
+ const cols=Math.max(1,Math.floor((PX1-PX0)/CELL)), rows=Math.max(1,Math.floor((PY1-PY0)/CELL)), N=cols*rows;
+ const cell=(x,y)=>clamp(Math.floor((y-PY0)/CELL),0,rows-1)*cols+clamp(Math.floor((x-PX0)/CELL),0,cols-1);
+ const a=cell(e.x,e.y), b=cell(tx,ty); if(a===b) return null;
+ const m=Math.min(e.r*0.7,CELL*0.6), st=new Uint8Array(N), prev=new Int32Array(N).fill(-1);
+ const free=c=>{ if(!st[c]) st[c]=pointBlocked(PX0+(c%cols)*CELL+CELL/2,PY0+((c/cols)|0)*CELL+CELL/2,m,obs)?2:1; return st[c]===1; };
+ prev[a]=a; const q=[a];
+ for(let h=0;h<q.length&&prev[b]<0;h++){ const c=q[h], cx=c%cols, cy=(c/cols)|0;
+  for(const d of NB4){ const nx=cx+d[0], ny=cy+d[1]; if(nx<0||ny<0||nx>=cols||ny>=rows) continue;
+   const nc=ny*cols+nx; if(prev[nc]>=0) continue; if(nc!==b&&!free(nc)) continue; prev[nc]=c; q.push(nc); } }
+ if(prev[b]<0) return null;
+ const out=[]; for(let c=b;c!==a;c=prev[c]) out.push({x:PX0+(c%cols)*CELL+CELL/2,y:PY0+((c/cols)|0)*CELL+CELL/2});
+ return out.reverse();
+}
+// Closest point of an obstacle's surface to (x,y).
+function obsNearest(o,x,y){
+ if(o.kind==='rect') return [clamp(x,o.x,o.x+o.w),clamp(y,o.y,o.y+o.h)];
+ if(o.kind==='poly'){ const P=o.pts, n=P.length; let bd=1e18, bx=o.x, by=o.y;
+  for(let i=0;i<n;i++){ const ax=o.x+P[i][0], ay=o.y+P[i][1], ex=o.x+P[(i+1)%n][0]-ax, ey=o.y+P[(i+1)%n][1]-ay, L2=ex*ex+ey*ey;
+   let t=L2>0?((x-ax)*ex+(y-ay)*ey)/L2:0; t=clamp(t,0,1); const qx=ax+ex*t, qy=ay+ey*t, d=(qx-x)*(qx-x)+(qy-y)*(qy-y); if(d<bd){ bd=d; bx=qx; by=qy; } }
+  return [bx,by]; }
+ const dx=x-o.x, dy=y-o.y, l=len(dx,dy); return [o.x+dx/l*o.r,o.y+dy/l*o.r];
+}
+function bossSlide(e,dt){
+ let bd=1e9, nx=0, ny=0, ox=0, oy=0;
+ for(const o of arena.obs){ const q=obsNearest(o,e.x,e.y), d=Math.hypot(e.x-q[0],e.y-q[1]); if(d<bd){ bd=d; nx=e.x-q[0]; ny=e.y-q[1]; ox=obsCX(o); oy=obsCY(o); } }
+ const wall=Math.min(e.x-PX0,PX1-e.x,e.y-PY0,PY1-e.y);
+ if(wall<bd){ nx=(PX0+PX1)/2-e.x; ny=(PY0+PY1)/2-e.y; }
+ else if(Math.hypot(nx,ny)<0.5){ nx=e.x-ox; ny=e.y-oy; } // inside it: straight out from its centre
+ const l=len(nx,ny), v=120*dt; e.x+=nx/l*v; e.y+=ny/l*v;
+ e.wedgeT+=dt; if(e.wedgeT>1.5){ e.stuckT=0; e.wedgeT=0; }
+}
+// ---------- the dispatcher ----------
+// Once a frame for every god in the hunt: phases, summons, the signature, then
+// the kit's attack cycle, one slot every def.pt seconds. The DevX lab can pin
+// an attack (e.forcedAttack loops it) or freeze all thought (devAiFreeze).
+function bossThink(e,C){
+ const kit=e.kit||BOSS_KITS.overlord, dt=C.dt;
  // hunger: disengaging makes it hunt harder, so running away never pays
- const spdM=(enrage?1.35:1)*(1+0.35*e.hunger);
- const aim=Math.atan2(C.dy,C.dx);
- const mv=f=>{ const sv=steer(e,nx,ny); e.x+=sv[0]*e.sp*f*spdM*sF*dt; e.y+=sv[1]*e.sp*f*spdM*sF*dt; };
- const orbit=f=>{ e.x+=(-ny*e.sp*f*spdM*sF+nx*(d>320?60:-30))*dt; e.y+=(nx*e.sp*f*spdM*sF+ny*(d>320?60:-30))*dt; };
+ const spdM=(C.enrage?1.35:1)*(1+0.35*e.hunger);
+ C.spdM=spdM; C.aim=Math.atan2(C.dy,C.dx);
+ C.mv=f=>{ const sv=steer(e,C.nx,C.ny), v=e.sp*f*spdM*C.sF; e.x+=sv[0]*v*dt; e.y+=sv[1]*v*dt; e.intent+=v*dt; };
+ C.orbit=f=>{ const t=e.sp*f*spdM*C.sF, r=C.d>320?60:-30; e.x+=(-C.ny*t+C.nx*r)*dt; e.y+=(C.nx*t+C.ny*r)*dt; e.intent+=Math.hypot(t,r)*dt; };
  e.charging=false;
+ bossPhaseTick(e);
+ bossSummonCheck(e);
+ if(kit.signature) kit.signature(e,C);
+ if(e.surgeT>0){ bossSurgeMove(e,C); return; }
  e.phaseT+=dt;
- const cyc=def.phases, pt=def.pt||3;
- e.phase=Math.floor(e.phaseT/pt)%cyc.length;
- if(e.phaseT>=pt*cyc.length) e.phaseT=0;
- bossSignature(e,C,spdM,aim);
- // The chain of command runs on its own clock, independent of the phase cycle,
- // so EVERY boss with rank below it commands — not just the two that happen to
- // have a 'lieutenant' phase. canCommand() is where the cascade is bounded.
- e.ltCd-=dt;
- if(e.ltCd<=0){ e.ltCd=def.commander?9:16; if(canCommand(e)) callLieutenant(e); }
- switch(cyc[e.phase]){
-  case 'burst': // radial ring — walk out of the gaps
-   mv(0.5); e.burstT-=dt;
-   if(e.burstT<=0){ e.burstT=enrage?0.75:1.1; const n=enrage?12:8;
-    for(let k=0;k<n;k++) eshot(e,k/n*6.283+e.t,230,6);
-    SFX.eshoot(); }
-   break;
-  case 'summon':
-   mv(0.3); e.burstT-=dt;
-   if(e.burstT<=0){ e.burstT=2.6; summonChaff(e,2,8); }
-   break;
-  case 'lieutenant': // commanders: call a subordinate now if allowed, chaff if not
-   mv(0.35); e.burstT-=dt;
-   if(e.burstT<=0){ e.burstT=7;
-    if(canCommand(e)){ callLieutenant(e); e.ltCd=Math.max(e.ltCd,6); }
-    else summonChaff(e,2,10); }
-   break;
-  case 'charge':
-   if(!e.chargeOn){ e.chargeOn=true; e.chargeDx=nx; e.chargeDy=ny; addFloater(e.x,calloutY(e),'CHARGE',K.red); }
-   e.charging=true;
-   e.x+=e.chargeDx*(enrage?340:300)*dt; e.y+=e.chargeDy*(enrage?340:300)*dt;
-   break;
-  case 'sweep': // fan tracking across an arc — keep moving, don't stand in it
-   mv(0.4); e.spirT-=dt;
-   if(e.spirT<=0){ e.spirT=enrage?0.11:0.14; eshot(e,aim+Math.sin(e.phaseT*2.2)*1.1,250,5); }
-   break;
-  case 'spiral':
-   mv(0.4); e.spirT-=dt;
-   if(e.spirT<=0){ e.spirT=enrage?0.14:0.2; const a0=e.t*2.2;
-    for(let k=0;k<3;k++) eshot(e,a0+k*2.094,210,6);
-    SFX.eshoot(); }
-   break;
-  case 'spiralwall': // dense rotating wall with ONE safe gap — find it and hold it
-   mv(0.3); e.spirT-=dt;
-   if(e.spirT<=0){ e.spirT=enrage?0.30:0.42; const n=13, gap=(e.t*0.9)%6.283;
-    for(let k=0;k<n;k++){ const a=k/n*6.283;
-     let da=Math.abs(((a-gap+Math.PI)%6.283)-Math.PI);
-     if(da<0.55) continue; // the gap
-     eshot(e,a+e.t*0.5,190,5,0.85,4); }
-    SFX.eshoot(); }
-   break;
-  case 'fan':
-   orbit(1.0); e.burstT-=dt;
-   if(e.burstT<=0){ e.burstT=enrage?1.1:1.7;
-    for(let k=-2;k<=2;k++) eshot(e,aim+k*0.16,260,5);
-    SFX.eshoot(); }
-   break;
-  case 'skirmish': // PHANTOM's whole kit: weave, fan, blink
-   orbit(1.1); e.burstT-=dt;
-   if(e.burstT<=0){ e.burstT=enrage?1.1:1.7;
-    for(let k=-2;k<=2;k++) eshot(e,aim+k*0.16,260,5);
-    SFX.eshoot(); }
-   e.teleCd-=dt;
-   // Blink to a VALIDATED spot 190-300px out: on screen, out of obstacles, off
-   // the walls. The old version clamped a raw 260-380px flank offset, which
-   // regularly dumped it off-screen or half inside a pylon — you lost the boss.
-   if(e.teleCd<=0){ e.teleCd=enrage?3:4.5;
-    rings.push({x:e.x,y:e.y,r:8,maxR:70,spd:300,dmg:0,hit:true});
-    const tp=nearSpot(p.x,p.y,190,300,e.r+16);
-    e.x=clamp(tp.x,PX0+e.r,PX1-e.r); e.y=clamp(tp.y,PY0+e.r,PY1-e.r);
-    resolveObstacles(e);
-    rings.push({x:e.x,y:e.y,r:8,maxR:70,spd:300,dmg:0,hit:true}); SFX.portal(); }
-   break;
-  case 'slam':
-   mv(0.7); e.slamCd-=dt;
-   if(d<150&&e.slamCd<=0){ e.slamCd=enrage?1.6:2.4;
-    rings.push({x:e.x,y:e.y,r:20,maxR:175,spd:300,dmg:e.dmg,hit:false,heavy:true});
-    SFX.ring(); if(settings.shake) shake=Math.min(10,shake+4); spawnBurst(e.x,e.y,14,K.red,220,0.5,3); }
-   break;
-  case 'twinwave': // two staggered rings — dodge, then dodge again
-   mv(0.5); e.slamCd-=dt;
-   if(e.slamCd<=0){ e.slamCd=enrage?2.0:2.8;
-    rings.push({x:e.x,y:e.y,r:20,maxR:150,spd:280,dmg:e.dmg,hit:false,heavy:true});
-    e.wave2=true; e.burstT=0.4; SFX.ring(); if(settings.shake) shake=Math.min(10,shake+3); }
-   break;
-  case 'tailsweep': // LEVIATHAN: the body itself is the attack
-   orbit(0.85); e.spirT-=dt;
-   if(e.spirT<=0){ e.spirT=0.5; const a=e.t*1.6;
-    for(let k=0;k<2;k++) eshot(e,a+k*3.14,200,7,0.9); }
-   break;
-  case 'mines': // drop lingering hazards, then leave — the floor becomes the threat
-   mv(0.6); e.burstT-=dt;
-   if(e.burstT<=0){ e.burstT=1.4;
-    hazards.push({x:e.x+(Math.random()-0.5)*90,y:e.y+(Math.random()-0.5)*90,r:52,t:0,life:6,dmg:Math.round(e.dmg*0.5),tick:0});
-    SFX.click(); }
-   break;
-  case 'burrow': // submerge and resurface under the player, telegraphed
-   if(!e.burrowT){ e.burrowT=1.2; e.burrowX=p.x; e.burrowY=p.y; addFloater(e.x,calloutY(e),'BURROWS',K.red); SFX.portal(); }
-   e.burrowT-=dt;
-   if(e.burrowT<=0){ e.burrowT=0;
-    e.x=clamp(e.burrowX,PX0+e.r,PX1-e.r); e.y=clamp(e.burrowY,PY0+e.r,PY1-e.r); resolveObstacles(e);
-    rings.push({x:e.x,y:e.y,r:14,maxR:150,spd:320,dmg:e.dmg,hit:false,heavy:true});
-    spawnBurst(e.x,e.y,20,K.red,240,0.6,3); SFX.ring(); }
-   break;
-  case 'clockbeam': // ORACLE: a slow rotating hand — walk with it, not into it
-   mv(0.25); e.spirT-=dt;
-   if(e.spirT<=0){ e.spirT=0.10; const a=e.phaseT*1.5;
-    eshot(e,a,240,5,0.7,2.6); eshot(e,a+3.1416,240,5,0.7,2.6); }
-   break;
-  case 'zone': // a damaging field parked on you — move house
-   mv(0.35); e.zoneT-=dt;
-   if(e.zoneT<=0){ e.zoneT=2.6;
-    hazards.push({x:p.x,y:p.y,r:78,t:0,life:4.5,dmg:Math.round(e.dmg*0.45),tick:0,warn:0.7});
-    SFX.click(); }
-   break;
-  case 'gaze': // BASILISK: telegraphed cone that roots you where you stand
-   mv(0.4); e.gazeT-=dt;
-   if(e.gaze){ e.gaze.t-=dt;
-    if(e.gaze.t<=0){ const a=e.gaze.ang;
-     let da=Math.abs(((aim-a+Math.PI)%6.283)-Math.PI);
-     if(da<0.45&&d<430){ p.rootT=Math.max(p.rootT||0,1.0); hurtPlayer(Math.round(e.dmg*0.8),true,srcOf(e,'GAZE')); addFloater(p.x,p.y-30,'PETRIFIED',K.red); }
-      for(let k=0;k<9;k++) pushPart({x:e.x+Math.cos(a)*k*46,y:e.y+Math.sin(a)*k*46,vx:0,vy:0,life:0.3,maxlife:0.3,col:K.red,r:5});
-     e.gaze=null; e.gazeT=enrage?2.6:4; SFX.eshoot(); } }
-   else if(e.gazeT<=0){ e.gaze={t:0.75,ang:aim}; SFX.click(); }
-   break;
-  case 'linecharge': // commits along a straight line, leaving spikes behind
-   if(!e.chargeOn){ e.chargeOn=true; e.chargeDx=nx; e.chargeDy=ny; addFloater(e.x,calloutY(e),'LUNGE',K.red); }
-   e.charging=true;
-   e.x+=e.chargeDx*320*dt; e.y+=e.chargeDy*320*dt;
-   e.burstT-=dt;
-   if(e.burstT<=0){ e.burstT=0.22; hazards.push({x:e.x,y:e.y,r:30,t:0,life:4,dmg:Math.round(e.dmg*0.35),tick:0}); }
-   break;
-  case 'spikes':
-   mv(0.5); e.burstT-=dt;
-   if(e.burstT<=0){ e.burstT=1.0;
-    for(let k=0;k<3;k++){ const a=aim+(k-1)*0.7, rr=140+Math.random()*130;
-     hazards.push({x:e.x+Math.cos(a)*rr,y:e.y+Math.sin(a)*rr,r:36,t:0,life:4.5,dmg:Math.round(e.dmg*0.4),tick:0,warn:0.5}); } }
-   break;
-  case 'ram': // JUGGERNAUT: repeated commits, shockwave on wall impact
-   e.ramT-=dt;
-   if(!e.chargeOn&&e.ramT<=0){ e.chargeOn=true; e.chargeDx=nx; e.chargeDy=ny; e.facing=Math.atan2(ny,nx); addFloater(e.x,calloutY(e),'RAM',K.red); SFX.alarm(); }
-   if(e.chargeOn){ e.charging=true;
-    // Obstacles are resolved AFTER bossBehave, so a pinned ram still takes its
-    // full step here. Judge "stuck" by net travel since last frame's step
-    // instead: a pylon keeps pushing it back to the same spot.
-    const step=(enrage?400:340)*dt;
-    const stuck=e.ramLx!==undefined&&Math.hypot(e.x-e.ramLx,e.y-e.ramLy)<step*0.25;
-    e.ramLx=e.x; e.ramLy=e.y;
-    e.x+=e.chargeDx*step; e.y+=e.chargeDy*step;
-    const hitWall=e.x<=PX0+e.r+1||e.x>=PX1-e.r-1||e.y<=PY0+e.r+1||e.y>=PY1-e.r-1;
-    if(hitWall||stuck){
-     e.chargeOn=false; e.ramT=enrage?1.4:2.2; e.ramLx=undefined;
-     rings.push({x:e.x,y:e.y,r:16,maxR:200,spd:330,dmg:e.dmg,hit:false,heavy:true});
-     if(settings.shake) shake=Math.min(12,shake+6); spawnBurst(e.x,e.y,22,K.red,260,0.6,4); SFX.ring(); }
-   } else mv(0.45);
-   break;
-  case 'debris': // orbital junk flung outward on a lazy arc
-   mv(0.4); e.burstT-=dt;
-   if(e.burstT<=0){ e.burstT=enrage?0.5:0.8;
-    for(let k=0;k<4;k++) eshot(e,e.t*1.4+k*1.5708,170+Math.random()*90,7,0.8,4.5);
-    SFX.eshoot(); }
-   break;
-  case 'disrupt': // NULLIFIER: a field that jams one system while you stand in it
-   mv(0.45); e.burstT-=dt;
-   if(e.burstT<=0){ e.burstT=3.4;
-    hazards.push({x:p.x,y:p.y,r:96,t:0,life:4,dmg:0,tick:0,warn:0.6,jam:true});
-    addFloater(e.x,calloutY(e),'DISRUPTOR FIELD',K.red); SFX.alarm(); }
-   break;
-  case 'crossbeam': // ARCHON: a rotating cross, four arms, wide safe wedges
-   mv(0.3); e.spirT-=dt;
-   if(e.spirT<=0){ e.spirT=0.13; const a=e.phaseT*1.1;
-    for(let k=0;k<4;k++) eshot(e,a+k*1.5708,225,5,0.75,3); }
-   break;
-  case 'gravity': // SINGULARITY: drags you in — thrust away or get crushed
-   mv(0.2);
-   if(d>40){ const pull=(enrage?150:110)*dt; p.x-=nx*pull; p.y-=ny*pull; } // n points boss→player, so subtract to drag inward
-   e.burstT-=dt;
-   if(e.burstT<=0){ e.burstT=1.2;
-    for(let k=0;k<6;k++) eshot(e,k/6*6.283-e.t*1.2,200,6,0.85);
-    SFX.eshoot(); }
-   break;
- }
+ let name=null;
+ if(e.forcedAttack&&kit.attacks[e.forcedAttack]) name=e.forcedAttack;
+ else { const cyc=kit.cycle, pt=kit.def.pt||3;
+  e.phase=Math.floor(e.phaseT/pt)%cyc.length;
+  if(e.phaseT>=pt*cyc.length) e.phaseT=0;
+  name=cyc[e.phase]; }
+ // A charge, ram or gaze cut off by the slot change is dropped, not carried
+ // over: a stale gaze would keep drawing its cone through other attacks.
+ if(name!==e.atk){ e.chargeOn=false; e.ramLx=undefined; e.gaze=null; e.atk=name; }
+ const fn=kit.attacks[name]; if(fn) fn(e,C);
  if(e.wave2){ e.burstT-=dt; if(e.burstT<=0){ e.wave2=false; rings.push({x:e.x,y:e.y,r:20,maxR:200,spd:340,dmg:e.dmg,hit:false,heavy:true}); SFX.ring(); } }
- if(cyc[e.phase]!=='charge'&&cyc[e.phase]!=='linecharge'&&cyc[e.phase]!=='ram'){ e.chargeOn=false; e.ramLx=undefined; }
- // A burrow or gaze cut off by the phase change is dropped, not carried over: a
- // stale burrow would surface on where you stood a whole cycle ago with no
- // warning, and a stale gaze would keep drawing its cone through other phases.
- if(cyc[e.phase]!=='burrow') e.burrowT=0;
- if(cyc[e.phase]!=='gaze') e.gaze=null;
 }
-// Signature mechanics: one per boss, always running regardless of phase.
-function bossSignature(e,C,spdM,aim){
- const def=e.def, dt=C.dt, p=C.p, d=C.d, enrage=C.enrage;
- if(!def||!def.sig) return;
- switch(def.sig){
-  case 'laser': { // PHANTOM: locks a line, telegraphs, then fires down it
-   e.laserT-=dt;
-   if(e.laser){ e.laser.t-=dt;
-    if(e.laser.t<=0){ const a=e.laser.ang, dx2=Math.cos(a), dy2=Math.sin(a);
-     const tt=clamp((p.x-e.x)*dx2+(p.y-e.y)*dy2,0,700), cx=e.x+dx2*tt, cy=e.y+dy2*tt;
-     e.beamA=a; e.beamT=0.25; e.laser=null; e.laserT=enrage?3.5:5;
-      for(let k=0;k<=10;k++) pushPart({x:e.x+dx2*k*70,y:e.y+dy2*k*70,vx:0,vy:0,life:0.25,maxlife:0.25,col:K.red,r:5});
-     SFX.eshoot();
-     if(Math.hypot(p.x-cx,p.y-cy)<16) hurtPlayer(e.dmg+8,true,srcOf(e)); } }
-   else if(e.laserT<=0){ e.laser={t:0.7,ang:aim}; SFX.click(); }
-   break; }
-  case 'segments': { // LEVIATHAN: a trailing body that also hurts to touch
-   const head={x:e.x,y:e.y};
-   let prev=head;
-   for(const g of e.segs){
-    const vx=prev.x-g.x, vy=prev.y-g.y, l=len(vx,vy), want=e.r*0.82;
-    if(l>want){ g.x+=vx/l*(l-want); g.y+=vy/l*(l-want); }
-    prev=g;
-    if(!e.phased&&e.contactCd<=0&&dist2(p.x,p.y,g.x,g.y)<(g.r+p.r)*(g.r+p.r)){
-     e.contactCd=0.7; hurtPlayer(Math.round(e.dmg*0.6),true,srcOf(e,'BODY')); }
-   }
-   break; }
-  case 'wards': { // ORACLE: orbiting shields — break them or it takes 25% damage
-   if(!e.wards.length&&!e.wardsBroken){ for(let k=0;k<3;k++) e.wards.push({a:k*2.094,hp:1}); e.wardsBroken=false; }
-   e.wardA=(e.wardA||0)+dt*1.1;
-   e.shielded=e.wards.length>0;
-   break; }
-  case 'petrify': break; // handled inside the gaze phase
-  case 'vent': // armoured front, exposed rear. Facing locks during a ram, which
-   // is the window to get behind it.
-   if(!e.charging) e.facing=Math.atan2(p.y-e.y,p.x-e.x);
-   break;
-  case 'jam': break;   // handled by the disruptor hazard
-  case 'command': break; // handled by the lieutenant phase
-  case 'split': { // CHORUS: fractures into synced copies at 66% and 33%
-   const f=e.hp/e.maxhp;
-   if(!e.lieutenant&&((e.split===0&&f<=0.66)||(e.split===1&&f<=0.33))){
-    e.split++;
-    const n=2;
-    for(let k=0;k<n&&enemies.length<14;k++){
-     const s2=nearSpot(e.x,e.y,120,220,e.r+14);
-     const c=mkBoss('chorus',s2.x,s2.y,arenaIdx);
-     c.maxhp=c.hp=e.maxhp*0.22; c.r=e.r*0.72; c.dmg=Math.round(e.dmg*0.6);
-     // echoes are CHORUS's own mechanic, not command: they neither spend the
-     // nest's lieutenant budget nor call anyone themselves
-     c.lieutenant=true; c.echo=true; c.cmd=0; c.recovKind=null; c.recovLeft=0; c.split=2; c.bname='CHORUS ECHO';
-     c.spawnT=0.6; enemies.push(c);
-     rings.push({x:s2.x,y:s2.y,r:8,maxR:90,spd:300,dmg:0,hit:true});
-    }
-    addFloater(e.x,calloutY(e),'CHORUS FRACTURES',K.red); SFX.brk();
-   }
-   break; }
-  case 'wellpull': break; // handled by the gravity phase
+// One god, one frame, from the enemy loop in update(). The recovery beats
+// (phase / retreat / warn) are the generic ones until each kit owns its own.
+function bossUpdate(e,C){
+ const p=C.p, dt=C.dt, d=C.d, nx=C.nx, ny=C.ny, sF=C.sF;
+ C.enrage=e.hp<e.maxhp*0.3||e.hardEnrage;
+ if(e.beamT>0) e.beamT-=dt;
+ if(e.surgeT>0) e.surgeT-=dt;
+ if(e.sumRetry>0) e.sumRetry-=dt;
+ e.fightT+=dt; if(e.recovCd>0) e.recovCd-=dt;
+ // safety valve: a fight that has run three minutes stops offering outs
+ if(!e.hardEnrage&&e.fightT>BOSS_HARD_ENRAGE){ e.hardEnrage=true; e.recovLeft=0; e.healPool=0;
+  if(e.mode==='phase'||e.mode==='retreat'){ e.phased=false; e.mode='hunt'; e.modeT=8; }
+  addFloater(e.x,calloutY(e),(e.bname||'BOSS')+' RELENTLESS',K.red); SFX.alarm(); }
+ // disengagement ramp: backing off never pays, the boss only hunts harder
+ e.hunger=clamp((timeSec-e.lastHit-8)/12,0,1);
+ if(aiFrozen()) return;
+ bossWatchdog(e,C);
+ // desperation: first time below 30%, a minion surge. The god itself stays put:
+ // the old relocation to a far edge was a jump, and a god moves only by moving.
+ if(!e.desperate&&e.hp<e.maxhp*0.3){
+  e.desperate=true;
+  for(let k=0;k<3&&enemies.length<16;k++){ const s2=spawnEdgePos(); const m=mkEnemy(['drone','stalker','mite'][k%3],s2.x,s2.y,arenaIdx); m.spawnT=0.9; enemies.push(m); }
+  rings.push({x:e.x,y:e.y,r:10,maxR:110,spd:320,dmg:0,hit:true});
+  addFloater(e.x,calloutY(e),(e.bname||'BOSS')+' DESPERATE',K.red); SFX.alarm();
  }
+ e.modeT-=dt;
+ if(e.mode==='phase'){
+  // translucent on the spot, knitting from a fixed pool — kill every minion
+  // to break it out early. Rounds still land at 30%, so it is never a wall.
+  bossHeal(e,e.maxhp*0.02*dt);
+  e.spawned=e.spawned.filter(u=>{ for(const o of enemies) if(o.uid===u) return true; return false; });
+  if(e.modeT<=0||e.spawned.length===0){
+   e.phased=false; e.mode='warn'; e.warnT=0.8;
+   rings.push({x:e.x,y:e.y,r:10,maxR:90,spd:300,dmg:0,hit:true}); SFX.alarm();
+  }
+ } else if(e.mode==='retreat'){
+  // Kiting behind a minion screen. Heals only while unpressured, only from the
+  // fixed pool, and only up to 520px out — beyond that it holds, so it can
+  // never kite into a corner and stall the fight.
+  if(timeSec-e.lastHit>2) bossHeal(e,e.maxhp*0.02*dt);
+  if(d<520){
+   let rx=-nx, ry=-ny;
+   // bias away from walls: a retreat that ends in a corner is a stalemate
+   const cxm=(PX0+PX1)/2, cym=(PY0+PY1)/2;
+   if(Math.min(e.x-PX0,PX1-e.x,e.y-PY0,PY1-e.y)<220){ const tx=cxm-e.x, ty=cym-e.y, tl=len(tx,ty); rx+=tx/tl*1.6; ry+=ty/tl*1.6; }
+   const sv=steer(e,rx,ry); e.x+=sv[0]*e.sp*1.05*sF*dt; e.y+=sv[1]*e.sp*1.05*sF*dt;
+  }
+  if(e.modeT<=0||(e.retreatHp-e.hp)>e.maxhp*0.08){ e.mode='hunt'; e.modeT=8; }
+ } else if(e.mode==='warn'){
+  e.warnT-=dt;
+  if(e.warnT<=0){ e.mode='hunt'; e.modeT=e.kind==='phantom'?7:8;
+   const n2=e.kind==='warden'?10:8;
+   for(let k=0;k<n2;k++) eshot(e,k/n2*6.283+e.t,230,6,1,3.5);
+   SFX.eshoot(); }
+ } else {
+  // NO passive regen while hunting. The old 0.5%/s trickle was the engine of
+  // the damage → flee → heal loop: disengaging always out-healed the chip
+  // damage a player could land, so the bar never went down.
+  const hpF=e.hp/e.maxhp;
+  if(e.recovKind&&e.recovLeft>0&&e.recovCd<=0&&hpF<=e.recovAt&&hpF>RECOV_FLOOR){
+   e.recovLeft--; e.recovCd=RECOV_CD; e.recovAt=0.42;
+   if(e.recovKind==='phase') bossPhase(e); else bossRetreat(e);
+  }
+  else bossThink(e,C);
+ }
+}
+// After movement and collision: the pieces a kit hangs off the hull follow it
+// exactly (LEVIATHAN's body, parts), and the world-space hit circles the round
+// sweep reads (e.hitParts: {rot(e), c:[[x,y,r],..]} in units of the drawn r).
+function bossPost(e,dt){
+ const kit=e.kit; if(!kit) return;
+ if(kit.post) kit.post(e,dt);
+ const h=kit.hitParts;
+ if(h){ const a=h.rot?h.rot(e):0, c=Math.cos(a), s=Math.sin(a), R=e.r*(e.vscale||1), out=e.hitParts; out.length=h.c.length;
+  for(let i=0;i<h.c.length;i++){ const q=h.c[i], lx=q[0]*R, ly=q[1]*R, o=out[i]||(out[i]={x:0,y:0,r:0}); o.x=e.x+lx*c-ly*s; o.y=e.y+lx*s+ly*c; o.r=q[2]*R; } }
+ e.px=e.x; e.py=e.y;
 }
 function bossLabel(e){
  if(e.mode==='phase') return 'PHASED';
  if(e.mode==='retreat') return 'RETREAT';
  if(e.mode!=='hunt') return 'REPOSITIONING';
- const def=e.def;
- if(!def||!def.phases) return e.bname||'BOSS';
- return String(def.phases[e.phase]||def.name).toUpperCase();
+ if(e.surgeT>0) return 'SURGE';
+ const kit=e.kit;
+ if(kit&&kit.label){ const l=kit.label(e); if(l) return l; }
+ const n=e.atk||(kit&&kit.cycle&&kit.cycle[e.phase]);
+ return String(n||e.bname||'BOSS').toUpperCase();
 }
+// ---------- the shared attack library ----------
+// Attacks several gods share. A kit picks them by name (atk('burst','fan')) and
+// adds its own beside them; the name is what the boss label shows and what
+// the DevX lab forces. C: {p,d,nx,ny,dx,dy,dt,sF,enrage,aim,spdM,mv,orbit}.
+// Radial volleys (burst, spiral, spiralwall) are rationed (spec §3.9): new
+// kits must not reach for them.
+const ATK={
+ burst(e,C){ // radial ring — walk out of the gaps
+  C.mv(0.5); e.burstT-=C.dt;
+  if(e.burstT<=0){ e.burstT=C.enrage?0.75:1.1; const n=C.enrage?12:8;
+   for(let k=0;k<n;k++) eshot(e,k/n*6.283+e.t,230,6);
+   SFX.eshoot(); } },
+ summon(e,C){ C.mv(0.3); e.burstT-=C.dt; if(e.burstT<=0){ e.burstT=2.6; summonChaff(e,2,8); } },
+ muster(e,C){ // a slow call to the ranks: ordinary enemies only, gods come by threshold
+  C.mv(0.35); e.burstT-=C.dt; if(e.burstT<=0){ e.burstT=7; summonChaff(e,2,10); } },
+ charge(e,C){
+  if(!e.chargeOn){ e.chargeOn=true; e.chargeDx=C.nx; e.chargeDy=C.ny; addFloater(e.x,calloutY(e),'CHARGE',K.red); }
+  e.charging=true; const v=C.enrage?340:300;
+  e.x+=e.chargeDx*v*C.dt; e.y+=e.chargeDy*v*C.dt; e.intent+=v*C.dt; },
+ sweep(e,C){ // fan tracking across an arc — keep moving, don't stand in it
+  C.mv(0.4); e.spirT-=C.dt;
+  if(e.spirT<=0){ e.spirT=C.enrage?0.11:0.14; eshot(e,C.aim+Math.sin(e.phaseT*2.2)*1.1,250,5); } },
+ spiral(e,C){
+  C.mv(0.4); e.spirT-=C.dt;
+  if(e.spirT<=0){ e.spirT=C.enrage?0.14:0.2; const a0=e.t*2.2;
+   for(let k=0;k<3;k++) eshot(e,a0+k*2.094,210,6);
+   SFX.eshoot(); } },
+ spiralwall(e,C){ // dense rotating wall with ONE safe gap — find it and hold it
+  C.mv(0.3); e.spirT-=C.dt;
+  if(e.spirT<=0){ e.spirT=C.enrage?0.30:0.42; const n=13, gap=(e.t*0.9)%6.283;
+   for(let k=0;k<n;k++){ const a=k/n*6.283;
+    let da=Math.abs(((a-gap+Math.PI)%6.283)-Math.PI);
+    if(da<0.55) continue; // the gap
+    eshot(e,a+e.t*0.5,190,5,0.85,4); }
+   SFX.eshoot(); } },
+ fan(e,C){
+  C.orbit(1.0); e.burstT-=C.dt;
+  if(e.burstT<=0){ e.burstT=C.enrage?1.1:1.7;
+   for(let k=-2;k<=2;k++) eshot(e,C.aim+k*0.16,260,5);
+   SFX.eshoot(); } },
+ slam(e,C){
+  C.mv(0.7); e.slamCd-=C.dt;
+  if(C.d<150&&e.slamCd<=0){ e.slamCd=C.enrage?1.6:2.4;
+   rings.push({x:e.x,y:e.y,r:20,maxR:175,spd:300,dmg:e.dmg,hit:false,heavy:true});
+   SFX.ring(); if(settings.shake) shake=Math.min(10,shake+4); spawnBurst(e.x,e.y,14,K.red,220,0.5,3); } },
+ twinwave(e,C){ // two staggered rings — dodge, then dodge again
+  C.mv(0.5); e.slamCd-=C.dt;
+  if(e.slamCd<=0){ e.slamCd=C.enrage?2.0:2.8;
+   rings.push({x:e.x,y:e.y,r:20,maxR:150,spd:280,dmg:e.dmg,hit:false,heavy:true});
+   e.wave2=true; e.burstT=0.4; SFX.ring(); if(settings.shake) shake=Math.min(10,shake+3); } },
+ mines(e,C){ // drop lingering hazards, then leave — the floor becomes the threat
+  C.mv(0.6); e.burstT-=C.dt;
+  if(e.burstT<=0){ e.burstT=1.4;
+   if(hazards.length<CAP.haz) hazards.push({x:e.x+(Math.random()-0.5)*90,y:e.y+(Math.random()-0.5)*90,r:52,t:0,life:6,dmg:Math.round(e.dmg*0.5),tick:0});
+   SFX.click(); } },
+ zone(e,C){ // a damaging field parked on you — move house
+  C.mv(0.35); e.zoneT-=C.dt;
+  if(e.zoneT<=0){ e.zoneT=2.6;
+   if(hazards.length<CAP.haz) hazards.push({x:C.p.x,y:C.p.y,r:78,t:0,life:4.5,dmg:Math.round(e.dmg*0.45),tick:0,warn:0.7});
+   SFX.click(); } },
+ gaze(e,C){ // telegraphed cone that roots you where you stand
+  const p=C.p; C.mv(0.4); e.gazeT-=C.dt;
+  if(e.gaze){ e.gaze.t-=C.dt;
+   if(e.gaze.t<=0){ const a=e.gaze.ang;
+    let da=Math.abs(((C.aim-a+Math.PI)%6.283)-Math.PI);
+    if(da<0.45&&C.d<430){ p.rootT=Math.max(p.rootT||0,1.0); hurtPlayer(Math.round(e.dmg*0.8),true,srcOf(e,'GAZE')); addFloater(p.x,p.y-30,'PETRIFIED',K.red); }
+    for(let k=0;k<9;k++) pushPart({x:e.x+Math.cos(a)*k*46,y:e.y+Math.sin(a)*k*46,vx:0,vy:0,life:0.3,maxlife:0.3,col:K.red,r:5});
+    e.gaze=null; e.gazeT=C.enrage?2.6:4; SFX.eshoot(); } }
+  else if(e.gazeT<=0){ e.gaze={t:0.75,ang:C.aim}; SFX.click(); } },
+ linecharge(e,C){ // commits along a straight line, leaving spikes behind
+  if(!e.chargeOn){ e.chargeOn=true; e.chargeDx=C.nx; e.chargeDy=C.ny; addFloater(e.x,calloutY(e),'LUNGE',K.red); }
+  e.charging=true;
+  e.x+=e.chargeDx*320*C.dt; e.y+=e.chargeDy*320*C.dt; e.intent+=320*C.dt;
+  e.burstT-=C.dt;
+  if(e.burstT<=0){ e.burstT=0.22; if(hazards.length<CAP.haz) hazards.push({x:e.x,y:e.y,r:30,t:0,life:4,dmg:Math.round(e.dmg*0.35),tick:0}); } },
+ spikes(e,C){
+  C.mv(0.5); e.burstT-=C.dt;
+  if(e.burstT<=0){ e.burstT=1.0;
+   for(let k=0;k<3&&hazards.length<CAP.haz;k++){ const a=C.aim+(k-1)*0.7, rr=140+Math.random()*130;
+    hazards.push({x:e.x+Math.cos(a)*rr,y:e.y+Math.sin(a)*rr,r:36,t:0,life:4.5,dmg:Math.round(e.dmg*0.4),tick:0,warn:0.5}); } } },
+ ram(e,C){ // repeated commits, shockwave on wall impact
+  e.ramT-=C.dt;
+  if(!e.chargeOn&&e.ramT<=0){ e.chargeOn=true; e.chargeDx=C.nx; e.chargeDy=C.ny; e.facing=Math.atan2(C.ny,C.nx); addFloater(e.x,calloutY(e),'RAM',K.red); SFX.alarm(); }
+  if(e.chargeOn){ e.charging=true;
+   // Obstacles are resolved AFTER the think step, so a pinned ram still takes
+   // its full step here. Judge "stuck" by net travel since last frame's step
+   // instead: a pylon keeps pushing it back to the same spot.
+   const step=(C.enrage?400:340)*C.dt;
+   const stuck=e.ramLx!==undefined&&Math.hypot(e.x-e.ramLx,e.y-e.ramLy)<step*0.25;
+   e.ramLx=e.x; e.ramLy=e.y;
+   e.x+=e.chargeDx*step; e.y+=e.chargeDy*step;
+   const hitWall=e.x<=PX0+e.r+1||e.x>=PX1-e.r-1||e.y<=PY0+e.r+1||e.y>=PY1-e.r-1;
+   if(hitWall||stuck){
+    e.chargeOn=false; e.ramT=C.enrage?1.4:2.2; e.ramLx=undefined;
+    rings.push({x:e.x,y:e.y,r:16,maxR:200,spd:330,dmg:e.dmg,hit:false,heavy:true});
+    if(settings.shake) shake=Math.min(12,shake+6); spawnBurst(e.x,e.y,22,K.red,260,0.6,4); SFX.ring(); }
+  } else C.mv(0.45); },
+ debris(e,C){ // orbital junk flung outward on a lazy arc
+  C.mv(0.4); e.burstT-=C.dt;
+  if(e.burstT<=0){ e.burstT=C.enrage?0.5:0.8;
+   for(let k=0;k<4;k++) eshot(e,e.t*1.4+k*1.5708,170+Math.random()*90,7,0.8,4.5);
+   SFX.eshoot(); } },
+ clockbeam(e,C){ // a slow rotating hand — walk with it, not into it
+  C.mv(0.25); e.spirT-=C.dt;
+  if(e.spirT<=0){ e.spirT=0.10; const a=e.phaseT*1.5;
+   eshot(e,a,240,5,0.7,2.6); eshot(e,a+3.1416,240,5,0.7,2.6); } },
+ crossbeam(e,C){ // a rotating cross, four arms, wide safe wedges
+  C.mv(0.3); e.spirT-=C.dt;
+  if(e.spirT<=0){ e.spirT=0.13; const a=e.phaseT*1.1;
+   for(let k=0;k<4;k++) eshot(e,a+k*1.5708,225,5,0.75,3); } },
+ disrupt(e,C){ // a field that jams one system while you stand in it
+  C.mv(0.45); e.burstT-=C.dt;
+  if(e.burstT<=0){ e.burstT=3.4;
+   if(hazards.length<CAP.haz) hazards.push({x:C.p.x,y:C.p.y,r:96,t:0,life:4,dmg:0,tick:0,warn:0.6,jam:true});
+   addFloater(e.x,calloutY(e),'DISRUPTOR FIELD',K.red); SFX.alarm(); } },
+ gravity(e,C){ // drags you in — thrust away or get crushed
+  const p=C.p; C.mv(0.2);
+  if(C.d>40){ const pull=(C.enrage?150:110)*C.dt; p.x-=C.nx*pull; p.y-=C.ny*pull; } // n points boss→player, so subtract to drag inward
+  e.burstT-=C.dt;
+  if(e.burstT<=0){ e.burstT=1.2;
+   for(let k=0;k<6;k++) eshot(e,k/6*6.283-e.t*1.2,200,6,0.85);
+   SFX.eshoot(); } }
+};
+function atk(){ const o={}; for(const n of arguments) o[n]=ATK[n]; return o; }
+function polyPts(pts){ ctx.beginPath(); pts.forEach((q,i)=>{ if(i) ctx.lineTo(q[0],q[1]); else ctx.moveTo(q[0],q[1]); }); ctx.closePath(); }
+
+// ========================================================================
+//  THE LADDER — one block per god, in ladder order (S5 ... S100)
+// ========================================================================
+// Block format (BOSS_KITS[kind]); every field but def, lore, codex, cycle,
+// attacks and draw is optional:
+//   def       : name, epithet, tier, hp, r, spd, pt, shape, sig, recov, chaff
+//   lore      : the hub's debut line, naming its rank (the hub adds its call)
+//   codex     : {role, threat, tell, counter, lore} — the codex entry
+//   cycle     : attack names, one per def.pt-second slot
+//   attacks   : {name(e,C)} — atk(...) from the shared library plus its own
+//   signature : (e,C) every hunting frame, before the attack
+//   init      : (e) once, when the god is built (lead or summoned)
+//   post      : (e,dt) after movement and collision, every frame
+//   under     : (e) world-space drawing beneath every hull (a trailing body)
+//   draw      : (e,g) the silhouette in local space; g={R,P,col,body,dim,lw,enrage,flash}
+//   drawTop   : (e,g) local-space extras over the rank rings
+//   hitParts  : {rot(e), c:[[x,y,r],..]} extra body circles, units of drawn r
+//   phases    : [{..phase I..},{at:0.5,enter(e)},..] one entry per phase
+//   calls     : kinds it summons, overriding the rung below
+//   summons   : {at:[fractions], budget, pastCap}
+//   vmax      : fastest legal travel if above the engine's default
+//   label     : (e) -> string, overriding the attack name under the hull
+// Wave 2 fills these kits in; each group edits only its own blocks.
+
+// ===== BOSS: OVERLORD =====
+BOSS_KITS.overlord={
+ def:{name:'OVERLORD',epithet:'the Berserk',tier:1,hp:985,r:30,spd:1.00,shape:'octa',pt:3.0,sig:null,recov:null,chaff:['drone','stalker']},
+ lore:'AN ENFORCER BARS THE TRAIL — OVERLORD, the Berserk, has never yielded a holmgang. End the saga.',
+ codex:{role:'Brawler', threat:'Never recovers',
+  tell:'Cycles BURST / SUMMON / CHARGE / SWEEP on a three-second clock.',
+  counter:'Pure aggression with no escape. Learn the cycle and out-damage it.',
+  lore:'The Berserk. The youngest of the gods, which out here means a few hundred million years old. Its makers built it to win rather than to hold, and it has never yielded a holmgang. They called this discipline. There is no one left to call it anything.'},
+ cycle:['burst','summon','charge','sweep'],
+ attacks:atk('burst','summon','charge','sweep'),
+ draw(e,g){ // the Berserk: dashed ring, eight-sided core
+  const R=g.R;
+  ctx.save(); ctx.rotate(e.t*0.6); ctx.strokeStyle=g.dim; ctx.lineWidth=3; ctx.setLineDash([18,10]); ctx.beginPath(); ctx.arc(0,0,R+4,0,6.283); ctx.stroke(); ctx.setLineDash([]); ctx.restore();
+  ctx.fillStyle=g.body; ctx.strokeStyle=g.col; ctx.lineWidth=g.lw; poly(8,R-4,-e.t*0.4); ctx.fill(); ctx.stroke();
+  ctx.strokeStyle=g.dim; ctx.lineWidth=1; poly(8,R*0.5,-e.t*0.4); ctx.stroke();
+  ctx.fillStyle=g.col; ctx.beginPath(); ctx.arc(0,0,5,0,6.283); ctx.fill();
+  if(g.enrage){ ctx.fillStyle=g.col; for(let k=0;k<4;k++){ const a=e.t*3+k*1.57; ctx.beginPath(); ctx.moveTo(Math.cos(a)*(R+2),Math.sin(a)*(R+2)); ctx.lineTo(Math.cos(a+0.2)*(R+12),Math.sin(a+0.2)*(R+12)); ctx.lineTo(Math.cos(a-0.2)*(R+12),Math.sin(a-0.2)*(R+12)); ctx.closePath(); ctx.fill(); } }
+ }
+};
+// ===== END BOSS: OVERLORD =====
+
+// ===== BOSS: WARDEN =====
+BOSS_KITS.warden={
+ def:{name:'WARDEN',epithet:'Bridge-Warden',tier:2,hp:1250,r:34,spd:0.80,shape:'hex',pt:3.5,sig:null,recov:'retreat',chaff:['drone','stalker']},
+ lore:'A CAPTAIN HOLDS THE BRIDGE — WARDEN guards a lane that leads nowhere now.',
+ codex:{role:'Siege fortress', threat:'Retreats once or twice',
+  tell:'Slow. Spirals, guards, seismic slams, twin staggered waves.',
+  counter:'Stay off the rings. When it RETREATS, chase — damage stops its healing.',
+  lore:'Bridge-Warden. Lane authority, built to stand at the one crossing between two dead empires. It was never meant to advance, only to make advancing expensive, and it has kept that contract long after the lane stopped leading anywhere.'},
+ cycle:['spiral','summon','slam','twinwave'],
+ attacks:atk('spiral','summon','slam','twinwave'),
+ draw(e,g){ // dashed siege collar, heavy hex core
+  const R=g.R;
+  ctx.save(); ctx.rotate(e.t*0.4); ctx.strokeStyle=g.dim; ctx.lineWidth=3; ctx.setLineDash([14,8]); ctx.beginPath(); ctx.arc(0,0,R+4,0,6.283); ctx.stroke(); ctx.setLineDash([]); ctx.restore();
+  ctx.fillStyle=g.body; ctx.strokeStyle=g.col; ctx.lineWidth=g.lw; poly(6,R-4,e.t*0.25); ctx.fill(); ctx.stroke();
+  ctx.strokeStyle=g.dim; poly(6,R*0.55,e.t*0.25); ctx.stroke();
+  ctx.fillStyle=g.col; ctx.beginPath(); ctx.arc(0,0,4,0,6.283); ctx.fill();
+ }
+};
+// ===== END BOSS: WARDEN =====
+
+// ===== BOSS: PHANTOM =====
+BOSS_KITS.phantom={
+ def:{name:'PHANTOM',epithet:'the Undelivered',tier:2,hp:760,r:26,spd:1.35,shape:'diamond',pt:9,sig:'laser',recov:'phase',chaff:['drone','mite']},
+ lore:'A CAPTAIN WITHOUT A POST — PHANTOM carries a reply no one is left to read.',
+ codex:{role:'Skirmisher', threat:'Phases, briefly',
+  tell:'A locked RED LINE that holds still — the beam comes down exactly there.',
+  counter:'Step off the line. When it PHASES it still takes 30% damage — kill the minions to end it early.',
+  lore:'The Undelivered. A courier that learned its cargo was itself. It crossed eleven thousand years to deliver a reply and arrived at an empty star. The blink hardware was for outrunning interdiction; the beam was improvised later, from the part that did the outrunning.'},
+ cycle:['skirmish'],
+ attacks:{
+  skirmish(e,C){ // weave, fan, blink
+   C.orbit(1.1); e.burstT-=C.dt;
+   if(e.burstT<=0){ e.burstT=C.enrage?1.1:1.7;
+    for(let k=-2;k<=2;k++) eshot(e,C.aim+k*0.16,260,5);
+    SFX.eshoot(); }
+   e.teleCd-=C.dt;
+   // Blink to a VALIDATED spot 190-300px out: on screen, out of obstacles, off
+   // the walls. PHANTOM is the one god the teleport policy lets blink freely.
+   if(e.teleCd<=0){ e.teleCd=C.enrage?3:4.5;
+    const tp=nearSpot(C.p.x,C.p.y,190,300,e.r+16); bossBlink(e,tp.x,tp.y,'blink'); } }
+ },
+ signature(e,C){ // locks a line, telegraphs, then fires down it
+  const p=C.p; e.laserT-=C.dt;
+  if(e.laser){ e.laser.t-=C.dt;
+   if(e.laser.t<=0){ const a=e.laser.ang, dx2=Math.cos(a), dy2=Math.sin(a);
+    const tt=clamp((p.x-e.x)*dx2+(p.y-e.y)*dy2,0,700), cx=e.x+dx2*tt, cy=e.y+dy2*tt;
+    e.beamA=a; e.beamT=0.25; e.laser=null; e.laserT=C.enrage?3.5:5;
+    for(let k=0;k<=10;k++) pushPart({x:e.x+dx2*k*70,y:e.y+dy2*k*70,vx:0,vy:0,life:0.25,maxlife:0.25,col:K.red,r:5});
+    SFX.eshoot();
+    if(Math.hypot(p.x-cx,p.y-cy)<16) hurtPlayer(e.dmg+8,true,srcOf(e)); } }
+  else if(e.laserT<=0){ e.laser={t:0.7,ang:C.aim}; SFX.click(); }
+ },
+ draw(e,g){ // ghosted diamond inside a counter-spinning frame
+  const R=g.R;
+  ctx.save(); ctx.rotate(e.t*1.2+Math.PI/4); ctx.strokeStyle=g.dim; ctx.lineWidth=1; ctx.strokeRect(-R*0.62,-R*0.62,R*1.24,R*1.24); ctx.restore();
+  ctx.fillStyle=g.body; ctx.strokeStyle=g.col; ctx.lineWidth=g.lw; poly(4,R-6,-e.t*1.2); ctx.fill(); ctx.stroke();
+  ctx.strokeStyle=g.dim; poly(4,R*0.4,-e.t*1.2); ctx.stroke();
+  ctx.fillStyle=g.col; ctx.beginPath(); ctx.arc(0,0,3,0,6.283); ctx.fill();
+ }
+};
+// ===== END BOSS: PHANTOM =====
+
+// ===== BOSS: REVENANT =====
+// Placeholder kit (wave 2 builds the full one, spec §5): Rime Bolts only.
+BOSS_KITS.revenant={
+ def:{name:'REVENANT',epithet:'the Cold-Sleeper',tier:2,hp:900,r:28,spd:0.95,shape:'pods',pt:3.4,sig:'rime',recov:null,chaff:['drone','mite']},
+ lore:'A CAPTAIN WHO SLEPT THROUGH THE COLD — REVENANT wakes for you, and only you.',
+ codex:{role:'Cryo skirmisher', threat:'Slow rounds that bite',
+  tell:'Its pods pale before a volley of three slow RIME BOLTS down your line.',
+  counter:'Slow rounds are easy to sidestep. Keep moving across the volley, never along it.',
+  lore:'The Cold-Sleeper. A sleeper ship whose crew never woke, and whose pods decided, somewhere in the dark, to keep the ship instead. It wakes only for a visitor. The cold it carries is not a weapon, exactly; it is simply what the inside of the pods is like.'},
+ cycle:['rime','fan'],
+ attacks:Object.assign(atk('fan'),{
+  rime(e,C){ // three slow pale rounds down your line, 0.35s aimed tell
+   C.mv(0.45); e.burstT-=C.dt;
+   if(e.aimT>0){ e.aimT-=C.dt; if(e.aimT<=0){ for(let k=-1;k<=1;k++){ const b=eshot(e,C.aim+k*0.12,150,7,0.9,5); if(b) b.freeze=1.0; } SFX.eshoot(); } }
+   else if(e.burstT<=0){ e.burstT=C.enrage?1.3:1.9; e.aimT=0.35; } }
+ }),
+ draw(e,g){ // three overlapping cryo capsules in a Y
+  const R=g.R;
+  for(let k=0;k<3;k++){ ctx.save(); ctx.rotate(-1.5708+k*2.094+e.t*0.15);
+   const L=R*0.95, w=R*0.34; polyPts([[w*0.2,-w],[L-w,-w],[L,0],[L-w,w],[w*0.2,w],[-w*0.4,0]]);
+   ctx.fillStyle=g.body; ctx.fill(); ctx.strokeStyle=g.col; ctx.lineWidth=g.lw; ctx.stroke();
+   ctx.strokeStyle=g.dim; ctx.lineWidth=1; ctx.beginPath(); ctx.moveTo(R*0.3,0); ctx.lineTo(L-w,0); ctx.stroke(); ctx.restore(); }
+  ctx.fillStyle=e.aimT>0?K.redHi:g.col; ctx.beginPath(); ctx.arc(0,0,4,0,6.283); ctx.fill();
+ }
+};
+// ===== END BOSS: REVENANT =====
+
+// ===== BOSS: LEVIATHAN =====
+BOSS_KITS.leviathan={
+ def:{name:'LEVIATHAN',epithet:'the Lane-Wyrm',tier:3,hp:1700,r:36,spd:0.85,shape:'serpent',pt:4.0,sig:'segments',recov:'retreat',chaff:['mite','drone']},
+ lore:'A LORD OF THE DEEP LANE — LEVIATHAN leaves a ghost of itself in the lane.',
+ codex:{role:'Serpent', threat:'Body damages on contact',
+  tell:'The head sweeps twin streams as the whole body wheels after it; mines drop where it has been.',
+  counter:'Watch the body, not the head. Segments hurt — never stand in the trail.',
+  lore:'The Lane-Wyrm. Lane-boring infrastructure that kept growing after the contract lapsed, tunnelling debris fields for a trade that ended before home\'s star was lit. The segments are not armour; they are the original boring string, still following the head out of habit.'},
+ // burrow is gone (spec §3.5): LEVIATHAN never leaves the surface
+ cycle:['tailsweep','mines','spiral'],
+ attacks:Object.assign(atk('mines','spiral'),{
+  tailsweep(e,C){ // the body itself is the attack
+   C.orbit(0.85); e.spirT-=C.dt;
+   if(e.spirT<=0){ e.spirT=0.5; const a=e.t*1.6;
+    for(let k=0;k<2;k++) eshot(e,a+k*3.14,200,7,0.9); } }
+ }),
+ init(e){ e.segs=[]; for(let k=0;k<5;k++) e.segs.push({x:e.x,y:e.y,r:e.r*(0.72-k*0.08)}); },
+ signature(e,C){ // a trailing body that also hurts to touch
+  const p=C.p;
+  for(const g of e.segs) if(!e.phased&&e.contactCd<=0&&dist2(p.x,p.y,g.x,g.y)<(g.r+p.r)*(g.r+p.r)){ e.contactCd=0.7; hurtPlayer(Math.round(e.dmg*0.6),true,srcOf(e,'BODY')); }
+ },
+ // The body moves as one piece: every move of the head, forced or not, drags
+ // each segment after it, so nothing can leave a segment behind.
+ post(e){ let prev=e; const want=e.r*0.82;
+  for(const g of e.segs){ const vx=prev.x-g.x, vy=prev.y-g.y, l=len(vx,vy); if(l>want){ g.x+=vx/l*(l-want); g.y+=vy/l*(l-want); } prev=g; } },
+ under(e){ // the body behind the head
+  const P=pigOf(e); ctx.save(); ctx.globalAlpha=e.phased?0.3:1;
+  for(let k=e.segs.length-1;k>=0;k--){ const g=e.segs[k];
+   ctx.fillStyle=P.body; ctx.strokeStyle=e.hp<e.maxhp*0.3?P.hi:P.c; ctx.lineWidth=1.5;
+   ctx.beginPath(); ctx.arc(g.x,g.y,g.r,0,6.283); ctx.fill(); ctx.stroke();
+   ctx.strokeStyle=P.dim; ctx.lineWidth=1; ctx.beginPath(); ctx.arc(g.x,g.y,g.r*0.55,0,6.283); ctx.stroke(); }
+  ctx.restore(); },
+ draw(e,g){ // armoured head with mandibles
+  const R=g.R;
+  ctx.save(); ctx.rotate(Math.atan2(player?player.y-e.y:0,player?player.x-e.x:1));
+  ctx.fillStyle=g.body; ctx.strokeStyle=g.col; ctx.lineWidth=g.lw;
+  ctx.beginPath(); ctx.moveTo(R,0); ctx.lineTo(R*0.2,-R*0.78); ctx.lineTo(-R*0.8,-R*0.5); ctx.lineTo(-R*0.8,R*0.5); ctx.lineTo(R*0.2,R*0.78); ctx.closePath(); ctx.fill(); ctx.stroke();
+  ctx.lineWidth=3; ctx.lineCap='round'; ctx.beginPath(); ctx.moveTo(R*0.55,-R*0.4); ctx.lineTo(R*1.25,-R*0.72); ctx.moveTo(R*0.55,R*0.4); ctx.lineTo(R*1.25,R*0.72); ctx.stroke(); ctx.lineCap='butt';
+  ctx.strokeStyle=g.dim; ctx.lineWidth=1; ctx.beginPath(); for(let k=1;k<4;k++){ const x=R*0.2-k*R*0.25; ctx.moveTo(x,-R*0.6); ctx.lineTo(x,R*0.6); } ctx.stroke();
+  ctx.fillStyle=g.col; ctx.beginPath(); ctx.arc(R*0.1,-R*0.26,3,0,6.283); ctx.arc(R*0.1,R*0.26,3,0,6.283); ctx.fill();
+  ctx.restore();
+ },
+ // the mandibles reach past the head's circle
+ hitParts:{ rot:e=>Math.atan2(player?player.y-e.y:0,player?player.x-e.x:1), c:[[1.05,-0.62,0.2],[1.05,0.62,0.2]] }
+};
+// ===== END BOSS: LEVIATHAN =====
+
+// ===== BOSS: HYDRA =====
+// Placeholder kit (wave 2 builds the full one, spec §5): three throats firing in turn.
+BOSS_KITS.hydra={
+ def:{name:'HYDRA',epithet:'the Three-Throated',tier:3,hp:1500,r:34,spd:0.85,shape:'hepta',pt:3.6,sig:'throats',recov:null,chaff:['stalker','mite']},
+ lore:'A LORD WITH THREE THROATS — HYDRA argues with itself, and every voice is aimed.',
+ codex:{role:'Many-headed', threat:'Three angles of fire',
+  tell:'Each neck flares in turn, then throws a short fan from where that head points.',
+  counter:'The heads fire one after another: move after each flare, not before.',
+  lore:'The Three-Throated. A council ship, built when its makers could not agree on a captain and so installed three. They still cannot agree. Everything it fires is the loser of an argument that has run for four hundred million years.'},
+ cycle:['throats','slam'],
+ attacks:Object.assign(atk('slam'),{
+  throats(e,C){ // the heads fire in turn, each a short fan from its own neck
+   C.mv(0.4); e.burstT-=C.dt;
+   if(e.burstT<=0){ e.burstT=C.enrage?0.5:0.75; e.head=((e.head||0)+1)%3;
+    const hp=hydraHead(e,e.head), a=Math.atan2(C.p.y-hp.y,C.p.x-hp.x);
+    for(let k=-1;k<=1;k++) eshotAt(e,hp.x,hp.y,a+k*0.14,240,5,0.8);
+    SFX.eshoot(); } }
+ }),
+ draw(e,g){ // a heptagon body with three lobed necks
+  const R=g.R, face=Math.atan2(player?player.y-e.y:0,player?player.x-e.x:1);
+  for(let k=0;k<3;k++){ const a=face+(k-1)*0.8, hx=Math.cos(a)*R*1.05, hy=Math.sin(a)*R*1.05;
+   ctx.strokeStyle=g.dim; ctx.lineWidth=3; ctx.beginPath(); ctx.moveTo(Math.cos(a)*R*0.5,Math.sin(a)*R*0.5); ctx.lineTo(hx,hy); ctx.stroke();
+   // the next throat flares red before it fires
+   ctx.fillStyle=(((e.head||0)+1)%3===k&&e.burstT<0.35)?K.red:g.body; ctx.strokeStyle=g.col; ctx.lineWidth=1.5; ctx.save(); ctx.translate(hx,hy); poly(5,R*0.26,a); ctx.fill(); ctx.stroke(); ctx.restore(); }
+  ctx.fillStyle=g.body; ctx.strokeStyle=g.col; ctx.lineWidth=g.lw; poly(7,R*0.78,e.t*0.2); ctx.fill(); ctx.stroke();
+  ctx.strokeStyle=g.dim; ctx.lineWidth=1; poly(7,R*0.42,e.t*0.2); ctx.stroke();
+ },
+ hitParts:{ rot:e=>Math.atan2(player?player.y-e.y:0,player?player.x-e.x:1), c:[[1.05*Math.cos(-0.8),1.05*Math.sin(-0.8),0.28],[1.05,0,0.28],[1.05*Math.cos(0.8),1.05*Math.sin(0.8),0.28]] }
+};
+function hydraHead(e,k){ const face=Math.atan2(player?player.y-e.y:0,player?player.x-e.x:1), a=face+(k-1)*0.8; return {x:e.x+Math.cos(a)*e.r*1.05,y:e.y+Math.sin(a)*e.r*1.05}; }
+// ===== END BOSS: HYDRA =====
+
+// ===== BOSS: WYVERN =====
+// Placeholder kit (wave 2 builds the full one, spec §5): a telegraphed Strafing Run.
+BOSS_KITS.wyvern={
+ def:{name:'WYVERN',epithet:'the Strafing Wing',tier:3,hp:1300,r:30,spd:1.15,shape:'delta',pt:3.2,sig:'strafe',recov:null,chaff:['drone','tempest']},
+ lore:'A LORD ON THE WING — WYVERN strafes the lane it lit for you. Leave the lane.',
+ codex:{role:'Strafer', threat:'High-speed dives',
+  tell:'A RED LANE lights across the field, then it dives straight down it.',
+  counter:'The lane is the whole attack. Step out of it sideways while it lights.',
+  lore:'The Strafing Wing. A picket fighter from a war fought at such speed that the pilots were removed to save weight. The wing learned the war by itself. It still lights its run before it makes it, a courtesy from an age when the other side had to see it coming.'},
+ vmax:720,
+ cycle:['strafe','fan'],
+ attacks:Object.assign(atk('fan'),{
+  strafe(e,C){ // lane lights 0.9 s, then a straight dive down it
+   const s=e.run;
+   if(!s){ C.orbit(0.8); e.burstT-=C.dt;
+    if(e.burstT<=0){ e.burstT=C.enrage?1.6:2.4; const a=Math.atan2(C.p.y-e.y,C.p.x-e.x); e.run={t:0,a,x:e.x,y:e.y}; SFX.click(); } return; }
+   s.t+=C.dt;
+   if(s.t<0.9) return; // the lane is lit: hold still and let it read
+   if(s.t<1.8){ const v=700; e.x+=Math.cos(s.a)*v*C.dt; e.y+=Math.sin(s.a)*v*C.dt; e.intent+=v*C.dt; e.charging=true;
+    const hitWall=e.x<=PX0+e.r+1||e.x>=PX1-e.r-1||e.y<=PY0+e.r+1||e.y>=PY1-e.r-1; if(hitWall) s.t=1.8; return; }
+   e.run=null; }
+ }),
+ label(e){ return e.run&&e.run.t<0.9?'STRAFING RUN':''; },
+ drawTop(e,g){ const s=e.run; if(!s||s.t>=0.9) return; const L=900, w=e.r*0.9;
+  ctx.save(); ctx.translate(s.x-e.x,s.y-e.y); ctx.rotate(s.a);
+  ctx.globalAlpha=0.8; tickedLine(0,-w,L,-w,K.red,1,24,3); tickedLine(0,w,L,w,K.red,1,24,3); ctx.restore(); },
+ draw(e,g){ // a swept delta of triangles and parallelograms
+  const R=g.R; ctx.save(); ctx.rotate(e.run?e.run.a:Math.atan2(player?player.y-e.y:0,player?player.x-e.x:1));
+  ctx.fillStyle=g.body; ctx.strokeStyle=g.col; ctx.lineWidth=g.lw;
+  polyPts([[R,0],[-R*0.55,-R*0.95],[-R*0.25,0],[-R*0.55,R*0.95]]); ctx.fill(); ctx.stroke();
+  ctx.strokeStyle=g.dim; ctx.lineWidth=1; polyPts([[R*0.55,0],[-R*0.1,-R*0.42],[-R*0.1,R*0.42]]); ctx.stroke();
+  ctx.fillStyle=e.run&&e.run.t<0.9?K.redHi:g.col; ctx.beginPath(); ctx.arc(R*0.2,0,3,0,6.283); ctx.fill(); ctx.restore();
+ }
+};
+// ===== END BOSS: WYVERN =====
+
+// ===== BOSS: ORACLE =====
+BOSS_KITS.oracle={
+ def:{name:'ORACLE',epithet:'the Rememberer',tier:3,hp:1150,r:30,spd:0.90,shape:'eye',pt:3.6,sig:'wards',recov:'phase',chaff:['tempest','drone']},
+ lore:'A LORD WHO KEEPS THE LEDGER — ORACLE has already calculated this fight.',
+ codex:{role:'Zone controller', threat:'Warded until broken',
+  tell:'Three shards orbit it. Rotating twin beams; damaging fields parked on you.',
+  counter:'Break all three WARDS first — until then it soaks 75% of every round.',
+  lore:'The Rememberer. It computes where you will be, which is a harder problem than it sounds and a cheaper one than aiming. It has run the same sum on every species it ever heard, and kept the answers. The wards are its working memory, and it cannot afford to lose them mid-calculation.'},
+ // The Call (decided, spec §2/§5): two WYVERNs at 50%. Wave 2 builds its heal
+ // and re-arm on top; the budget already leaves room for two re-arms.
+ calls:['wyvern','wyvern'], summons:{at:[0.5], budget:6},
+ cycle:['clockbeam','zone','summon','burst'],
+ attacks:atk('clockbeam','zone','summon','burst'),
+ signature(e,C){ // orbiting shields — break them or it takes 25% damage
+  if(!e.wards.length&&!e.wardsBroken){ for(let k=0;k<3;k++) e.wards.push({a:k*2.094,hp:1}); e.wardsBroken=false; }
+  e.wardA=(e.wardA||0)+C.dt*1.1;
+  e.shielded=e.wards.length>0;
+ },
+ draw(e,g){ // lidded eye, pupil tracks you
+  const R=g.R;
+  ctx.fillStyle=g.body; ctx.strokeStyle=g.col; ctx.lineWidth=g.lw;
+  ctx.beginPath(); ctx.ellipse(0,0,R,R*0.66,0,0,6.283); ctx.fill(); ctx.stroke();
+  { const a=Math.atan2(player?player.y-e.y:0,player?player.x-e.x:1);
+    ctx.strokeStyle=g.col; ctx.beginPath(); ctx.arc(Math.cos(a)*R*0.34,Math.sin(a)*R*0.22,R*0.30,0,6.283); ctx.stroke();
+    ctx.fillStyle=g.col; ctx.beginPath(); ctx.arc(Math.cos(a)*R*0.34,Math.sin(a)*R*0.22,R*0.12,0,6.283); ctx.fill(); }
+  ctx.strokeStyle=g.dim; ctx.lineWidth=1;
+  ctx.beginPath(); ctx.moveTo(-R,0); ctx.quadraticCurveTo(0,-R*0.95,R,0); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(-R,0); ctx.quadraticCurveTo(0,R*0.95,R,0); ctx.stroke();
+ },
+ drawTop(e,g){ // the wards ride outside the eye
+  for(const w of e.wards){ const a=w.a+(e.wardA||0);
+   ctx.save(); ctx.translate(Math.cos(a)*(g.R+26),Math.sin(a)*(g.R+26)); ctx.rotate(a*2);
+   ctx.fillStyle=g.P.body; ctx.strokeStyle=g.P.c; ctx.lineWidth=1.5; poly(3,10,0); ctx.fill(); ctx.stroke(); ctx.restore(); }
+ }
+};
+// ===== END BOSS: ORACLE =====
+
+// ===== BOSS: SENTINEL =====
+// Placeholder kit (wave 2 builds the full one, spec §5): Spear Line only.
+BOSS_KITS.sentinel={
+ def:{name:'SENTINEL',epithet:'the Shield-Wall',tier:3,hp:1400,r:32,spd:0.80,shape:'shield',pt:3.4,sig:'mirror',recov:null,chaff:['stalker','sniper']},
+ lore:'A LORD BEHIND A MIRROR — SENTINEL has held its wall for longer than walls.',
+ codex:{role:'Shield-bearer', threat:'Lances in a line',
+  tell:'The shield lowers and a SPEAR LINE of rounds runs straight at you, one behind another.',
+  counter:'A line is narrow. Step off it and circle toward its flank.',
+  lore:'The Shield-Wall. A gatehouse given engines, from a people who believed a wall that could follow you was a kinder thing than a gun. It has never started a fight. It has also never let one end on any terms but its own.'},
+ cycle:['spearline','slam'],
+ attacks:Object.assign(atk('slam'),{
+  spearline(e,C){ // a straight lance volley: one line, staggered speeds
+   C.mv(0.35); e.burstT-=C.dt;
+   if(e.aimT>0){ e.aimT-=C.dt; if(e.aimT<=0){ for(let k=0;k<5;k++) eshot(e,e.spear,210+k*38,5,0.8,3.6); SFX.eshoot(); } }
+   else if(e.burstT<=0){ e.burstT=C.enrage?1.2:1.7; e.aimT=0.5; e.spear=C.aim; } }
+ }),
+ draw(e,g){ // a tall trapezoid shield in front of a square core
+  const R=g.R, a=Math.atan2(player?player.y-e.y:0,player?player.x-e.x:1);
+  ctx.fillStyle=g.body; ctx.strokeStyle=g.col; ctx.lineWidth=g.lw; ctx.save(); ctx.rotate(e.t*0.2); ctx.fillRect(-R*0.5,-R*0.5,R,R); ctx.strokeRect(-R*0.5,-R*0.5,R,R); ctx.restore();
+  ctx.save(); ctx.rotate(a); polyPts([[R*0.55,-R*0.95],[R*0.95,-R*0.6],[R*0.95,R*0.6],[R*0.55,R*0.95]]);
+  ctx.fillStyle=e.aimT>0?K.red:g.body; ctx.fill(); ctx.strokeStyle=g.col; ctx.stroke();
+  ctx.strokeStyle=g.dim; ctx.lineWidth=1; ctx.beginPath(); ctx.moveTo(R*0.75,-R*0.7); ctx.lineTo(R*0.75,R*0.7); ctx.stroke(); ctx.restore();
+  if(e.aimT>0){ tickedLine(0,0,Math.cos(e.spear)*600,Math.sin(e.spear)*600,K.red,1,24,3); }
+ }
+};
+// ===== END BOSS: SENTINEL =====
+
+// ===== BOSS: ARCHON =====
+BOSS_KITS.archon={
+ def:{name:'ARCHON',epithet:'the Lawspeaker',tier:4,hp:1800,r:34,spd:0.90,shape:'crown',pt:3.8,sig:'command',recov:'retreat',chaff:['stalker','sniper']},
+ lore:'THE FIRST SOVEREIGN — ARCHON the Lawspeaker wrote the holmgang you fight under.',
+ codex:{role:'Commander', threat:'Calls SENTINEL twice',
+  tell:'Rotating cross-beams, and "ARCHON CALLS SENTINEL" as its bar crosses three quarters and one quarter.',
+  counter:'Deep down the trail its SENTINEL calls ORACLE in turn. Kill the ARCHON to stop the calls.',
+  lore:'The Lawspeaker. Rank, rendered as a machine. It wrote the holmgang every god fights under, it has never fired the first shot in any holmgang it has won, and it regards this as the entire point of the office.'},
+ summons:{at:[0.75,0.25]}, // decided timing (spec §2)
+ cycle:['crossbeam','muster','burst','slam'],
+ attacks:atk('crossbeam','muster','burst','slam'),
+ draw(e,g){ // command crown with rank spikes
+  const R=g.R;
+  ctx.save(); ctx.rotate(e.t*0.3); ctx.strokeStyle=g.dim; ctx.lineWidth=2; ctx.setLineDash([10,7]); ctx.beginPath(); ctx.arc(0,0,R+6,0,6.283); ctx.stroke(); ctx.setLineDash([]); ctx.restore();
+  ctx.fillStyle=g.body; ctx.strokeStyle=g.col; ctx.lineWidth=g.lw; poly(7,R-5,e.t*0.2); ctx.fill(); ctx.stroke();
+  ctx.fillStyle=g.col;
+  for(let k=0;k<5;k++){ const a=-1.5708+(k-2)*0.42;
+   ctx.beginPath(); ctx.moveTo(Math.cos(a)*R*0.66,Math.sin(a)*R*0.66); ctx.lineTo(Math.cos(a-0.09)*R*1.16,Math.sin(a-0.09)*R*1.16); ctx.lineTo(Math.cos(a+0.09)*R*1.16,Math.sin(a+0.09)*R*1.16); ctx.closePath(); ctx.fill(); }
+  ctx.strokeStyle=g.col; ctx.lineWidth=1; ctx.beginPath(); ctx.arc(0,0,R*0.3,0,6.283); ctx.stroke();
+ }
+};
+// ===== END BOSS: ARCHON =====
+
+// ===== BOSS: COLOSSUS =====
+// Placeholder kit (wave 2 builds the full one, spec §5): Triple Stomp only.
+BOSS_KITS.colossus={
+ def:{name:'COLOSSUS',epithet:'the Walled',tier:4,hp:1900,r:40,spd:0.70,shape:'fortress',pt:3.8,sig:'plates',recov:null,chaff:['brute','stalker']},
+ lore:'A SOVEREIGN THAT IS A WALL — COLOSSUS walks, and the ground takes notice.',
+ codex:{role:'Fortress', threat:'Three rings per stomp',
+  tell:'It rears, a ring is ruled around it, then three concentric SHOCKWAVES roll out one after another.',
+  counter:'Count to three. The rings are bands, not discs: step over each one, or dash all three.',
+  lore:'The Walled. A city that was told to leave and took itself. Its makers could not find a world to put it on and so never stopped walking. Everything it does is slow, because everything it is was built to stand still.'},
+ cycle:['stomp','fan'],
+ attacks:Object.assign(atk('fan'),{
+  stomp(e,C){ // a 0.6 s rear, then three staggered rings
+   C.mv(0.4); e.slamCd-=C.dt;
+   if(e.windup>0){ e.windup-=C.dt; if(e.windup<=0){ e.stompN=3; e.stompT=0; } }
+   else if(e.slamCd<=0&&C.d<420){ e.slamCd=C.enrage?3.2:4.4; e.windup=0.6; SFX.click(); }
+   if(e.stompN>0){ e.stompT-=C.dt; if(e.stompT<=0){ e.stompN--; e.stompT=0.45;
+    rings.push({x:e.x,y:e.y,r:24,maxR:230,spd:260,dmg:Math.round(e.dmg*0.8),hit:false,heavy:true}); SFX.ring(); if(settings.shake) shake=Math.min(10,shake+3); } } }
+ }),
+ draw(e,g){ // a stacked octagon and square fortress
+  const R=g.R;
+  ctx.fillStyle=g.body; ctx.strokeStyle=g.col; ctx.lineWidth=g.lw; poly(8,R-3,0.3927); ctx.fill(); ctx.stroke();
+  ctx.save(); ctx.rotate(0.7854+e.t*0.1); ctx.strokeStyle=g.dim; ctx.lineWidth=1.5; ctx.strokeRect(-R*0.5,-R*0.5,R,R); ctx.restore();
+  ctx.strokeStyle=g.dim; ctx.lineWidth=1; poly(8,R*0.8,0.3927); ctx.stroke();
+  ctx.fillStyle=e.windup>0?K.redHi:g.col; ctx.fillRect(-4,-4,8,8);
+  if(e.windup>0){ ctx.strokeStyle=K.red; ctx.lineWidth=1.5; ctx.beginPath(); ctx.arc(0,0,230,0,6.283); ctx.stroke(); }
+ }
+};
+// ===== END BOSS: COLOSSUS =====
+
+// ===== BOSS: BASILISK =====
+BOSS_KITS.basilisk={
+ def:{name:'BASILISK',epithet:'Keeper of the Held',tier:4,hp:1350,r:31,spd:1.10,shape:'coil',pt:3.4,sig:'petrify',recov:null,chaff:['stalker','mite']},
+ lore:'A SOVEREIGN OF QUARANTINE — its last visitor is still held in BASILISK\'s eye.',
+ codex:{role:'Controller', threat:'Roots you in place',
+  tell:'A ruled CONE opens before the gaze fires. Lunges leave spikes behind.',
+  counter:'Leave the cone — being PETRIFIED next to a lunge is how this fight ends.',
+  lore:'Keeper of the Held. A dying world built it to keep visitors away, so that whatever was killing them would not leave. It does not kill so much as hold you pending review. The reviewers ended nine hundred million years ago. The queue has not moved.'},
+ cycle:['gaze','linecharge','spikes','fan'],
+ attacks:atk('gaze','linecharge','spikes','fan'),
+ draw(e,g){ // coiled plates with a slit gaze
+  const R=g.R;
+  for(let k=3;k>=1;k--){ ctx.strokeStyle=k===3?g.col:g.dim; ctx.lineWidth=1;
+   ctx.beginPath(); ctx.arc(0,0,R*(0.42+k*0.2),e.t*0.6+k,e.t*0.6+k+4.2); ctx.stroke(); }
+  ctx.fillStyle=g.body; ctx.strokeStyle=g.col; ctx.lineWidth=g.lw; poly(5,R*0.6,e.t*0.3); ctx.fill(); ctx.stroke();
+  { const a=Math.atan2(player?player.y-e.y:0,player?player.x-e.x:1);
+    ctx.save(); ctx.rotate(a); ctx.fillStyle=g.col;
+    ctx.beginPath(); ctx.ellipse(R*0.22,0,R*0.26,2.6,0,0,6.283); ctx.fill(); ctx.restore(); }
+ }
+};
+// ===== END BOSS: BASILISK =====
+
+// ===== BOSS: PROGENITOR =====
+// Placeholder kit (wave 2 builds the full one, spec §5): Broadside only.
+BOSS_KITS.progenitor={
+ def:{name:'PROGENITOR',epithet:'the Brood-Hall',tier:4,hp:1600,r:36,spd:0.80,shape:'hull',pt:3.6,sig:'bays',recov:null,chaff:['drone','mite']},
+ lore:'A SOVEREIGN THAT IS A HANGAR — PROGENITOR never flies alone for long.',
+ codex:{role:'Carrier', threat:'Fire from both flanks',
+  tell:'Its flanks flare, then a BROADSIDE of two parallel lines rakes past its sides.',
+  counter:'The lines run along its flanks. Take its nose or its tail, never its side.',
+  lore:'The Brood-Hall. A carrier whose air wing was grown, not built, and grew until the hall and the brood were one thing. It launches as a reflex. It no longer remembers which of its children were meant to come home.'},
+ cycle:['broadside','summon'],
+ attacks:Object.assign(atk('summon'),{
+  broadside(e,C){ // paired line volleys from both flanks, 0.5 s flare
+   C.mv(0.35); e.burstT-=C.dt;
+   if(e.aimT>0){ e.aimT-=C.dt; if(e.aimT<=0){ const a=e.side, nx=-Math.sin(a), ny=Math.cos(a);
+     for(const sd of [-1,1]) for(let k=0;k<4;k++){ const ox=e.x+nx*sd*e.r, oy=e.y+ny*sd*e.r; eshotAt(e,ox,oy,a+sd*0.02*k,230+k*20,5,0.75,3.4); }
+     SFX.eshoot(); } }
+   else if(e.burstT<=0){ e.burstT=C.enrage?1.5:2.1; e.aimT=0.5; e.side=C.aim; } }
+ }),
+ draw(e,g){ // a long hull of parallelograms with bay notches
+  const R=g.R; ctx.save(); ctx.rotate(e.aimT>0?e.side:Math.atan2(player?player.y-e.y:0,player?player.x-e.x:1));
+  ctx.fillStyle=g.body; ctx.strokeStyle=g.col; ctx.lineWidth=g.lw;
+  polyPts([[R,-R*0.3],[R*0.2,-R*0.62],[-R,-R*0.62],[-R*0.7,-R*0.1],[-R*0.7,R*0.1],[-R,R*0.62],[R*0.2,R*0.62],[R,R*0.3]]); ctx.fill(); ctx.stroke();
+  ctx.strokeStyle=g.dim; ctx.lineWidth=1; for(const sd of [-1,1]) for(let k=0;k<2;k++){ ctx.strokeRect(-R*0.6+k*R*0.55,sd*R*0.62-(sd>0?R*0.2:0),R*0.35,R*0.2); }
+  if(e.aimT>0){ ctx.strokeStyle=K.red; ctx.lineWidth=1.5; line(-R,-R*0.7,R,-R*0.7,K.red,1.5); line(-R,R*0.7,R,R*0.7,K.red,1.5); }
+  ctx.restore();
+ }
+};
+// ===== END BOSS: PROGENITOR =====
+
+// ===== BOSS: HARBINGER =====
+BOSS_KITS.harbinger={
+ def:{name:'HARBINGER',epithet:'the Horn',tier:4,hp:1100,r:29,spd:1.00,shape:'star',pt:3.2,sig:null,recov:null,chaff:['tempest','mite']},
+ lore:'A SOVEREIGN WHO SOUNDS THE HORN — HARBINGER wants you to see it coming.',
+ codex:{role:'Bullet-hell caster', threat:'Never recovers',
+  tell:'Dense rotating walls with ONE gap, plus targeted meteors.',
+  counter:'Find the gap and travel with it. Do not try to out-run the wall.',
+  lore:'The Horn. An announcement, not a warship: it was built so that a species could be seen from far away. Everything it does is legible from a distance, because the point was always that you would see it coming and understand what it meant.'},
+ cycle:['spiralwall','meteor','fan','spiral'],
+ attacks:Object.assign(atk('spiralwall','fan','spiral'),{
+  meteor(e,C){ C.mv(0.35); } // spec §5: built on the marks primitive (next pass)
+ }),
+ draw(e,g){ // eight-point burst, inner ring counter-rotating
+  const R=g.R;
+  ctx.fillStyle=g.body; ctx.strokeStyle=g.col; ctx.lineWidth=g.lw;
+  ctx.beginPath();
+  for(let k=0;k<16;k++){ const a=e.t*0.7+k*0.3927, rr=(k%2?R*0.48:R); const x=Math.cos(a)*rr, y=Math.sin(a)*rr; if(k) ctx.lineTo(x,y); else ctx.moveTo(x,y); }
+  ctx.closePath(); ctx.fill(); ctx.stroke();
+  ctx.strokeStyle=g.dim; ctx.lineWidth=1; ctx.save(); ctx.rotate(-e.t*1.4); poly(3,R*0.42,0); ctx.stroke(); ctx.restore();
+  ctx.fillStyle=g.col; ctx.beginPath(); ctx.arc(0,0,3.5,0,6.283); ctx.fill();
+ }
+};
+// ===== END BOSS: HARBINGER =====
+
+// ===== BOSS: KRAKEN =====
+// Placeholder kit (wave 2 builds the full one, spec §5): two sweeping arms.
+BOSS_KITS.kraken={
+ def:{name:'KRAKEN',epithet:'the Deep-Grasp',tier:4,hp:1600,r:36,spd:0.85,shape:'mantle',pt:3.6,sig:'arms',recov:null,chaff:['mite','tempest']},
+ lore:'A SOVEREIGN FROM UNDER THE LANE — KRAKEN reaches for what floats past.',
+ codex:{role:'Grappler', threat:'Two sweeping arms',
+  tell:'Two arms sweep slow arcs of rounds out of its mantle, crossing as they turn.',
+  counter:'The arms turn slowly. Slip through the gap between them, then stay on the far side.',
+  lore:'The Deep-Grasp. A salvage hull built to haul wrecks out of gravity wells, from a people who were very good at wrecks. It has reached into the dark for longer than there has been anything to pull out. It is not angry. It is simply still working.'},
+ cycle:['lash','fan'],
+ attacks:Object.assign(atk('fan'),{
+  lash(e,C){ // two arms sweep counter-rotating arcs of rounds
+   C.mv(0.35); e.spirT-=C.dt;
+   if(e.spirT<=0){ e.spirT=C.enrage?0.12:0.17; const a=C.aim+Math.sin(e.phaseT*1.3)*1.2;
+    eshot(e,a,200,6,0.75,3.2); eshot(e,2*C.aim-a+3.1416,200,6,0.75,3.2); } }
+ }),
+ draw(e,g){ // a nonagon mantle with limbs
+  const R=g.R;
+  ctx.strokeStyle=g.dim; ctx.lineWidth=2.5; for(let k=0;k<6;k++){ const a=k*1.047+Math.sin(e.t*1.5+k)*0.2; ctx.beginPath(); ctx.moveTo(Math.cos(a)*R*0.6,Math.sin(a)*R*0.6); ctx.quadraticCurveTo(Math.cos(a+0.3)*R*0.95,Math.sin(a+0.3)*R*0.95,Math.cos(a+0.1)*R*1.15,Math.sin(a+0.1)*R*1.15); ctx.stroke(); }
+  ctx.fillStyle=g.body; ctx.strokeStyle=g.col; ctx.lineWidth=g.lw; poly(9,R*0.72,e.t*0.15); ctx.fill(); ctx.stroke();
+  ctx.strokeStyle=g.dim; ctx.lineWidth=1; poly(9,R*0.4,e.t*0.15); ctx.stroke();
+  ctx.fillStyle=g.col; ctx.beginPath(); ctx.arc(0,0,4,0,6.283); ctx.fill();
+ }
+};
+// ===== END BOSS: KRAKEN =====
+
+// ===== BOSS: JUGGERNAUT =====
+BOSS_KITS.juggernaut={
+ def:{name:'JUGGERNAUT',epithet:'the Unsteered',tier:4,hp:1700,r:38,spd:0.95,shape:'ram',pt:3.0,sig:'vent',recov:null,chaff:['brute','drone']},
+ lore:'A SOVEREIGN THAT CANNOT STEER — JUGGERNAUT commands by momentum alone.',
+ codex:{role:'Ram', threat:'Armoured prow',
+  tell:'RAM, then a straight commit, shockwave on impact. Facing LOCKS while charging.',
+  counter:'The prow takes 40%, the REAR VENT takes 190%. Flank every charge.',
+  lore:'The Unsteered. A colony ark built around one engine too large to be steered and too valuable to be wasted. The colonists never boarded. They put armour on the prow and filed the exhaust problem as acceptable.'},
+ vmax:420,
+ cycle:['ram','slam','debris','ram'],
+ attacks:atk('ram','slam','debris'),
+ // armoured front, exposed rear: facing locks during a ram (the window to get behind it)
+ signature(e,C){ if(!e.charging&&!e.chargeOn) e.facing=Math.atan2(C.p.y-e.y,C.p.x-e.x); },
+ draw(e,g){ // armoured prow one end, the vent the other
+  const R=g.R;
+  ctx.save(); ctx.rotate(e.facing||0);
+  ctx.fillStyle=g.body; ctx.strokeStyle=g.col; ctx.lineWidth=g.lw;
+  ctx.beginPath(); ctx.moveTo(R,0); ctx.lineTo(R*0.3,-R*0.8); ctx.lineTo(-R*0.85,-R*0.62); ctx.lineTo(-R*0.85,R*0.62); ctx.lineTo(R*0.3,R*0.8); ctx.closePath(); ctx.fill(); ctx.stroke();
+  // the prow plate: bare metal, hatched — it shrugs off rounds
+  ctx.fillStyle=K.lift; ctx.strokeStyle=K.metal; ctx.lineWidth=1.25;
+  ctx.beginPath(); ctx.moveTo(R*0.98,0); ctx.lineTo(R*0.34,-R*0.66); ctx.lineTo(R*0.34,R*0.66); ctx.closePath(); ctx.fill(); ctx.stroke();
+  ctx.strokeStyle=K.metalDim; ctx.lineWidth=1; ctx.beginPath(); for(let k=1;k<5;k++){ const x=R*0.34+k*R*0.13; ctx.moveTo(x,-R*0.66*(1-(x-R*0.34)/(R*0.64))); ctx.lineTo(x,R*0.66*(1-(x-R*0.34)/(R*0.64))); } ctx.stroke();
+  // the rear vent: the weak point, hot and open
+  ctx.fillStyle=g.col; ctx.fillRect(-R*0.92,-R*0.34,R*0.22,R*0.68);
+  ctx.strokeStyle=K.ground; ctx.lineWidth=1; ctx.beginPath(); for(let k=1;k<4;k++){ const y=-R*0.34+k*R*0.17; ctx.moveTo(-R*0.92,y); ctx.lineTo(-R*0.7,y); } ctx.stroke();
+  ctx.restore();
+ }
+};
+// ===== END BOSS: JUGGERNAUT =====
+
+// ===== BOSS: ECLIPSE =====
+// Placeholder kit (wave 2 builds the full one, spec §5): Corona from the rim.
+BOSS_KITS.eclipse={
+ def:{name:'ECLIPSE',epithet:'the Dimming',tier:4,hp:1400,r:32,spd:0.90,shape:'ringmoon',pt:3.6,sig:'moon',recov:null,chaff:['sniper','drone']},
+ lore:'A SOVEREIGN THAT TAKES THE LIGHT — ECLIPSE turns, and the field goes dim.',
+ codex:{role:'Rim caster', threat:'Streams from its rim',
+  tell:'Two CORONA streams pour from opposite points of its rim and turn slowly around it.',
+  counter:'Walk with the streams, not against them, and fire through the gap between.',
+  lore:'The Dimming. A sunshade built to cool a star-lit world, left in orbit after the world went dark on its own. It still passes between you and the light out of habit. The makers thought of it as a parasol. Everyone since has thought of it as the end of the day.'},
+ cycle:['corona','fan'],
+ attacks:Object.assign(atk('fan'),{
+  corona(e,C){ // twin streams from opposite points of the rim, slowly turning
+   C.mv(0.3); e.spirT-=C.dt;
+   if(e.spirT<=0){ e.spirT=C.enrage?0.09:0.12; const a=e.phaseT*0.9;
+    for(const o of [0,3.1416]){ const q=a+o; eshotAt(e,e.x+Math.cos(q)*e.r,e.y+Math.sin(q)*e.r,q+0.6,230,5,0.7,2.8); } } }
+ }),
+ draw(e,g){ // a ring with a crescent moon
+  const R=g.R;
+  ctx.fillStyle=g.body; ctx.strokeStyle=g.col; ctx.lineWidth=g.lw; ctx.beginPath(); ctx.arc(0,0,R*0.8,0,6.283); ctx.fill(); ctx.stroke();
+  ctx.fillStyle=K.ground; ctx.beginPath(); ctx.arc(0,0,R*0.46,0,6.283); ctx.fill(); ctx.strokeStyle=g.dim; ctx.lineWidth=1; ctx.stroke();
+  const m=e.t*0.8, mx=Math.cos(m)*R*0.95, my=Math.sin(m)*R*0.95;
+  ctx.fillStyle=g.col; ctx.beginPath(); ctx.arc(mx,my,R*0.24,0,6.283); ctx.fill();
+  ctx.fillStyle=g.body; ctx.beginPath(); ctx.arc(mx+Math.cos(m)*R*0.1,my+Math.sin(m)*R*0.1,R*0.2,0,6.283); ctx.fill();
+ }
+};
+// ===== END BOSS: ECLIPSE =====
+
+// ===== BOSS: NULLIFIER =====
+BOSS_KITS.nullifier={
+ def:{name:'NULLIFIER',epithet:'the Silent',tier:4,hp:1250,r:30,spd:1.00,shape:'prism',pt:3.4,sig:'jam',recov:'phase',chaff:['sniper','stalker']},
+ lore:'A SOVEREIGN OF SILENCE — NULLIFIER needs you ordinary for four seconds.',
+ codex:{role:'Disruptor', threat:'Jams your abilities',
+  tell:'A hatched DISRUPTOR FIELD drops on your position.',
+  counter:'Walk out. It locks dash and recall — never your guns. Sniper escorts punish standing still.',
+  lore:'The Silent. Counter-insurgency hardware from a war against ships that relied on their gear. It cannot shoot especially well. It does not need to; it only needs you to be ordinary for four seconds. The holmgang lets it take your wings, never your guns, and it resents the clause.'},
+ cycle:['disrupt','fan','summon','burst'],
+ attacks:atk('disrupt','fan','summon','burst'),
+ draw(e,g){ // split prism halves with a null core
+  const R=g.R;
+  ctx.save(); ctx.rotate(e.t*0.5);
+  ctx.fillStyle=g.body; ctx.strokeStyle=g.col; ctx.lineWidth=g.lw;
+  ctx.beginPath(); ctx.moveTo(0,-R); ctx.lineTo(R*0.86,R*0.5); ctx.lineTo(-R*0.86,R*0.5); ctx.closePath(); ctx.fill(); ctx.stroke();
+  ctx.strokeStyle=g.dim; ctx.beginPath(); ctx.moveTo(0,R); ctx.lineTo(R*0.86,-R*0.5); ctx.lineTo(-R*0.86,-R*0.5); ctx.closePath(); ctx.stroke();
+  ctx.restore();
+  ctx.fillStyle=K.ground; ctx.beginPath(); ctx.arc(0,0,R*0.26,0,6.283); ctx.fill();
+  ctx.strokeStyle=g.col; ctx.lineWidth=1.5; ctx.stroke();
+ }
+};
+// ===== END BOSS: NULLIFIER =====
+
+// ===== BOSS: CHORUS =====
+BOSS_KITS.chorus={
+ def:{name:'CHORUS',epithet:'the Norn-Choir',tier:4,hp:1400,r:28,spd:1.05,shape:'triad',pt:3.0,sig:'split',recov:null,chaff:['mite','drone']},
+ lore:'A SOVEREIGN IN THREE VOICES — CHORUS was a people once. Every echo is true.',
+ codex:{role:'Splitter', threat:'Fractures twice',
+  tell:'At 66% and 33% it FRACTURES into smaller synced echoes.',
+  counter:'Burst through the thresholds fast, or fight three at once. Echoes are fragile.',
+  lore:'The Norn-Choir. Not built by a people; it is one: the last of a species that copied itself into machines so it would not end. Three copies were made, to be safe. Each echo believes it is the original and is, in every sense that has ever been tested, correct.'},
+ // its splits are its phases (spec §5)
+ phases:[{},{at:0.66},{at:0.33}],
+ cycle:['fan','spiral','summon','burst'],
+ attacks:atk('fan','spiral','summon','burst'),
+ signature(e,C){ // fractures into synced copies at 66% and 33%
+  const f=e.hp/e.maxhp;
+  if(!e.summoned&&!e.echo&&((e.split===0&&f<=0.66)||(e.split===1&&f<=0.33))){
+   e.split++;
+   for(let k=0;k<2&&enemies.length<14;k++){
+    const s2=nearSpot(e.x,e.y,120,220,e.r+14);
+    const c=mkBoss('chorus',s2.x,s2.y,arenaIdx);
+    c.maxhp=c.hp=e.maxhp*0.22; c.r=e.r*0.72; c.dmg=Math.round(e.dmg*0.6);
+    // echoes are CHORUS's own mechanic, not a summon: they neither spend the
+    // nest's summon budget nor call anyone themselves
+    c.echo=true; c.recovKind=null; c.recovLeft=0; c.split=2; c.sumLeft=[]; c.phAt=[]; c.bname='CHORUS ECHO';
+    c.spawnT=0.6; enemies.push(c);
+    rings.push({x:s2.x,y:s2.y,r:8,maxR:90,spd:300,dmg:0,hit:true});
+   }
+   addFloater(e.x,calloutY(e),'CHORUS FRACTURES',K.red); SFX.brk();
+  }
+ },
+ draw(e,g){ // three fused lobes around a shared core
+  const R=g.R;
+  for(let k=0;k<3;k++){ const a=e.t*0.8+k*2.094;
+   ctx.fillStyle=g.body; ctx.strokeStyle=g.col; ctx.lineWidth=g.lw;
+   ctx.beginPath(); ctx.arc(Math.cos(a)*R*0.42,Math.sin(a)*R*0.42,R*0.52,0,6.283); ctx.fill(); ctx.stroke(); }
+  ctx.strokeStyle=g.dim; ctx.lineWidth=1; for(let k=0;k<3;k++){ const a=e.t*0.8+k*2.094; ctx.beginPath(); ctx.arc(Math.cos(a)*R*0.42,Math.sin(a)*R*0.42,R*0.28,0,6.283); ctx.stroke(); }
+  ctx.fillStyle=g.col; ctx.beginPath(); ctx.arc(0,0,R*0.14,0,6.283); ctx.fill();
+ }
+};
+// ===== END BOSS: CHORUS =====
+
+// ===== BOSS: SINGULARITY =====
+BOSS_KITS.singularity={
+ def:{name:'SINGULARITY',epithet:'the One-Eyed',tier:5,hp:1950,r:40,spd:0.85,shape:'well',pt:4.0,sig:'wellpull',recov:'phase',chaff:['tempest','brute']},
+ lore:'THE APEX — SINGULARITY, the One-Eyed. Every rank answers to it.',
+ codex:{role:'Apex', threat:'The Convocation',
+  tell:'GRAVITY drags you inward while debris arcs outward. At half its bar it calls three SOVEREIGNS at once.',
+  counter:'Thrust against the pull. Burn it down fast once the Convocation lands, or fight four gods at once.',
+  lore:'The One-Eyed. The first machine any species ever sent into the dark. It gave its eye to a black hole and lives at the lip of it, where time runs slow: the oldest thing in the universe, and the one that has lived through the least of it. Everything you have fought since the first sector was, in some documented sense, subcontracted from here.'},
+ // The Convocation (decided): CHORUS, NULLIFIER and ECLIPSE together at 50%,
+ // past the live cap. Absorption and Phase 2 are wave 2's.
+ calls:['chorus','nullifier','eclipse'], summons:{at:[0.5], pastCap:true},
+ cycle:['gravity','debris','muster','spiralwall'],
+ attacks:atk('gravity','debris','muster','spiralwall'),
+ draw(e,g){ // accretion rings around a void
+  const R=g.R;
+  for(let k=0;k<3;k++){ ctx.save(); ctx.rotate(e.t*(0.5+k*0.4));
+   ctx.strokeStyle=k===0?g.col:g.dim; ctx.lineWidth=k===0?1.5:1;
+   ctx.beginPath(); ctx.ellipse(0,0,R*(1.14-k*0.22),R*(0.42-k*0.09),k*0.9,0,6.283); ctx.stroke(); ctx.restore(); }
+  ctx.fillStyle=K.ground; ctx.beginPath(); ctx.arc(0,0,R*0.52,0,6.283); ctx.fill();
+  ctx.strokeStyle=g.col; ctx.lineWidth=g.lw; ctx.stroke();
+  ctx.fillStyle=g.flash?g.P.hi:g.col; ctx.beginPath(); ctx.arc(0,0,R*0.12,0,6.283); ctx.fill();
+ }
+};
+// ===== END BOSS: SINGULARITY =====
+
+// ---------- derived from the ladder ----------
+// Debut is the god's rung; nothing else types it.
+for(let i=0;i<LADDER.length;i++){ const k=LADDER[i], kit=BOSS_KITS[k]; kit.kind=k; kit.def.debut=5*(i+1); BOSSDEF[k]=kit.def; }
+const BOSS_KINDS=LADDER.slice();
+const BOSSES_BY_TIER=(()=>{ const t=[]; for(const k of BOSS_KINDS){ const n=BOSSDEF[k].tier; (t[n]=t[n]||[]).push(k); } return t; })();
+const DEBUTS=(()=>{ const m={}; for(const k of BOSS_KINDS) m[BOSSDEF[k].debut]=k; return m; })();
+const DEBUT_LORE=(()=>{ const m={}; for(const k of BOSS_KINDS) m[k]=BOSS_KITS[k].lore; return m; })();
 // ---------- combat ----------
 function playerShoot(){
   const p=player;
@@ -2099,7 +2746,7 @@ const CHAFF_BLOW={drone:'RAM',mite:'RAM',stalker:'LUNGE',sniper:'HEAVY BOLT',tem
 function srcOf(e,what){ if(!e) return null; const id=e.kind||e.type;
  let w=what||(e.type==='boss'?bossLabel(e):(CHAFF_BLOW[id]||'CONTACT')); if(w==='REPOSITIONING') w='RE-ENTRY';
  const f=e.def?null:CODEX_FOES.find(c=>c.type===id);
- return { id, name:e.def?e.def.name:(f?f.name:String(id).toUpperCase()), lt:!!e.lieutenant, what:w }; }
+ return { id, name:e.def?e.def.name:(f?f.name:String(id).toUpperCase()), lt:!!(e.summoned||e.echo), what:w }; }
 let stampActor=null, stampB=0, stampR=0, stampH=0;
 function stampReset(){ stampActor=null; stampB=ebullets.length; stampR=rings.length; stampH=hazards.length; }
 function stampNext(e){
@@ -2173,9 +2820,9 @@ function killEnemy(j){
   // Lieutenants are somebody else's minions: they do not bank the permanent
   // +2% damage, or an ARCHON nest would be a damage-meta farm.
   // A replayed nest banks nothing either: the +2% is for a god felled on the trail.
-  if(!e.lieutenant&&!replaySnap){ bosses++; saveMeta(); nestTally.banked+=2; }
+  if(!e.summoned&&!e.echo&&!replaySnap){ bosses++; saveMeta(); nestTally.banked+=2; }
   if(over) return;
-  player.hp=Math.min(player.maxhp,player.hp+(e.lieutenant?10:30));
+  player.hp=Math.min(player.maxhp,player.hp+((e.summoned||e.echo)?10:30));
   const left=enemies.filter(o=>o.type==='boss').length;
   if(left>0){ addFloater(player.x,player.y-34,'BOSS DOWN — '+left+' LEFT',K.gold); SFX.win(); }
   else if(replaySnap){ addFloater(player.x,player.y-34,'NEST CLEARED · REPLAY — NO DRAFT',K.gold); SFX.win(); }
@@ -2588,75 +3235,10 @@ function update(dt){
      if(e.windup>0){ e.windup-=dt; if(e.windup<=0){ rings.push({x:e.x,y:e.y,r:20,maxR:110+Math.min(60,arenaIdx*6)+(arenaIdx>=59?30:0),spd:260,dmg:e.dmg,hit:false,heavy:true}); SFX.ring(); if(settings.shake) shake=Math.min(10,shake+3); spawnBurst(e.x,e.y,12,K.red,200,0.5,3); } }
      else { const sv=steer(e,nx,ny); e.x+=sv[0]*e.sp*sF*dt; e.y+=sv[1]*e.sp*sF*dt; e.slamCd-=dt; if(d<95&&e.slamCd<=0){ e.windup=0.6; e.slamCd=Math.max(arenaIdx>=59?1.3:1.6,2.6-arenaIdx*0.12); } }
     }
-   else if(e.type==='boss'){
-    const enrage=e.hp<e.maxhp*0.3||e.hardEnrage;
-    if(e.beamT>0) e.beamT-=dt;
-    e.fightT+=dt; if(e.recovCd>0) e.recovCd-=dt;
-    // safety valve: a fight that has run three minutes stops offering outs
-    if(!e.hardEnrage&&e.fightT>BOSS_HARD_ENRAGE){ e.hardEnrage=true; e.recovLeft=0; e.healPool=0;
-     if(e.mode==='phase'||e.mode==='retreat'){ e.phased=false; e.mode='hunt'; e.modeT=8; }
-     addFloater(e.x,calloutY(e),(e.bname||'BOSS')+' RELENTLESS',K.red); SFX.alarm(); }
-    // disengagement ramp: backing off never pays, the boss only hunts harder
-    e.hunger=clamp((timeSec-e.lastHit-8)/12,0,1);
-    // anti-stuck watchdog: sample movement, blink out of wedges and far corners
-    e.sampleT-=dt;
-    if(e.sampleT<=0){ e.sampleT=0.5;
-     const moved=Math.hypot(e.x-e.lastX,e.y-e.lastY); e.lastX=e.x; e.lastY=e.y;
-     if(e.mode!=='phase'&&d>170&&moved<12) e.stuckT+=0.5; else e.stuckT=0;
-     if(e.stuckT>=2.5||(e.mode!=='phase'&&d>900)){ e.stuckT=0; bossReposition(e,p); }
-    }
-    // desperation: first time below 30% — surge minions and visibly relocate (no heal)
-    if(!e.desperate&&e.hp<e.maxhp*0.3){
-     e.desperate=true;
-     for(let k=0;k<3&&enemies.length<16;k++){ const s2=spawnEdgePos(); const m=mkEnemy(['drone','stalker','mite'][k%3],s2.x,s2.y,arenaIdx); m.spawnT=0.9; enemies.push(m); }
-     rings.push({x:e.x,y:e.y,r:10,maxR:110,spd:320,dmg:0,hit:true});
-     const q=spawnEdgePos(); e.x=clamp(q.x,PX0+e.r,PX1-e.r); e.y=clamp(q.y,PY0+e.r,PY1-e.r); resolveObstacles(e);
-     rings.push({x:e.x,y:e.y,r:10,maxR:110,spd:320,dmg:0,hit:true});
-     addFloater(e.x,calloutY(e),(e.bname||'BOSS')+' DESPERATE',K.red); SFX.alarm();
-    }
-    e.modeT-=dt;
-    if(e.mode==='phase'){
-     // translucent on the spot, knitting from a fixed pool — kill every minion
-     // to break it out early. Rounds still land at 30%, so it is never a wall.
-     bossHeal(e,e.maxhp*0.02*dt);
-     e.spawned=e.spawned.filter(u=>{ for(const o of enemies) if(o.uid===u) return true; return false; });
-     if(e.modeT<=0||e.spawned.length===0){
-      e.phased=false; e.mode='warn'; e.warnT=0.8;
-      rings.push({x:e.x,y:e.y,r:10,maxR:90,spd:300,dmg:0,hit:true}); SFX.alarm();
-     }
-    } else if(e.mode==='retreat'){
-     // Kiting behind a minion screen. Heals only while unpressured, only from the
-     // fixed pool, and only up to 520px out — beyond that it holds, so it can
-     // never kite into a corner and stall the fight.
-     if(timeSec-e.lastHit>2) bossHeal(e,e.maxhp*0.02*dt);
-     if(d<520){
-      let rx=-nx, ry=-ny;
-      // bias away from walls: a retreat that ends in a corner is a stalemate
-      const cxm=(PX0+PX1)/2, cym=(PY0+PY1)/2;
-      if(Math.min(e.x-PX0,PX1-e.x,e.y-PY0,PY1-e.y)<220){ const tx=cxm-e.x, ty=cym-e.y, tl=len(tx,ty); rx+=tx/tl*1.6; ry+=ty/tl*1.6; }
-      const sv=steer(e,rx,ry); e.x+=sv[0]*e.sp*1.05*sF*dt; e.y+=sv[1]*e.sp*1.05*sF*dt;
-     }
-     if(e.modeT<=0||(e.retreatHp-e.hp)>e.maxhp*0.08){ e.mode='hunt'; e.modeT=8; }
-    } else if(e.mode==='warn'){
-     e.warnT-=dt;
-     if(e.warnT<=0){ e.mode='hunt'; e.modeT=e.kind==='phantom'?7:8;
-      const n2=e.kind==='warden'?10:8;
-      for(let k=0;k<n2;k++){ const a=k/n2*6.283+e.t; ebullets.push({x:e.x,y:e.y,vx:Math.cos(a)*230,vy:Math.sin(a)*230,r:6,dmg:e.dmg,life:3.5,heavy:true}); }
-      SFX.eshoot(); }
-    } else {
-     // NO passive regen while hunting. The old 0.5%/s trickle was the engine of
-     // the damage → flee → heal loop: disengaging always out-healed the chip
-     // damage a player could land, so the bar never went down.
-     const hpF=e.hp/e.maxhp;
-     if(e.recovKind&&e.recovLeft>0&&e.recovCd<=0&&hpF<=e.recovAt&&hpF>RECOV_FLOOR){
-      e.recovLeft--; e.recovCd=RECOV_CD; e.recovAt=0.42;
-      if(e.recovKind==='phase') bossPhase(e); else bossRetreat(e);
-     }
-     else bossBehave(e,{p,dx,dy,d,nx,ny,dt,sF,enrage});
-    }
-   }
+   else if(e.type==='boss') bossUpdate(e,{p,dx,dy,d,nx,ny,dt,sF});
    e.x=clamp(e.x,PX0+e.r,PX1-e.r); e.y=clamp(e.y,PY0+e.r,PY1-e.r);
    resolveObstacles(e);
+   if(e.type==='boss') bossPost(e,dt);
    if(!e.phased&&circleHit(e,p)&&e.contactCd<=0){ e.contactCd=0.6; if(e.type!=='brute'||e.windup<=0) hurtPlayer(e.dmg,(e.type==='boss'||e.type==='brute'),srcOf(e,e.type==='boss'?null:({drone:'RAM',mite:'RAM',stalker:'LUNGE'}[e.type]||'CONTACT'))); }
   }
   stampNext(null);
@@ -2946,68 +3528,8 @@ const CODEX_FOES=[
   counter:'The wave is DODGEABLE — it is a ring, not a sphere. Step over the band or dash it.',
   lore:'Mining hull. It has no opinion about you at all; you are simply inside a volume of asteroid scheduled for extraction, and the schedule does not have a field for that.'}
 ];
-const CODEX_BOSSES=[
- {id:'overlord',
-  role:'Brawler', threat:'Never recovers',
-  tell:'Cycles BURST / SUMMON / CHARGE / SWEEP on a three-second clock.',
-  counter:'Pure aggression with no escape. Learn the cycle and out-damage it.',
-  lore:'The Berserk. The youngest of the gods, which out here means a few hundred million years old. Its makers built it to win rather than to hold, and it has never yielded a holmgang. They called this discipline. There is no one left to call it anything.'},
- {id:'warden',
-  role:'Siege fortress', threat:'Retreats once or twice',
-  tell:'Slow. Spirals, guards, seismic slams, twin staggered waves.',
-  counter:'Stay off the rings. When it RETREATS, chase — damage stops its healing.',
-  lore:'Bridge-Warden. Lane authority, built to stand at the one crossing between two dead empires. It was never meant to advance, only to make advancing expensive, and it has kept that contract long after the lane stopped leading anywhere.'},
- {id:'phantom',
-  role:'Skirmisher', threat:'Phases, briefly',
-  tell:'A locked RED LINE that holds still — the beam comes down exactly there.',
-  counter:'Step off the line. When it PHASES it still takes 30% damage — kill the minions to end it early.',
-  lore:'The Undelivered. A courier that learned its cargo was itself. It crossed eleven thousand years to deliver a reply and arrived at an empty star. The blink hardware was for outrunning interdiction; the beam was improvised later, from the part that did the outrunning.'},
- {id:'leviathan',
-  role:'Serpent', threat:'Body damages on contact',
-  tell:'BURROWS with a telegraph, resurfaces underneath you with a shockwave.',
-  counter:'Watch the ground, not the head. Segments hurt — never stand in the trail.',
-  lore:'The Lane-Wyrm. Lane-boring infrastructure that kept growing after the contract lapsed, tunnelling debris fields for a trade that ended before home\'s star was lit. The segments are not armour; they are the original boring string, still following the head out of habit.'},
- {id:'oracle',
-  role:'Zone controller', threat:'Warded until broken',
-  tell:'Three shards orbit it. Rotating twin beams; damaging fields parked on you.',
-  counter:'Break all three WARDS first — until then it soaks 75% of every round.',
-  lore:'The Rememberer. It computes where you will be, which is a harder problem than it sounds and a cheaper one than aiming. It has run the same sum on every species it ever heard, and kept the answers. The wards are its working memory, and it cannot afford to lose them mid-calculation.'},
- {id:'harbinger',
-  role:'Bullet-hell caster', threat:'Never recovers',
-  tell:'Dense rotating walls with ONE gap, plus targeted meteors.',
-  counter:'Find the gap and travel with it. Do not try to out-run the wall.',
-  lore:'The Horn. An announcement, not a warship: it was built so that a species could be seen from far away. Everything it does is legible from a distance, because the point was always that you would see it coming and understand what it meant.'},
- {id:'basilisk',
-  role:'Controller', threat:'Roots you in place',
-  tell:'A ruled CONE opens before the gaze fires. Lunges leave spikes behind.',
-  counter:'Leave the cone — being PETRIFIED next to a lunge is how this fight ends.',
-  lore:'Keeper of the Held. A dying world built it to keep visitors away, so that whatever was killing them would not leave. It does not kill so much as hold you pending review. The reviewers ended nine hundred million years ago. The queue has not moved.'},
- {id:'juggernaut',
-  role:'Ram', threat:'Armoured prow',
-  tell:'RAM, then a straight commit, shockwave on impact. Facing LOCKS while charging.',
-  counter:'The prow takes 40%, the REAR VENT takes 190%. Flank every charge.',
-  lore:'The Unsteered. A colony ark built around one engine too large to be steered and too valuable to be wasted. The colonists never boarded. They put armour on the prow and filed the exhaust problem as acceptable.'},
- {id:'nullifier',
-  role:'Disruptor', threat:'Jams your abilities',
-  tell:'A hatched DISRUPTOR FIELD drops on your position.',
-  counter:'Walk out. It locks dash and recall — never your guns. Sniper escorts punish standing still.',
-  lore:'The Silent. Counter-insurgency hardware from a war against ships that relied on their gear. It cannot shoot especially well. It does not need to; it only needs you to be ordinary for four seconds. The holmgang lets it take your wings, never your guns, and it resents the clause.'},
- {id:'chorus',
-  role:'Splitter', threat:'Fractures twice',
-  tell:'At 66% and 33% it FRACTURES into smaller synced echoes.',
-  counter:'Burst through the thresholds fast, or fight three at once. Echoes are fragile.',
-  lore:'The Norn-Choir. Not built by a people; it is one: the last of a species that copied itself into machines so it would not end. Three copies were made, to be safe. Each echo believes it is the original and is, in every sense that has ever been tested, correct.'},
- {id:'archon',
-  role:'Commander', threat:'Calls LORDS twice as often',
-  tell:'Rotating cross-beams, and "ARCHON CALLS LORD …" — a weakened Lord arrives beside it.',
-  counter:'Deep down the trail, its Lords call Captains of their own. Kill the ARCHON to stop the calls.',
-  lore:'The Lawspeaker. Rank, rendered as a machine. It wrote the holmgang every god fights under, it has never fired the first shot in any holmgang it has won, and it regards this as the entire point of the office.'},
- {id:'singularity',
-  role:'Apex', threat:'Commands three links deep',
-  tell:'GRAVITY drags you inward while debris arcs outward, and SOVEREIGNS answer its call.',
-  counter:'Thrust against the pull. Its Sovereigns call Lords, and those Lords call Captains — kill fast or drown in rank.',
-  lore:'The One-Eyed. The first machine any species ever sent into the dark. It gave its eye to a black hole and lives at the lip of it, where time runs slow: the oldest thing in the universe, and the one that has lived through the least of it. Everything you have fought since the first sector was, in some documented sense, subcontracted from here.'}
-];
+// Each god's entry lives in its own boss block (kit.codex), listed in ladder order.
+const CODEX_BOSSES=LADDER.map(k=>Object.assign({id:k},BOSS_KITS[k].codex));
 function codexList(){ return codexTab==='bosses'?CODEX_BOSSES:CODEX_FOES; }
 function codexId(entry){ return codexTab==='bosses'?entry.id:entry.type; }
 // Bosses are listed as the chain of command itself — grouped under rank headers
@@ -3094,14 +3616,13 @@ lore:[
 'Out here are machines older than stars, ranked like the old northern gods.',
 'They catch every signal that crosses their space — even the ones meant for you.',
 '',
-'Every fifth sector is a NEST. The gods keep a chain of command:',
+'Every fifth sector is a NEST, held by one god. The gods keep a chain of command:',
 '  APEX  >  SOVEREIGN  >  LORD  >  CAPTAIN  >  ENFORCER  >  chaff.',
-'Each god is met alone the first time. After that it returns as a commander',
-'holding court, or as an escort serving a god who outranks it.',
+'Twenty gods stand on one ladder, a rung every five sectors. Wounded, a god',
+'CALLS the god directly beneath it: a weaker copy of the nest before.',
 'They fight by holmgang: every blow shown first, your guns never taken.',
 '',
-'Past S30 a god can CALL one rank below it — a weakened lieutenant. Past S60 a',
-'lieutenant can call one of its own. The Apex at S100 commands three links deep.',
+'Past S50 a called god can call one of its own; from the Apex, two deep.',
 'Kill the one giving orders and the calls stop.',
 '',
 'Lose your ship and the Wake restores you. Each god slain: +2% damage, for good.']
@@ -3662,15 +4183,8 @@ function drawWorld(th){
   ctx.beginPath(); ctx.arc(h.x,h.y,h.r,0,6.283); ctx.stroke(); ctx.setLineDash([]);
   if(h.jam){ ctx.textAlign='center'; inkText('JAM',h.x,h.y+4,K.red,fD(10)); }
   ctx.restore(); }
- // LEVIATHAN body behind the heads
- for(const e of enemies){
-  if(e.type!=='boss'||!e.segs||!e.segs.length) continue;
-  const P=pigOf(e); ctx.save(); ctx.globalAlpha=e.phased?0.3:1;
-  for(let k=e.segs.length-1;k>=0;k--){ const g=e.segs[k];
-   ctx.fillStyle=P.body; ctx.strokeStyle=e.hp<e.maxhp*0.3?P.hi:P.c; ctx.lineWidth=1.5;
-   ctx.beginPath(); ctx.arc(g.x,g.y,g.r,0,6.283); ctx.fill(); ctx.stroke();
-   ctx.strokeStyle=P.dim; ctx.lineWidth=1; ctx.beginPath(); ctx.arc(g.x,g.y,g.r*0.55,0,6.283); ctx.stroke(); }
-  ctx.restore(); }
+ // what a god trails behind its hull (LEVIATHAN's body), beneath every hull
+ for(const e of enemies) if(e.type==='boss'&&e.kit&&e.kit.under) e.kit.under(e);
  // enemy fire: a solid red round with a hot core; HEAVY rounds carry a second ring
  for(const b of ebullets){ ctx.fillStyle=K.red; ctx.beginPath(); ctx.arc(b.x,b.y,b.r,0,6.283); ctx.fill();
   ctx.fillStyle=K.redHi; ctx.beginPath(); ctx.arc(b.x,b.y,Math.max(1,b.r*0.45),0,6.283); ctx.fill();
@@ -3724,123 +4238,20 @@ function drawShip(){
 // ---------- the gods ----------
 // Silhouette and pigment carry identity; rings carry rank; red is kept for
 // the blows. Enraged, the pigment runs hot and the outer rank ring is ticked.
+// Each silhouette is its kit's draw() in its own boss block; this frame adds
+// what every god shares: rank rings, enraged ticks and the red telegraphs.
 function drawBossShape(e,enrage,flash){
- const def=e.def||BOSSDEF.overlord, R=e.r, P=pigOf(e);
- const col=enrage?P.hi:P.c, body=flash?P.flash:P.body, dim=P.dim;
- const lw=enrage?2:1.5;
- switch(def.shape){
-  case 'hex': // WARDEN — dashed siege collar, heavy hex core
-   ctx.save(); ctx.rotate(e.t*0.4); ctx.strokeStyle=dim; ctx.lineWidth=3; ctx.setLineDash([14,8]); ctx.beginPath(); ctx.arc(0,0,R+4,0,6.283); ctx.stroke(); ctx.setLineDash([]); ctx.restore();
-   ctx.fillStyle=body; ctx.strokeStyle=col; ctx.lineWidth=lw; poly(6,R-4,e.t*0.25); ctx.fill(); ctx.stroke();
-   ctx.strokeStyle=dim; poly(6,R*0.55,e.t*0.25); ctx.stroke();
-   ctx.fillStyle=col; ctx.beginPath(); ctx.arc(0,0,4,0,6.283); ctx.fill();
-   break;
-  case 'diamond': // PHANTOM — ghosted diamond inside a counter-spinning frame
-   ctx.save(); ctx.rotate(e.t*1.2+Math.PI/4); ctx.strokeStyle=dim; ctx.lineWidth=1; ctx.strokeRect(-R*0.62,-R*0.62,R*1.24,R*1.24); ctx.restore();
-   ctx.fillStyle=body; ctx.strokeStyle=col; ctx.lineWidth=lw; poly(4,R-6,-e.t*1.2); ctx.fill(); ctx.stroke();
-   ctx.strokeStyle=dim; poly(4,R*0.4,-e.t*1.2); ctx.stroke();
-   ctx.fillStyle=col; ctx.beginPath(); ctx.arc(0,0,3,0,6.283); ctx.fill();
-   break;
-  case 'serpent': // LEVIATHAN — armoured head with mandibles
-   ctx.save(); ctx.rotate(Math.atan2(player?player.y-e.y:0,player?player.x-e.x:1));
-   ctx.fillStyle=body; ctx.strokeStyle=col; ctx.lineWidth=lw;
-   ctx.beginPath(); ctx.moveTo(R,0); ctx.lineTo(R*0.2,-R*0.78); ctx.lineTo(-R*0.8,-R*0.5); ctx.lineTo(-R*0.8,R*0.5); ctx.lineTo(R*0.2,R*0.78); ctx.closePath(); ctx.fill(); ctx.stroke();
-   ctx.lineWidth=3; ctx.lineCap='round'; ctx.beginPath(); ctx.moveTo(R*0.55,-R*0.4); ctx.lineTo(R*1.25,-R*0.72); ctx.moveTo(R*0.55,R*0.4); ctx.lineTo(R*1.25,R*0.72); ctx.stroke(); ctx.lineCap='butt';
-   ctx.strokeStyle=dim; ctx.lineWidth=1; ctx.beginPath(); for(let k=1;k<4;k++){ const x=R*0.2-k*R*0.25; ctx.moveTo(x,-R*0.6); ctx.lineTo(x,R*0.6); } ctx.stroke();
-   ctx.fillStyle=col; ctx.beginPath(); ctx.arc(R*0.1,-R*0.26,3,0,6.283); ctx.arc(R*0.1,R*0.26,3,0,6.283); ctx.fill();
-   ctx.restore();
-   break;
-  case 'eye': // ORACLE — lidded eye, pupil tracks you
-   ctx.fillStyle=body; ctx.strokeStyle=col; ctx.lineWidth=lw;
-   ctx.beginPath(); ctx.ellipse(0,0,R,R*0.66,0,0,6.283); ctx.fill(); ctx.stroke();
-   { const a=Math.atan2(player?player.y-e.y:0,player?player.x-e.x:1);
-     ctx.strokeStyle=col; ctx.beginPath(); ctx.arc(Math.cos(a)*R*0.34,Math.sin(a)*R*0.22,R*0.30,0,6.283); ctx.stroke();
-     ctx.fillStyle=col; ctx.beginPath(); ctx.arc(Math.cos(a)*R*0.34,Math.sin(a)*R*0.22,R*0.12,0,6.283); ctx.fill(); }
-   ctx.strokeStyle=dim; ctx.lineWidth=1;
-   ctx.beginPath(); ctx.moveTo(-R,0); ctx.quadraticCurveTo(0,-R*0.95,R,0); ctx.stroke();
-   ctx.beginPath(); ctx.moveTo(-R,0); ctx.quadraticCurveTo(0,R*0.95,R,0); ctx.stroke();
-   break;
-  case 'star': // HARBINGER — eight-point burst, inner ring counter-rotating
-   ctx.fillStyle=body; ctx.strokeStyle=col; ctx.lineWidth=lw;
-   ctx.beginPath();
-   for(let k=0;k<16;k++){ const a=e.t*0.7+k*0.3927, rr=(k%2?R*0.48:R); const x=Math.cos(a)*rr, y=Math.sin(a)*rr; if(k) ctx.lineTo(x,y); else ctx.moveTo(x,y); }
-   ctx.closePath(); ctx.fill(); ctx.stroke();
-   ctx.strokeStyle=dim; ctx.lineWidth=1; ctx.save(); ctx.rotate(-e.t*1.4); poly(3,R*0.42,0); ctx.stroke(); ctx.restore();
-   ctx.fillStyle=col; ctx.beginPath(); ctx.arc(0,0,3.5,0,6.283); ctx.fill();
-   break;
-  case 'coil': // BASILISK — coiled plates with a slit gaze
-   for(let k=3;k>=1;k--){ ctx.strokeStyle=k===3?col:dim; ctx.lineWidth=1;
-    ctx.beginPath(); ctx.arc(0,0,R*(0.42+k*0.2),e.t*0.6+k,e.t*0.6+k+4.2); ctx.stroke(); }
-   ctx.fillStyle=body; ctx.strokeStyle=col; ctx.lineWidth=lw; poly(5,R*0.6,e.t*0.3); ctx.fill(); ctx.stroke();
-   { const a=Math.atan2(player?player.y-e.y:0,player?player.x-e.x:1);
-     ctx.save(); ctx.rotate(a); ctx.fillStyle=col;
-     ctx.beginPath(); ctx.ellipse(R*0.22,0,R*0.26,2.6,0,0,6.283); ctx.fill(); ctx.restore(); }
-   break;
-  case 'ram': // JUGGERNAUT — armoured prow one end, the vent the other
-   ctx.save(); ctx.rotate(e.facing||0);
-   ctx.fillStyle=body; ctx.strokeStyle=col; ctx.lineWidth=lw;
-   ctx.beginPath(); ctx.moveTo(R,0); ctx.lineTo(R*0.3,-R*0.8); ctx.lineTo(-R*0.85,-R*0.62); ctx.lineTo(-R*0.85,R*0.62); ctx.lineTo(R*0.3,R*0.8); ctx.closePath(); ctx.fill(); ctx.stroke();
-   // the prow plate: bare metal, hatched — it shrugs off rounds
-   ctx.fillStyle=K.lift; ctx.strokeStyle=K.metal; ctx.lineWidth=1.25;
-   ctx.beginPath(); ctx.moveTo(R*0.98,0); ctx.lineTo(R*0.34,-R*0.66); ctx.lineTo(R*0.34,R*0.66); ctx.closePath(); ctx.fill(); ctx.stroke();
-   ctx.strokeStyle=K.metalDim; ctx.lineWidth=1; ctx.beginPath(); for(let k=1;k<5;k++){ const x=R*0.34+k*R*0.13; ctx.moveTo(x,-R*0.66*(1-(x-R*0.34)/(R*0.64))); ctx.lineTo(x,R*0.66*(1-(x-R*0.34)/(R*0.64))); } ctx.stroke();
-   // the rear vent: the weak point, hot and open
-   ctx.fillStyle=col; ctx.fillRect(-R*0.92,-R*0.34,R*0.22,R*0.68);
-   ctx.strokeStyle=K.ground; ctx.lineWidth=1; ctx.beginPath(); for(let k=1;k<4;k++){ const y=-R*0.34+k*R*0.17; ctx.moveTo(-R*0.92,y); ctx.lineTo(-R*0.7,y); } ctx.stroke();
-   ctx.restore();
-   break;
-  case 'prism': // NULLIFIER — split prism halves with a null core
-   ctx.save(); ctx.rotate(e.t*0.5);
-   ctx.fillStyle=body; ctx.strokeStyle=col; ctx.lineWidth=lw;
-   ctx.beginPath(); ctx.moveTo(0,-R); ctx.lineTo(R*0.86,R*0.5); ctx.lineTo(-R*0.86,R*0.5); ctx.closePath(); ctx.fill(); ctx.stroke();
-   ctx.strokeStyle=dim; ctx.beginPath(); ctx.moveTo(0,R); ctx.lineTo(R*0.86,-R*0.5); ctx.lineTo(-R*0.86,-R*0.5); ctx.closePath(); ctx.stroke();
-   ctx.restore();
-   ctx.fillStyle=K.ground; ctx.beginPath(); ctx.arc(0,0,R*0.26,0,6.283); ctx.fill();
-   ctx.strokeStyle=col; ctx.lineWidth=1.5; ctx.stroke();
-   break;
-  case 'triad': // CHORUS — three fused lobes around a shared core
-   for(let k=0;k<3;k++){ const a=e.t*0.8+k*2.094;
-    ctx.fillStyle=body; ctx.strokeStyle=col; ctx.lineWidth=lw;
-    ctx.beginPath(); ctx.arc(Math.cos(a)*R*0.42,Math.sin(a)*R*0.42,R*0.52,0,6.283); ctx.fill(); ctx.stroke(); }
-   ctx.strokeStyle=dim; ctx.lineWidth=1; for(let k=0;k<3;k++){ const a=e.t*0.8+k*2.094; ctx.beginPath(); ctx.arc(Math.cos(a)*R*0.42,Math.sin(a)*R*0.42,R*0.28,0,6.283); ctx.stroke(); }
-   ctx.fillStyle=col; ctx.beginPath(); ctx.arc(0,0,R*0.14,0,6.283); ctx.fill();
-   break;
-  case 'crown': // ARCHON — command crown with rank spikes
-   ctx.save(); ctx.rotate(e.t*0.3); ctx.strokeStyle=dim; ctx.lineWidth=2; ctx.setLineDash([10,7]); ctx.beginPath(); ctx.arc(0,0,R+6,0,6.283); ctx.stroke(); ctx.setLineDash([]); ctx.restore();
-   ctx.fillStyle=body; ctx.strokeStyle=col; ctx.lineWidth=lw; poly(7,R-5,e.t*0.2); ctx.fill(); ctx.stroke();
-   ctx.fillStyle=col;
-   for(let k=0;k<5;k++){ const a=-1.5708+(k-2)*0.42;
-    ctx.beginPath(); ctx.moveTo(Math.cos(a)*R*0.66,Math.sin(a)*R*0.66); ctx.lineTo(Math.cos(a-0.09)*R*1.16,Math.sin(a-0.09)*R*1.16); ctx.lineTo(Math.cos(a+0.09)*R*1.16,Math.sin(a+0.09)*R*1.16); ctx.closePath(); ctx.fill(); }
-   ctx.strokeStyle=col; ctx.lineWidth=1; ctx.beginPath(); ctx.arc(0,0,R*0.3,0,6.283); ctx.stroke();
-   break;
-  case 'well': // SINGULARITY — the One-Eyed: accretion rings around a void
-   for(let k=0;k<3;k++){ ctx.save(); ctx.rotate(e.t*(0.5+k*0.4));
-    ctx.strokeStyle=k===0?col:dim; ctx.lineWidth=k===0?1.5:1;
-    ctx.beginPath(); ctx.ellipse(0,0,R*(1.14-k*0.22),R*(0.42-k*0.09),k*0.9,0,6.283); ctx.stroke(); ctx.restore(); }
-   ctx.fillStyle=K.ground; ctx.beginPath(); ctx.arc(0,0,R*0.52,0,6.283); ctx.fill();
-   ctx.strokeStyle=col; ctx.lineWidth=lw; ctx.stroke();
-   ctx.fillStyle=flash?P.hi:col; ctx.beginPath(); ctx.arc(0,0,R*0.12,0,6.283); ctx.fill();
-   break;
-  default: // OVERLORD — the Berserk: dashed ring, eight-sided core
-   ctx.save(); ctx.rotate(e.t*0.6); ctx.strokeStyle=dim; ctx.lineWidth=3; ctx.setLineDash([18,10]); ctx.beginPath(); ctx.arc(0,0,R+4,0,6.283); ctx.stroke(); ctx.setLineDash([]); ctx.restore();
-   ctx.fillStyle=body; ctx.strokeStyle=col; ctx.lineWidth=lw; poly(8,R-4,-e.t*0.4); ctx.fill(); ctx.stroke();
-   ctx.strokeStyle=dim; ctx.lineWidth=1; poly(8,R*0.5,-e.t*0.4); ctx.stroke();
-   ctx.fillStyle=col; ctx.beginPath(); ctx.arc(0,0,5,0,6.283); ctx.fill();
-   if(enrage){ ctx.fillStyle=col; for(let k=0;k<4;k++){ const a=e.t*3+k*1.57; ctx.beginPath(); ctx.moveTo(Math.cos(a)*(R+2),Math.sin(a)*(R+2)); ctx.lineTo(Math.cos(a+0.2)*(R+12),Math.sin(a+0.2)*(R+12)); ctx.lineTo(Math.cos(a-0.2)*(R+12),Math.sin(a-0.2)*(R+12)); ctx.closePath(); ctx.fill(); } }
-   break;
- }
+ const kit=e.kit||BOSS_KITS[e.kind]||BOSS_KITS.overlord, def=kit.def, R=e.r, P=pigOf(e);
+ const g={R,P,col:enrage?P.hi:P.c,body:flash?P.flash:P.body,dim:P.dim,lw:enrage?2:1.5,enrage,flash};
+ if(kit.draw) kit.draw(e,g);
+ else { ctx.fillStyle=g.body; ctx.strokeStyle=g.col; ctx.lineWidth=g.lw; poly(6,R-3,0); ctx.fill(); ctx.stroke(); }
  // rank: concentric rings just outside the silhouette
  const tier=(def.tier||1);
- ctx.save(); ctx.globalAlpha=0.9; rankRings(0,0,R+10,tier,e.lieutenant?P.dim:(enrage?P.hi:P.c),1);
+ ctx.save(); ctx.globalAlpha=0.9; rankRings(0,0,R+10,tier,(e.summoned||e.echo)?P.dim:(enrage?P.hi:P.c),1);
  // enraged: the outer ring is cut with ticks, the way heavy is double-ruled
  if(enrage){ const ro=R+10+(tier-1)*3.5; ctx.strokeStyle=P.hi; ctx.lineWidth=1; ctx.beginPath(); for(let k=0;k<24;k++){ const a=k*0.2618+(REDUCED?0:e.t*0.4); ctx.moveTo(Math.cos(a)*(ro+2),Math.sin(a)*(ro+2)); ctx.lineTo(Math.cos(a)*(ro+(k%2?5:8)),Math.sin(a)*(ro+(k%2?5:8))); } ctx.stroke(); }
  ctx.restore();
- // ORACLE wards ride outside whatever shape carries them
- if(e.wards&&e.wards.length){
-  for(const w of e.wards){ const a=w.a+(e.wardA||0);
-   ctx.save(); ctx.translate(Math.cos(a)*(R+26),Math.sin(a)*(R+26)); ctx.rotate(a*2);
-   ctx.fillStyle=P.body; ctx.strokeStyle=P.c; ctx.lineWidth=1.5; poly(3,10,0); ctx.fill(); ctx.stroke(); ctx.restore(); }
- }
+ if(kit.drawTop) kit.drawTop(e,g);
  // signature telegraphs drawn over the body: ruled, ticked, never glowing
  if(e.laser){ tickedLine(0,0,Math.cos(e.laser.ang)*700,Math.sin(e.laser.ang)*700,K.red,1,24,4); }
  if(e.beamT>0){ const x=Math.cos(e.beamA)*700, y=Math.sin(e.beamA)*700, nx=-Math.sin(e.beamA)*4, ny=Math.cos(e.beamA)*4;
@@ -4132,7 +4543,7 @@ function drawTitle(){
     const introMaxS=Math.max(1,Math.floor((H-60-introTopS)/18));
     introS.slice(0,introMaxS).forEach((l,i)=>mono(l,m+2,introTopS+i*18,12,K.text));
     if(introS.length<=introMaxS&&introTopS+introS.length*18+8<=H-60)
-     mono(W<480?'46 upgrades · 12 bosses':'46 stackable upgrades · 12 bosses in a chain of command',m+2,introTopS+introS.length*18+8,11,K.textDim);
+     mono(W<480?'46 upgrades · 20 bosses':'46 stackable upgrades · 20 bosses in a chain of command',m+2,introTopS+introS.length*18+8,11,K.textDim);
     mono(W<480?'[↑↓←→] select · [C] codex '+pr.n+'/'+pr.tot:'[↑↓←→] select · [O] settings  ·  [C] codex '+pr.n+'/'+pr.tot+'  ·  [H] help',m+2,H-40,11,K.textDim);
    if(best>0||depth>0) mono('BEST '+best+'   ·   DEPTH S'+depth,m+2,H-20,12,K.gold,'left',600);
    else mono('No records yet — the Wake remembers.',m+2,H-20,12,K.textDim,'left');
@@ -4148,7 +4559,7 @@ function drawTitle(){
  const intro=wrapLines('Fight down an endless galaxy trail — clear each sector, draft an upgrade, push on. Every 5th sector is a boss NEST. Boss kills bank +2% damage forever.',wrapN);
  intro.forEach((l,i)=>mono(l,m+2,250+i*18+shift,12,K.text));
  const pr=codexProgress();
- mono(W<480?'46 upgrades · 12 bosses':'46 stackable upgrades · 12 bosses in a chain of command',m+2,250+intro.length*18+8+shift,11,K.textDim);
+ mono(W<480?'46 upgrades · 20 bosses':'46 stackable upgrades · 20 bosses in a chain of command',m+2,250+intro.length*18+8+shift,11,K.textDim);
   const saved=readRun();
   const tArmed=titleConfirm&&titleConfirmT>performance.now();
   if(saved){
@@ -4374,14 +4785,14 @@ function drawCodexSprite(entry,cx,cy,locked){
 }
 // "Answers to SOVEREIGNS · Commands CAPTAINS: WARDEN, ???" — read from the
 // tier tables, so the codex can never disagree with who actually summons whom.
+// "Answers to ARCHON · Calls ORACLE" — read from the ladder itself, so the
+// codex can never disagree with who actually summons whom. Unmet gods stay ???.
 function commandLine(kind){
- const t=BOSSDEF[kind].tier;
- const plural=r=>r==='APEX'?'the APEX':r+'S';
- const up=t<TIER_NAMES.length-1?'Answers to '+plural(TIER_NAMES[t+1]):'Answers to no one';
- const subs=BOSSES_BY_TIER[t-1]||[];
- const down=subs.length?'Commands '+plural(TIER_NAMES[t-1])+': '+subs.map(k=>codexSeen(k)?BOSSDEF[k].name:'???').join(', ')
-  :'Commands only chaff';
-  return up+'  ·  '+down;
+ const nm=k=>codexSeen(k)?BOSSDEF[k].name:'???';
+ const up=callersOf(kind), calls=summonsOf(kind), c={};
+ for(const k of calls) c[k]=(c[k]||0)+1;
+ const down=Object.keys(c).map(k=>nm(k)+(c[k]>1?' ×'+c[k]:''));
+ return (up.length?'Answers to '+up.map(nm).join(', '):'Answers to no one')+'  ·  '+(down.length?'Calls '+down.join(', '):'Calls only chaff');
 }
 // Visible index rows on short viewports: the window follows the selection so
 // arrow keys page the index instead of walking off-screen with no signal.
@@ -5008,7 +5419,7 @@ function drawEnd(){
  let y=Math.max(80,Math.round((BTN.endRestart.y-24-blockH)/2)+34);
  heading('HULL LOST',W/2,y,narrow?26:34,K.red,'center'); line(W/2-Math.min(220,W/2-16),y+18,W/2+Math.min(220,W/2-16),y+18,K.redDim,1); y+=52;
  if(src){
-   const pg=PIG[src.id], nm=src.name+(src.lt?' (LIEUTENANT)':''), what=' · '+src.what;
+   const pg=PIG[src.id], nm=src.name+(src.lt?' (SUMMONED)':''), what=' · '+src.what;
   mono('BROUGHT DOWN BY',W/2,y,11,K.textDim,'center'); y+=26;
   ctx.font=fD(16); track(3); let w1=nm.length*14; try{ w1=ctx.measureText(nm).width; }catch(e){} track(0);
   ctx.font=fM(13,600); let w2=what.length*8; try{ w2=ctx.measureText(what).width; }catch(e){}
@@ -5104,7 +5515,7 @@ function srSummary(){
    if(exitArmed()) return where+' Sector clear. Lose '+atRisk+' XP? Press E again to confirm — '+atRisk+' XP is lost.'+coach;
    return where+' Sector clear. '+atRisk+' XP on the field is lost at the exit. Exit with E.'+coach; }
   const low=player.hp<=player.maxhp*0.3?' Hull critical.':'';
-  const nestNames=()=>bossKindsFor(arenaIdx).map(k=>(BOSSDEF[k]&&BOSSDEF[k].name)||k).join(' and ');
+  const nestNames=()=>{ const c=nestSummons(arenaIdx); return BOSSDEF[leadFor(arenaIdx+1)].name+(c.length?', who calls '+callNames(c):''); };
   return where+(isBossSector(arenaIdx)?' Boss nest: '+nestNames()+'.':' Hostiles inbound.')+low+coach; }
  if(state==='levelup'){
   const head=(nestDraftAt>0&&nestTally.kinds.length?BOSSDEF[nestTally.kinds[0]].name+(nestTally.kinds.length>1?"'s court falls.":' falls.')+(nestTally.banked?' +'+nestTally.banked+'% damage banked.':''):(nestDraftAt>0?'Nest cleared.':'Level '+(player?player.level:'')+'.'))+' Choose an upgrade; C opens the codex, H help. ';
@@ -5135,9 +5546,13 @@ arena={seed:1337, obs:[], theme:THEMES[0], spawns:[], port:{x:800,y:500}, valida
   try{ window.__kriefne={ startRun, continueRun, saveRun, readRun, loadArena, loadSector, killEnemy, nextArena, gainXp, pickUpgrade, hurtPlayer, doPortalKey, tryExitPortal, cancelBlink, fieldXpAtRisk, exitArmed, tryDash, update, render, focusWatch, xpNeedFor, openHelp, handleKeyPress, handleClick,
    spawnEnemy, steer, hostiles, collectGems, isBossSector, bossKindsFor, compFor, sectorName, sectorWorld, galNodes, reflectBullet, bulletBlocked,
    forceState(s){ state=s; }, get upgrades(){ return UPGRADES; }, get helpTab(){ return helpTab; },
-   get bossdefs(){ return BOSSDEF; }, get hazards(){ return hazards; }, get signatureNests(){ return SIGNATURE_NESTS; },
-   get tierNames(){ return TIER_NAMES; }, get bossesByTier(){ return BOSSES_BY_TIER; }, get nestLtLeft(){ return nestLtLeft; },
-   commandDepth, ltBudgetFor, escortsFor, subordinateKinds, mkLieutenant, nestLore, get debutLore(){ return DEBUT_LORE; },
+   get bossdefs(){ return BOSSDEF; }, get hazards(){ return hazards; },
+   get tierNames(){ return TIER_NAMES; }, get bossesByTier(){ return BOSSES_BY_TIER; }, get nestSummonLeft(){ return nestSummonLeft; },
+   nestLore, get debutLore(){ return DEBUT_LORE; },
+   // boss engine: the ladder, the chain and the registry
+   get ladder(){ return LADDER; }, get bossKits(){ return BOSS_KITS; }, get teleportOk(){ return TELEPORT_OK; }, get caps(){ return CAP; },
+   leadFor, ladderLevel, summonsOf, callersOf, nestSummons, summonAt, chainExtra, maxChainDepth, summonBudgetFor, phaseAt,
+   mkBoss, mkSummoned, bossMaxSpeed, bossBlink, bossLabel, liveSummoned, get summonHp(){ return SUMMON_HP; }, get summonLiveCap(){ return SUMMON_LIVE_CAP; },
    drawIcon, get ctx(){ return ctx; },
    get pigments(){ return PIGMENT_DEF; }, get pig(){ return PIG; }, get tokens(){ return K; }, get bossDefs(){ return BOSSDEF; }, get themes(){ return THEMES; },
    srSummary,
