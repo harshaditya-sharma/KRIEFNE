@@ -3163,11 +3163,8 @@ function drawWorld(th){
   ctx.strokeStyle=K.gold; ctx.lineWidth=2; ctx.beginPath(); ctx.arc(0,0,r,0,6.283); ctx.stroke();
   ctx.lineWidth=1; ctx.beginPath(); for(let k=0;k<24;k++){ const a=k*0.2618, t=k%6===0?9:4; ctx.moveTo(Math.cos(a)*(r+2),Math.sin(a)*(r+2)); ctx.lineTo(Math.cos(a)*(r+2+t),Math.sin(a)*(r+2+t)); } ctx.stroke();
   const spin=REDUCED?0:portal.t*1.6;
-  ctx.strokeStyle=K.goldDim; ctx.beginPath(); ctx.arc(0,0,r-7,spin,spin+4.2); ctx.stroke();
-  // the vector: a ruled line out of the ring with a chevron
-  tickedLine(0,-r-14,0,-r-120,K.goldDim,1,18,3);
-  ctx.strokeStyle=K.gold; ctx.lineWidth=1.5; ctx.beginPath(); ctx.moveTo(-7,-r-112); ctx.lineTo(0,-r-124); ctx.lineTo(7,-r-112); ctx.stroke();
-  ctx.restore();
+   ctx.strokeStyle=K.goldDim; ctx.beginPath(); ctx.arc(0,0,r-7,spin,spin+4.2); ctx.stroke();
+   ctx.restore();
   if(exitArmed()){ ctx.textAlign='center'; inkText('LOSE '+fieldXpAtRisk()+' XP? [E] AGAIN',portal.x,portal.y+r+26,K.red,fD(10)); }
   else ctx.textAlign='center', inkText(gems.length?('EXIT [E] · '+fieldXpAtRisk()+' XP AT RISK'):'EXIT [E]',portal.x,portal.y+r+26,K.gold,fD(10));
  }
@@ -4335,7 +4332,9 @@ function drawLevelUp(){
   levelChoices.forEach((u,i)=>{
    if(u===levelBack){ drawBackOffer(u,i,ink); return; }
    const r=draftRect(i), sel=draftSel===i, hot=hovered(r)||sel, dn=(typeof u.dyn==='function')?u.dyn(player):null;
-  plate(r.x,r.y,r.w,r.h,ink.main,hot);
+   // Every card gets a full frame — gold when hot/selected, dim otherwise —
+   // so unpicked cards never read as broken corner ticks.
+   plate(r.x,r.y,r.w,r.h,hot?ink.main:K.metalDim,true);
   if(sel){ ctx.save(); ctx.strokeStyle=ink.main; ctx.lineWidth=3; ctx.strokeRect(r.x-4.5,r.y-4.5,r.w+9,r.h+9); ctx.restore(); }
   // rarity as rim ticks: one, two or three cuts along the top edge
   const n=u.r===2?3:(u.r===1?2:1); for(let k=0;k<n;k++){ const tx=r.x+r.w/2+(k-(n-1)/2)*8; line(tx,r.y-4,tx,r.y+4,ink.main,1.5); }
@@ -4369,7 +4368,7 @@ function drawLevelUp(){
   if(H>=500){
    let cardsBottom=0; try{ levelChoices.forEach((u,i)=>{ const r=draftRect(i); cardsBottom=Math.max(cardsBottom,r.y+r.h); }); }catch(e){}
    const bx=W<600?16:64, bw=W-bx*2;
-   let headY=cardsBottom+32; if(headY+58>H-8) headY=H-66;
+    let headY=cardsBottom+56; if(headY+58>H-8) headY=H-66;
    heading('BUILD',bx,headY,9,ink.dim); line(bx,headY+8,bx+bw,headY+8,K.metalFaint,1);
    drawBuild(bx,headY+10,bw,1,ink);
    drawBuildTip();
@@ -4408,14 +4407,18 @@ function drawPaused(){
    mono(s,W/2,H-14,11,K.textDim,'center');
    return;
   }
-  if(W >= 700){
-   heading('BUILD',48,300,9,K.textDim); line(48,308,288,308,K.metalFaint,1); drawBuild(48,318,240,6);
-   heading('SYSTEMS',672,300,9,K.textDim); line(672,308,912,308,K.metalFaint,1);
-   const sys=[['HULL',Math.ceil(p.hp)+'/'+p.maxhp],['DMG','×'+p.dmgMult.toFixed(2)],['RATE',p.fireRate.toFixed(1)+'/s'],['SHOTS',p.shots],['CRIT',Math.round(p.critCh*100)+'%'],['SPEED',Math.round(p.speed)],['MAGNET',Math.round(p.magnet)]];
-   if(p.pierce) sys.push(['PIERCE',p.pierce]); if(p.bounce) sys.push(['RICOCHET',p.bounce]); if(p.homing) sys.push(['SEEK',p.homing]);
-   sys.push(['BOSS BONUS','+'+Math.round(bosses*2)+'%']);
-   sys.forEach(([k,v],i)=>{ const yy=330+i*20; mono(k,672,yy,11,K.textDim); mono(String(v),912,yy,11,K.text,'right',600); });
-  } else {
+   // Side columns only when they clear the centred entries: on a fluid
+   // viewport the old fixed 960-grid x positions would slide under the menu.
+   const cW2=Math.min(300,Math.max(200,W-32)), cX2=Math.round((W-cW2)/2);
+   const lx=48, lw=240, sx=W-48-240, sw=240;
+   if(W>=700&&cX2>=lx+lw+40&&sx>=cX2+cW2+40){
+    heading('BUILD',lx,300,9,K.textDim); line(lx,308,lx+lw,308,K.metalFaint,1); drawBuild(lx,318,lw,6);
+    heading('SYSTEMS',sx,300,9,K.textDim); line(sx,308,sx+sw,308,K.metalFaint,1);
+    const sys=[['HULL',Math.ceil(p.hp)+'/'+p.maxhp],['DMG','×'+p.dmgMult.toFixed(2)],['RATE',p.fireRate.toFixed(1)+'/s'],['SHOTS',p.shots],['CRIT',Math.round(p.critCh*100)+'%'],['SPEED',Math.round(p.speed)],['MAGNET',Math.round(p.magnet)]];
+    if(p.pierce) sys.push(['PIERCE',p.pierce]); if(p.bounce) sys.push(['RICOCHET',p.bounce]); if(p.homing) sys.push(['SEEK',p.homing]);
+    sys.push(['BOSS BONUS','+'+Math.round(bosses*2)+'%']);
+    sys.forEach(([k,v],i)=>{ const yy=330+i*20; mono(k,sx,yy,11,K.textDim); mono(String(v),sx+sw,yy,11,K.text,'right',600); });
+   } else {
    const bw = Math.min(420, W - 32), bx = Math.round((W - bw) / 2);
    heading('BUILD',bx,byY,9,K.textDim); line(bx,byY+8,bx+bw,byY+8,K.metalFaint,1);
    const bh = drawBuild(bx,byY+18,bw,2);
