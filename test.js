@@ -1547,6 +1547,178 @@ function suitePigment() {
  ok('wreckage lit edges stay silver (chroma ≤ 0.015)', tint.every(([, , m]) => Math.hypot(m[1], m[2]) <= 0.015));
 }
 
+// ======================================================================
+//  maps: the shape vocabulary, compounds, per-layout palettes and tints
+// ======================================================================
+// The types a sector would field, built the way loadArena builds them, so a
+// probed map places the same spawns a loaded one would.
+function mapTypes(api, i) {
+ const t = [];
+ if (api.isBossSector(i)) { for (const k of api.bossKindsFor(i)) t.push('boss:' + k); for (let k = 0; k < 3 + Math.min(3, (i / 5) | 0); k++) t.push(k % 2 ? 'stalker' : 'drone'); }
+ else { const c = api.compFor(i); for (const k in c) for (let n = 0; n < c[k]; n++) t.push(k); }
+ return t;
+}
+// BFS on the validator's grid (40px cells, 16px inflation) from the drop.
+function reachGrid(api, P) {
+ const CELL = 40, b = P.bounds, cols = Math.floor((b.x1 - b.x0) / CELL), rows = Math.floor((b.y1 - b.y0) / CELL), obs = P.map.obs;
+ const at = (cx, cy) => [b.x0 + cx * CELL + CELL / 2, b.y0 + cy * CELL + CELL / 2];
+ const blocked = new Uint8Array(cols * rows);
+ for (let cy = 0; cy < rows; cy++) for (let cx = 0; cx < cols; cx++) { const [x, y] = at(cx, cy); blocked[cy * cols + cx] = api.pointBlocked(x, y, 16, obs) ? 1 : 0; }
+ const cell = (x, y) => Math.min(rows - 1, Math.max(0, Math.floor((y - b.y0) / CELL))) * cols + Math.min(cols - 1, Math.max(0, Math.floor((x - b.x0) / CELL)));
+ const seen = new Uint8Array(cols * rows), q = [cell(P.drop.x, P.drop.y)]; seen[q[0]] = 1;
+ while (q.length) { const c = q.pop(), cx = c % cols, cy = (c / cols) | 0;
+  for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { const nx = cx + dx, ny = cy + dy; if (nx < 0 || ny < 0 || nx >= cols || ny >= rows) continue; const n = ny * cols + nx; if (seen[n] || blocked[n]) continue; seen[n] = 1; q.push(n); } }
+ return { cols, rows, at, blocked, seen, cell };
+}
+function suiteMaps() {
+ section('maps');
+ const api = boot();
+ // -- the sweep: every layout, early and deep sectors, a dozen runs
+ const forms = new Set(), groupKinds = new Set(), groupSizes = new Set(), byLayout = {};
+ const bad = [], trapped = [], pockets = [], rims = [], overlaps = [];
+ let maps = 0, fallbacks = 0, groups = 0;
+ for (let s = 0; s < 8; s++) for (let i = 0; i < 30; i++) {
+  const seed = (0x2c9f1 + s * 104729) >>> 0, P = api.mapProbe(seed, i, mapTypes(api, i)), m = P.map;
+  maps++;
+  if (m.layout === 'open-fallback') { fallbacks++; continue; }
+  const R = reachGrid(api, P), unreached = m.spawns.concat([m.port]).filter(t => !R.seen[R.cell(t.x, t.y)]).length;
+  if (!(m.validated && unreached === 0 && m.ratio >= 0.55 && m.openFrac >= 0.45)) bad.push('seed ' + seed + ' S' + (i + 1) + ' ' + m.layout + ' unreached ' + unreached + ' ratio ' + m.ratio.toFixed(2) + ' open ' + m.openFrac.toFixed(2));
+  const L = byLayout[m.layout] || (byLayout[m.layout] = new Set());
+  const G = {};
+  for (const o of m.obs) {
+   const f = o.kind === 'poly' ? o.sh : o.kind; forms.add(f); L.add(f);
+   if (o.grp !== undefined) (G[o.grp] || (G[o.grp] = [])).push(o);
+  }
+  // pieces that overlap another obstacle must share its group
+  for (let a = 0; a < m.obs.length; a++) for (let c = a + 1; c < m.obs.length; c++) {
+   const A = m.obs[a], B = m.obs[c];
+   if (A.kind !== 'poly' || B.kind !== 'poly' || (A.grp !== undefined && A.grp === B.grp)) continue;
+   if (A.pts.some(p => api.polyDist(A.x + p[0], A.y + p[1], B) === 0)) overlaps.push('S' + (i + 1) + ' ' + A.sh + '/' + B.sh);
+  }
+  const gl = Object.values(G);
+  for (const g of gl) {
+   groups++; groupKinds.add(g[0].gk); groupSizes.add(g[0].gk + g.length); L.add('@' + g[0].gk);
+   // no spawn and no EXIT sits in or against a compound
+   for (const t of m.spawns.concat([m.port])) if (api.pointBlocked(t.x, t.y, 14, g)) trapped.push('S' + (i + 1) + ' ' + g[0].gk + ' covers a spawn or the EXIT');
+   // every open cell against a compound is reachable: it seals no pocket
+   for (let cy = 0; cy < R.rows; cy++) for (let cx = 0; cx < R.cols; cx++) {
+    const k = cy * R.cols + cx; if (R.blocked[k] || R.seen[k]) continue;
+    const [x, y] = R.at(cx, cy); if (api.pointBlocked(x, y, 16 + 40, g)) pockets.push('seed ' + seed + ' S' + (i + 1) + ' ' + g[0].gk + ' at ' + (x | 0) + ',' + (y | 0));
+   }
+   // the painted outline runs round the union: just outside every rim span is
+   // open, just inside it is hull
+   const E = api.groupEdges(g);
+   for (const r of E.rim) { const mx = (r[0] + r[2]) / 2, my = (r[1] + r[3]) / 2;
+    if (Math.hypot(r[2] - r[0], r[3] - r[1]) < 3) continue;
+    if (api.pointBlocked(mx + r[4] * 1.5, my + r[5] * 1.5, 0, g) || !api.pointBlocked(mx - r[4] * 1.5, my - r[5] * 1.5, 0, g)) rims.push(g[0].gk + ' S' + (i + 1)); }
+   for (const r of E.seam) { const mx = (r[0] + r[2]) / 2, my = (r[1] + r[3]) / 2, l = Math.hypot(r[2] - r[0], r[3] - r[1]);
+    if (l < 3) continue; const nx = (r[3] - r[1]) / l, ny = -(r[2] - r[0]) / l;
+    if (!api.pointBlocked(mx + nx * 1.5, my + ny * 1.5, 0, g) || !api.pointBlocked(mx - nx * 1.5, my - ny * 1.5, 0, g)) rims.push('seam ' + g[0].gk + ' S' + (i + 1)); }
+  }
+ }
+ const want = ['tri-eq', 'tri-iso', 'tri-right', 'square', 'rhombus', 'para', 'kite', 'hept', 'non', 'dec'];
+ const miss = want.filter(f => !forms.has(f));
+ ok('every new shape appears across the sweep', miss.length === 0, 'missing ' + miss.join(', '));
+ ok('L-blocks, crosses and compounds all appear', ['L', 'cross', 'cmp'].every(k => groupKinds.has(k)), [...groupKinds].join(','));
+ ok('compounds of two and of three pieces both appear', groupSizes.has('cmp2') && groupSizes.has('cmp3') && groupSizes.has('L2') && groupSizes.has('cross2'), [...groupSizes].join(','));
+ ok('every generated map validates (reachable, >= 0.55 connected, >= 0.45 open)', bad.length === 0, bad.slice(0, 4).join('; '));
+ atMost('open-field fallbacks stay rare across ' + maps + ' maps', fallbacks, Math.ceil(maps * 0.02));
+ ok('no compound covers a spawn or the EXIT', trapped.length === 0, trapped.slice(0, 4).join('; '));
+ ok('no compound seals off a pocket of open floor', pockets.length === 0, pockets.length + ': ' + pockets.slice(0, 4).join('; '));
+ ok('obstacles only overlap within their own compound', overlaps.length === 0, overlaps.slice(0, 4).join('; '));
+ ok('a compound is outlined round its union, seams only inside it', rims.length === 0, rims.length + ': ' + rims.slice(0, 4).join('; '));
+ atLeast('the sweep placed compounds', groups, 200);
+ // -- each layout keeps its palette
+ const has = (l, fs) => fs.some(f => byLayout[l] && byLayout[l].has(f));
+ ok('debris is shards and rhombi', has('debris', ['tri-iso']) && has('debris', ['rhombus']));
+ ok('corridors run parallelogram girders', has('corridors', ['para']));
+ ok('bastion bunkers are heptagons and nonagons', has('bastion', ['hept']) && has('bastion', ['non']) && !has('bastion', ['oct']));
+ ok('spokes are kites and bars', has('spokes', ['kite']) && has('spokes', ['bar']));
+ ok('the arena ring mixes its polygons', ['hex', 'hept', 'non', 'dec', 'square', 'tri-eq'].filter(f => has('arena', [f])).length >= 5);
+ atLeast('scatter draws from everything', byLayout.scatter ? byLayout.scatter.size : 0, 18);
+ // -- the arena keeps its duelling floor: nothing inside the boss clearing
+ {
+  let intrude = 0;
+  for (let s = 0; s < 8; s++) for (const i of [4, 9, 19, 49]) {
+   const P = api.mapProbe((0x51 + s * 7919) >>> 0, i, mapTypes(api, i)), b = P.bounds, clearR = Math.min(300, Math.min(b.x1 - b.x0, b.y1 - b.y0) * 0.30);
+   if (P.map.layout === 'open-fallback') continue;
+   for (const o of P.map.obs) { const cx = o.kind === 'rect' ? o.x + o.w / 2 : o.x, cy = o.kind === 'rect' ? o.y + o.h / 2 : o.y, r = o.kind === 'rect' ? Math.hypot(o.w, o.h) / 2 : o.r; if (Math.hypot(cx - P.drop.x, cy - P.drop.y) < clearR + r) intrude++; }
+  }
+  eq('nest arenas keep the clearing empty', intrude, 0);
+ }
+ // -- driving into a compound never leaves a ship inside it, and it can leave
+ {
+  const S = api.mapProbe(0x9a11, 17, mapTypes(api, 17)), G = {};
+  for (const o of S.map.obs) if (o.grp !== undefined) (G[o.grp] || (G[o.grp] = [])).push(o);
+  let inside = 0, stuck = 0, runs = 0;
+  for (const g of Object.values(G).slice(0, 16)) {
+   let cx = 0, cy = 0; for (const o of g) { cx += o.x; cy += o.y; } cx /= g.length; cy /= g.length;
+   for (const r of [12, 26, 44]) for (let k = 0; k < 24; k++) {
+    const a = k / 24 * 6.283, e = { x: cx + Math.cos(a) * 260, y: cy + Math.sin(a) * 260, r };
+    for (let st = 0; st < 90; st++) { const dx = cx - e.x, dy = cy - e.y, d = Math.hypot(dx, dy) || 1, v = st % 3 ? 5 : 15; e.x += dx / d * v; e.y += dy / d * v; api.pushOut(g, e); }
+    runs++;
+    if (g.some(o => api.polyDist(e.x, e.y, o) === 0)) inside++;
+    const x0 = e.x, y0 = e.y; for (let st = 0; st < 40; st++) { e.x += Math.cos(a) * 5; e.y += Math.sin(a) * 5; api.pushOut(g, e); }
+    if (Math.hypot(e.x - x0, e.y - y0) < 150) stuck++;
+   }
+  }
+  atLeast('the push test drove into compounds', runs, 200);
+  eq('no ship ends a push with its centre inside a compound', inside, 0);
+  eq('every ship pushed into a compound can fly back out', stuck, 0);
+ }
+ // -- loaded sectors carry their sector's light, and every map paints
+ {
+  let same = 0, drew = 0;
+  seedRandom(api, 4242); api.startRun();
+  for (let i = 0; i < 14; i++) {
+   api.loadSector(i); api.forceState('playing');
+   if (api.arena.theme === api.sectorTheme(i)) same++;
+   try { api.render(); drew++; } catch (e) { console.log('   render threw at S' + (i + 1) + ': ' + e.message); }
+  }
+  eq('a loaded sector wears sectorTheme(i)', same, 14);
+  eq('every sector paints without throwing, compounds included', drew, 14);
+  api.forceState('galaxy');
+  const sr = api.srSummary();
+  ok('the hub names the selected sector by its own theme', sr.indexOf(api.sectorTheme(api.galaxySel).name) >= 0, sr.slice(0, 80));
+ }
+ // -- tints: 12-14 stops, jitter within ±8°, two lightness variants, restraint kept
+ const TH = api.themes;
+ range('there are 12-14 hue stops', TH.length, 12, 14);
+ ok('every stop has a distinct name', new Set(TH.map(t => t.name)).size === TH.length);
+ const fam = { slate: [212, 232], 'sea-green': [155, 180], moss: [100, 125], ochre: [68, 92], indigo: [262, 282], mauve: [312, 336] };
+ for (const f in fam) ok('a ' + f + ' stop exists', TH.some(t => t.tint >= fam[f][0] && t.tint <= fam[f][1]));
+ const gap = (a, b) => Math.abs(((a - b) % 360 + 540) % 360 - 180);
+ const firstSix = TH.slice(0, 6);
+ ok('every theme plays music', TH.every(t => t.bass && t.bass.length && t.lead && t.tempo > 0));
+ ok('each new hue borrows the music of the nearest of the first six', TH.slice(6).every(t => {
+  const near = firstSix.reduce((b, o) => gap(o.tint, t.tint) < gap(b.tint, t.tint) ? o : b);
+  return t.bass === near.bass && t.lead === near.lead;
+ }));
+ const band = [], guard = [], jit = [], variants = {};
+ let maxJ = 0;
+ for (let i = 0; i < 12 * TH.length; i++) {
+  const t = api.sectorTheme(i), P = t.pal, j = gap(t.tint, t.baseTint);
+  maxJ = Math.max(maxJ, j); if (j > 8.0001) jit.push('S' + (i + 1) + ' ' + j.toFixed(2));
+  (variants[t.baseTint] || (variants[t.baseTint] = new Set())).add(t.variant);
+  const tones = ['ground', 'deep', 'hull', 'faint', 'dim', 'motif'].map(k => [k, hexLab(P[k])]);
+  for (const [k, l] of tones) { const C = Math.hypot(l[1], l[2]); if (C > 0.04 + 0.003) band.push(t.name + ' S' + (i + 1) + ' ' + k + ' C ' + C.toFixed(3)); }
+  const g = hexLab(P.ground), mt = hexLab(P.metal);
+  if (!(g[0] > 0.11 && g[0] < 0.16)) band.push(t.name + ' S' + (i + 1) + ' ground L ' + g[0].toFixed(3));
+  if (Math.hypot(mt[1], mt[2]) > 0.015) band.push(t.name + ' S' + (i + 1) + ' metal edge not silver');
+  // the red guard: no tone near red's hue carries more than the guard's chroma
+  for (const [k, l] of tones) { const C = Math.hypot(l[1], l[2]), h = (Math.atan2(l[2], l[1]) * 180 / Math.PI + 360) % 360;
+   if (C > 0.02 + 0.003 && gap(h, 32) <= 16) guard.push(t.name + ' S' + (i + 1) + ' ' + k + ' h ' + h.toFixed(0) + ' C ' + C.toFixed(3)); }
+  if (api.nearRed(t.tint) && tones.some(([, l]) => Math.hypot(l[1], l[2]) > 0.02 + 0.003)) guard.push(t.name + ' S' + (i + 1) + ' inside the guard at full chroma');
+ }
+ ok('sector hue jitter stays within ±8°', jit.length === 0, jit.slice(0, 3).join('; '));
+ atLeast('the jitter is actually used', maxJ, 5);
+ ok('every hue stop shows both lightness variants', Object.values(variants).every(v => v.size === 2) && Object.keys(variants).length === TH.length);
+ ok('every sector tint stays in band (chroma <= 0.04, ground L 0.11-0.16, silver edge)', band.length === 0, band.slice(0, 4).join('; '));
+ ok('no palette sits within the red guard', guard.length === 0, guard.slice(0, 4).join('; '));
+ ok('the two variants of a hue differ in lightness', (() => { const a = hexLab(api.mkSectorPal(245, 0).ground), b = hexLab(api.mkSectorPal(245, 1).ground); return a[0] - b[0] > 0.01; })());
+ ok('the hub and the sector agree on a sector\'s light', api.sectorTheme(37) === api.sectorTheme(37) && api.sectorTheme(37).pal.ground === api.mkSectorPal(api.sectorTheme(37).tint, api.sectorTheme(37).variant).ground);
+}
+
 // ---------- voice and access ----------
 // KRIEFNE's voice (LORE §12) and the laws of the universe (LORE §2) are rules
 // the text can break, so the text is checked like any other rule.
@@ -2061,6 +2233,7 @@ const SUITES = [
  ['cascades', suiteCascades],
  ['save', suiteSave],
  ['pigment', suitePigment],
+ ['maps', suiteMaps],
  ['voice', suiteVoice],
  ['safety', suiteSafety],
  ['replay', suiteReplay]
