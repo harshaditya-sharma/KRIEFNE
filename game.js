@@ -172,9 +172,15 @@ function pigOf(e){ return PIG[e.kind||e.type]||PIG.drone; }
 // motif take a slight tint of that star's hue. Chroma stays under .04: a
 // tint to notice over a run, never a colour to read.
 // The lit edge of wreckage stays bare silver so no hull passes for a hostile,
-// and a star near red's hue keeps its motif quieter than hazard hatching.
-function mkSectorPal(H){ const nearRed=Math.abs(((H-32)%360+540)%360-180)<=20;
- return { ground:oklch(0.145,0.018,H), deep:oklch(0.115,0.012,H), hull:oklch(0.205,0.02,H), faint:oklch(0.27,0.024,H), dim:oklch(0.4,0.028,H), metal:oklch(0.56,0.01,H), motif:oklch(0.36,nearRed?0.02:0.04,H) }; }
+// and a star within 20° of red's hue holds every tone to 0.02 chroma, so its
+// motif and wreckage stay quieter than hazard hatching.
+// v picks one of two lightness variants: 0 is the standard star, 1 a dimmer
+// one. The dark tones drop together so wreckage keeps its contrast on the
+// ground; the silver edge never moves.
+const PAL_DIM=[[0,0,0,0,0,0],[-0.018,-0.014,-0.012,-0.01,-0.01,-0.01]];
+function nearRed(H){ return Math.abs(((H-32)%360+540)%360-180)<=20; }
+function mkSectorPal(H,v){ const d=PAL_DIM[v?1:0], c=nearRed(H)?(x=>Math.min(x,0.02)):(x=>x);
+ return { ground:oklch(0.145+d[0],c(0.018),H), deep:oklch(0.115+d[1],c(0.012),H), hull:oklch(0.205+d[2],c(0.02),H), faint:oklch(0.27+d[3],c(0.024),H), dim:oklch(0.4+d[4],c(0.028),H), metal:oklch(0.56,0.01,H), motif:oklch(0.36+d[5],c(0.04),H) }; }
 // Two monoline voices cut by the same stylus: wide engraver's capitals for
 // names and titles, a narrow tabular face for numbers and KRIEFNE's voice.
 const FONT_D="Michroma, 'Martian Mono', sans-serif", FONT_M="'Martian Mono', ui-monospace, Menlo, Consolas, monospace";
@@ -409,16 +415,40 @@ function markSeen(id){ if(!id||codexSeenMap[id]) return; codexSeenMap[id]=true; 
 
 // ---------- data ----------
 // tint: the hue of the sector's star (mkSectorPal). Steel, teal, sage, umber,
-// ash-lilac, rose: every step along the trail shifts the light.
+// ash-lilac, rose, then ochre, slate, moss, mauve, indigo, sea-green: every
+// step along the trail shifts the light. The six later hues carry no score of
+// their own: each borrows the music of the nearest-hued of the first six.
+// Order is for contrast, not hue: neighbouring sectors sit far apart.
 const THEMES=[
  {name:'Relay Drift', tint:245, light:-0.6, motif:'relays', bass:[55,0,55,65.41,0,55,49,58.27], tempo:190, lwave:'square', lead:[440,0,523.25,0,587.33,0,523.25,392,440,0,523.25,659.25,0,587.33,523.25,0]},
  {name:'Archive Reef', tint:195, light:2.4, motif:'shards', bass:[49,0,49,58.27,0,49,43.65,51.91], tempo:180, lwave:'square', lead:[392,0,440,0,493.88,587.33,0,493.88,440,0,392,0,329.63,0,392,0]},
  {name:'Broken Ring', tint:140, light:0.4, motif:'ring', bass:[65.41,0,65.41,73.42,0,65.41,55,62.23], tempo:200, lwave:'sawtooth', lead:[523.25,659.25,0,783.99,0,659.25,523.25,0,440,523.25,0,659.25,783.99,0,659.25,0]},
  {name:'Slag Belt', tint:50, light:-2.2, motif:'belt', bass:[43.65,0,43.65,49,0,55,43.65,41.2], tempo:175, lwave:'square', lead:[349.23,0,349.23,415.3,0,349.23,311.13,293.66,349.23,0,415.3,0,466.16,415.3,349.23,0]},
  {name:'Hull Ossuary', tint:295, light:1.6, motif:'none', bass:[36.71,0,36.71,43.65,0,36.71,34.65,38.89], tempo:205, lwave:'sawtooth', lead:[369.99,0,440,0,554.37,0,493.88,440,369.99,0,415.3,440,0,493.88,440,0]},
- {name:'Rose Veil', tint:350, light:-1.2, motif:'veil', bass:[55,55,0,65.41,55,0,49,58.27], tempo:185, lwave:'square', lead:[440,440,0,523.25,0,587.33,0,659.25,587.33,0,523.25,440,392,440,0,0]}
+ {name:'Rose Veil', tint:350, light:-1.2, motif:'veil', bass:[55,55,0,65.41,55,0,49,58.27], tempo:185, lwave:'square', lead:[440,440,0,523.25,0,587.33,0,659.25,587.33,0,523.25,440,392,440,0,0]},
+ {name:'Ochre Shoal', tint:80, light:0.9, motif:'belt'},
+ {name:'Slate Wake', tint:222, light:-2.7, motif:'relays'},
+ {name:'Moss Keels', tint:112, light:2.0, motif:'ring'},
+ {name:'Mauve Shroud', tint:324, light:-0.2, motif:'veil'},
+ {name:'Indigo Hollow', tint:272, light:2.9, motif:'none'},
+ {name:'Drowned Array', tint:168, light:-1.7, motif:'shards'}
 ];
+const hueGap=(a,b)=>Math.abs(((a-b)%360+540)%360-180);
+for(const th of THEMES) if(!th.bass){ let best=null;
+ for(const o of THEMES) if(o.bass&&(!best||hueGap(o.tint,th.tint)<hueGap(best.tint,th.tint))) best=o;
+ Object.assign(th,{bass:best.bass,tempo:best.tempo,lwave:best.lwave,lead:best.lead,scoreOf:best.name}); }
 for(const th of THEMES) th.pal=mkSectorPal(th.tint);
+// A sector's light: its hue stop, a fixed jitter of up to ±8° from the sector
+// number, and one of two lightness variants (the second lap of the trail
+// through the stops runs under dimmer stars than the first). Derived from the
+// sector alone, never the run seed, so the hub and the sector always agree.
+const SECTOR_TH={};
+function sectorTheme(i){
+ i=Math.max(0,i|0); if(SECTOR_TH[i]) return SECTOR_TH[i];
+ const base=THEMES[i%THEMES.length], R=mulberry32((i*2654435761^0x7a1d)>>>0);
+ const tint=((base.tint+(R()*2-1)*8)%360+360)%360, v=((i/THEMES.length)|0)%2;
+ return (SECTOR_TH[i]=Object.assign({},base,{tint,baseTint:base.tint,variant:v,pal:mkSectorPal(tint,v)}));
+}
 const TITLE_MUS={ bass:[110,0,0,0,130.81,0,0,0,98,0,0,0,146.83,0,0,0], tempo:300, lwave:'sine', lead:[220,0,0,261.63,0,0,329.63,0,0,293.66,0,261.63,0,246.94,0,0] };
 const PAUSE_MUS={ bass:[110,0,0,0,0,0,0,0,98,0,0,0,0,0,0,0], tempo:340, lwave:'triangle', lead:[220,0,0,0,174.61,0,0,0,196,0,0,0,164.81,0,0,0] };
 // ---------- endless sectors ----------
@@ -756,20 +786,83 @@ function bfsCheck(px,py,targets,obs){
 // Every piece here is CONVEX — polyDist's inside test assumes it. Shapes that
 // read as concave (L-blocks, crosses, chevrons) are composed from several
 // convex pieces instead of one concave polygon.
+// Every poly carries `sh`, the name of its form, so a map can be audited for
+// what it is built from.
 function rotPts(pts,rot){ const c=Math.cos(rot), s=Math.sin(rot); return pts.map(q=>[q[0]*c-q[1]*s,q[0]*s+q[1]*c]); }
-function shapeNGon(x,y,r,n,rot){ const p=[]; for(let i=0;i<n;i++){ const a=rot+i*6.283/n; p.push([Math.cos(a)*r,Math.sin(a)*r]); } return mkPoly(x,y,p); }
-function shapeBar(x,y,w,h,rot){ const hw=w/2, hh=h/2; return mkPoly(x,y,rotPts([[-hw,-hh],[hw,-hh],[hw,hh],[-hw,hh]],rot)); } // girder, rotatable — rects can only sit axis-aligned
-function shapeWedge(x,y,r,rot){ return mkPoly(x,y,rotPts([[r,0],[-r*0.5,-r*0.8],[-r*0.75,0],[-r*0.5,r*0.8]],rot)); } // kite: convex, reads as a prow
-function shapeTrap(x,y,w,h,rot){ const hw=w/2, hh=h/2; return mkPoly(x,y,rotPts([[-hw,hh],[hw,hh],[hw*0.55,-hh],[-hw*0.55,-hh]],rot)); }
+function shTag(o,sh){ o.sh=sh; return o; }
+// local points re-centred on their vertex mean, so the bounding radius stays tight
+function ctrPts(pts){ let mx=0, my=0; for(const q of pts){ mx+=q[0]; my+=q[1]; } mx/=pts.length; my/=pts.length; return pts.map(q=>[q[0]-mx,q[1]-my]); }
+function ngonPts(cx,cy,r,n,rot){ const p=[]; for(let i=0;i<n;i++){ const a=rot+i*6.283/n; p.push([cx+Math.cos(a)*r,cy+Math.sin(a)*r]); } return p; }
+function boxPts(x0,y0,x1,y1){ return [[x0,y0],[x1,y0],[x1,y1],[x0,y1]]; }
+const NGON_SH={3:'tri-eq',4:'quad',5:'pent',6:'hex',7:'hept',8:'oct',9:'non',10:'dec'};
+function shapeNGon(x,y,r,n,rot){ return shTag(mkPoly(x,y,ngonPts(0,0,r,n,rot)),NGON_SH[n]||'ngon'); }
+function shapeBar(x,y,w,h,rot){ const hw=w/2, hh=h/2; return shTag(mkPoly(x,y,rotPts(boxPts(-hw,-hh,hw,hh),rot)),'bar'); } // girder, rotatable — rects can only sit axis-aligned
+function shapeWedge(x,y,r,rot){ return shTag(mkPoly(x,y,rotPts([[r,0],[-r*0.5,-r*0.8],[-r*0.75,0],[-r*0.5,r*0.8]],rot)),'wedge'); } // kite: convex, reads as a prow
+function shapeTrap(x,y,w,h,rot){ const hw=w/2, hh=h/2; return shTag(mkPoly(x,y,rotPts([[-hw,hh],[hw,hh],[hw*0.55,-hh],[-hw*0.55,-hh]],rot)),'trap'); }
+// Triangles: 'eq' equilateral, 'iso' a long shard, 'right' a cut corner plate.
+function triPts(r,form){
+ return form==='iso'?[[r,0],[-r*0.6,-r*0.42],[-r*0.6,r*0.42]]
+  :(form==='right'?[[-r*0.75,-r*0.6],[r*0.75,-r*0.6],[-r*0.75,r*0.6]]:[[r,0],[-r*0.5,-r*0.866],[-r*0.5,r*0.866]]);
+}
+function shapeTri(x,y,r,rot,form){ form=form||'eq'; return shTag(mkPoly(x,y,rotPts(ctrPts(triPts(r,form)),rot)),'tri-'+form); }
+function shapeSquare(x,y,s,rot){ return shTag(shapeBar(x,y,s,s,rot),'square'); }
+function shapeRhombus(x,y,a,b,rot){ return shTag(mkPoly(x,y,rotPts([[a,0],[0,b],[-a,0],[0,-b]],rot)),'rhombus'); }
+// girder with raked ends: k shifts the top edge along, the bottom edge back
+function shapePara(x,y,w,h,k,rot){ const hw=w/2, hh=h/2; return shTag(mkPoly(x,y,rotPts([[-hw+k,-hh],[hw+k,-hh],[hw-k,hh],[-hw-k,hh]],rot)),'para'); }
+// kite: the long point along +x, so rot aims it
+function shapeKite(x,y,r,rot){ return shTag(mkPoly(x,y,rotPts(ctrPts([[r,0],[0,-r*0.5],[-r*0.45,0],[0,r*0.5]]),rot)),'kite'); }
+// ---------- compound wreckage ----------
+// Two or three convex pieces placed as one group. Pieces may overlap inside
+// their group (obsClash skips a shared `grp`), collision stays per piece, and
+// engraveGroup paints the group as one hull. `gk` names the group's form.
+// gPiece takes points in the group's local frame (origin at x,y, unrotated)
+// and turns them into a poly centred on its own vertex mean.
+function gPiece(x,y,rot,pts,sh){ let mx=0, my=0; for(const q of pts){ mx+=q[0]; my+=q[1]; } mx/=pts.length; my/=pts.length;
+ const c=Math.cos(rot), s=Math.sin(rot);
+ return shTag(mkPoly(x+mx*c-my*s,y+mx*s+my*c,rotPts(pts.map(q=>[q[0]-mx,q[1]-my]),rot)),sh); }
+function asGroup(gk,pieces){ for(const o of pieces) o.gk=gk; return pieces; }
+// L-block: two girders sharing a corner square, arms a and b long, t thick.
+function shapeL(x,y,a,b,t,rot){ const ox=-a/2, oy=-b/2;
+ return asGroup('L',[gPiece(x,y,rot,boxPts(ox,oy,ox+a,oy+t),'bar'),gPiece(x,y,rot,boxPts(ox,oy,ox+t,oy+b),'bar')]); }
+// cross: one girder laid over another; off slides the crossing along the first
+function shapeCross(x,y,a,b,t,off,rot){
+ return asGroup('cross',[gPiece(x,y,rot,boxPts(-a/2,-t/2,a/2,t/2),'bar'),gPiece(x,y,rot,boxPts(off-t/2,-b/2,off+t/2,b/2),'bar')]); }
+function turnPts(pts,a){ return rotPts(pts,a); }
+const CMP_KINDS=['capped','pierced','star','finned','stack'];
+// r is the group's rough radius, matched to the singles it stands among.
+function shapeCompound(R,x,y,r,rot,kind){
+ kind=kind||CMP_KINDS[(R()*CMP_KINDS.length)|0];
+ if(kind==='capped') // a triangle over a square: a block with its prow still on
+  return asGroup('cmp',[gPiece(x,y,rot,boxPts(-r*0.6,-r*0.35,r*0.6,r*0.85),'square'),
+   gPiece(x,y,rot,[[0,-r*1.05],[r*0.55,-r*0.1],[-r*0.55,-r*0.1]],'tri-iso')]);
+ if(kind==='pierced'){ // a rhombus run through a bunker
+  const n=[6,7,9][(R()*3)|0], a=R()*6.283;
+  return asGroup('cmp',[gPiece(x,y,rot,ngonPts(0,0,r*0.72,n,a),NGON_SH[n]),
+   gPiece(x,y,rot,[[r*1.3,0],[0,r*0.26],[-r*1.3,0],[0,-r*0.26]],'rhombus')]); }
+ if(kind==='star') // two plates crossed at 45°: an eight-point star
+  return asGroup('cmp',[gPiece(x,y,rot,boxPts(-r*0.6,-r*0.6,r*0.6,r*0.6),'square'),
+   gPiece(x,y,rot,turnPts(boxPts(-r*0.6,-r*0.6,r*0.6,r*0.6),0.7854),'square')]);
+ if(kind==='finned'){ // a core with a fin either side: a station hub
+  const n=R()<0.5?7:9;
+  return asGroup('cmp',[gPiece(x,y,rot,ngonPts(0,0,r*0.62,n,R()*6.283),NGON_SH[n]),
+   gPiece(x,y,rot,[[r*1.15,0],[r*0.3,r*0.36],[r*0.3,-r*0.36]],'tri-iso'),
+   gPiece(x,y,rot,[[-r*1.15,0],[-r*0.3,-r*0.36],[-r*0.3,r*0.36]],'tri-iso')]); }
+ // stack: slabs slumped on one another
+ return asGroup('cmp',[gPiece(x,y,rot,boxPts(-r*0.75,-r*0.55,r*0.15,r*0.35),'square'),
+  gPiece(x,y,rot,turnPts(boxPts(-r*0.4,-r*0.4,r*0.4,r*0.4),0.42).map(q=>[q[0]+r*0.3,q[1]+r*0.25]),'square'),
+  gPiece(x,y,rot,[[-r*0.2,-r*0.35],[r*0.8,-r*0.35],[-r*0.2,-r*0.95]],'tri-right')]);
+}
 function obsCX(o){ return o.kind==='rect'?o.x+o.w/2:o.x; }
 function obsCY(o){ return o.kind==='rect'?o.y+o.h/2:o.y; }
 function obsRadius(o){ return o.kind==='rect'?Math.hypot(o.w,o.h)/2:o.r; }
 // Spacing test for a candidate against what is already placed. Rect-vs-rect gets
 // an exact AABB test so long girders can sit near blocks instead of being
 // rejected by an oversized bounding radius; everything else uses bounding circles.
+// Pieces of one compound share `grp` and may overlap each other.
 function obsClash(cand,obs,pad){
  const cr=obsRadius(cand), cx=obsCX(cand), cy=obsCY(cand);
  for(const b of obs){
+  if(cand.grp!==undefined&&b.grp===cand.grp) continue;
   if(cand.kind==='rect'&&b.kind==='rect'){
    if(cand.x<b.x+b.w+pad&&cand.x+cand.w+pad>b.x&&cand.y<b.y+b.h+pad&&cand.y+cand.h+pad>b.y) return true;
    continue;
@@ -779,17 +872,26 @@ function obsClash(cand,obs,pad){
  }
  return false;
 }
+// cand is one obstacle or a compound's piece list; a compound goes in whole
+// or not at all, and every piece passes the same tests a single would.
 function place(obs,C,cand,pad){
- const cx=obsCX(cand), cy=obsCY(cand), cr=obsRadius(cand);
- if(!C.inBounds(cx,cy,cr+8)) return false;
- if(C.clearOfSpawn(cx,cy,cr)) return false;
- if(obsClash(cand,obs,pad===undefined?24:pad)) return false;
- obs.push(cand); return true;
+ const list=Array.isArray(cand)?cand:[cand];
+ for(const o of list){ const cx=obsCX(o), cy=obsCY(o), cr=obsRadius(o);
+  if(!C.inBounds(cx,cy,cr+8)) return false;
+  if(C.clearOfSpawn(cx,cy,cr)) return false;
+  if(obsClash(o,obs,pad===undefined?24:pad)) return false; }
+ if(list.length>1){ const id=(C.grp=(C.grp||0)+1); for(const o of list) o.grp=id; }
+ for(const o of list) obs.push(o);
+ return true;
 }
 // ---------- layout archetypes ----------
 // Six recognisable layout types instead of one grid and one scatter, so two
 // sectors at the same depth no longer look like the same map with the blocks
-// shuffled. Every one is still BFS-validated downstream.
+// shuffled. Every one is still BFS-validated downstream. Each keeps its own
+// shape palette so it reads the same at any depth: debris is shards and
+// rhombi, corridors are raked girders, bastion is heptagon and nonagon
+// bunkers, spokes are kites and bars, the arena is a ring of mixed polygons,
+// and scatter draws from everything.
 const LAYOUTS=['debris','arena','corridors','bastion','spokes','scatter'];
 function layoutDebris(R,obs,C,idx){
  const early=idx<3;
@@ -800,13 +902,17 @@ function layoutDebris(R,obs,C,idx){
  for(let cy=0;cy<rows;cy++) for(let cx=0;cx<cols;cx++){
   if(R()>density) continue;
   for(let a=0;a<3;a++){ // 3 jitter tries per cell: one bad roll shouldn't void the block
-   const jx=PX0+cx*cw+R()*cw, jy=PY0+cy*ch+R()*ch, roll=R();
+   const jx=PX0+cx*cw+R()*cw, jy=PY0+cy*ch+R()*ch, roll=R(), rot=R()*6.283;
    let cand;
-   if(roll<0.24) cand={kind:'circle',x:jx,y:jy,r:(22+R()*30)*sz};             // comm tower
-   else if(roll<0.44) cand=shapeNGon(jx,jy,(26+R()*26)*sz,6,R()*6.283);       // hex pylon
-   else if(roll<0.58) cand=shapeBar(jx,jy,(70+R()*90)*sz,(20+R()*16)*sz,R()*6.283); // barricade
-   else if(roll<0.70) cand=shapeWedge(jx,jy,(30+R()*26)*sz,R()*6.283);        // prow
-   else { const w=(50+R()*80)*sz, h=(50+R()*80)*sz; cand={kind:'rect',x:jx-w/2,y:jy-h/2,w,h}; }
+   if(roll<0.14) cand={kind:'circle',x:jx,y:jy,r:(22+R()*30)*sz};             // comm tower
+   else if(roll<0.32) cand=shapeTri(jx,jy,(34+R()*30)*sz,rot,'iso');         // shard
+   else if(roll<0.42) cand=shapeTri(jx,jy,(28+R()*22)*sz,rot,'right');       // cut plate
+   else if(roll<0.56){ const ra=(34+R()*30)*sz; cand=shapeRhombus(jx,jy,ra,ra*(0.38+R()*0.24),rot); } // diamond shard
+   else if(roll<0.64) cand=shapeNGon(jx,jy,(26+R()*26)*sz,6,rot);            // hex pylon
+   else if(roll<0.72) cand=shapeBar(jx,jy,(70+R()*90)*sz,(20+R()*16)*sz,rot); // barricade
+   else if(roll<0.78) cand=shapeWedge(jx,jy,(30+R()*26)*sz,rot);             // prow
+   else if(roll<0.90){ const w=(50+R()*80)*sz, h=(50+R()*80)*sz; cand={kind:'rect',x:jx-w/2,y:jy-h/2,w,h}; }
+   else cand=shapeCompound(R,jx,jy,(30+R()*18)*sz,rot,R()<0.6?'pierced':(R()<0.5?'capped':'stack')); // shards fused
    if(place(obs,C,cand,24)) break;
   }
  }
@@ -814,10 +920,19 @@ function layoutDebris(R,obs,C,idx){
  for(let t=0;t<12;t++){
   const ax=R()*6.283, lx=C.px+Math.cos(ax)*(340+R()*300), ly=C.py+Math.sin(ax)*(260+R()*220);
   if(!C.inBounds(lx,ly,120)) continue;
-  const tilt=R()*6.283, step=92, lr=(26+R()*12)*sz;
+  const tilt=R()*6.283, lr=(26+R()*12)*sz, step=Math.max(92,lr*2+12); // pylons never touch: deep sectors grow them
   const trio=[0,1,2].map(k=>shapeNGon(lx+Math.cos(tilt)*step*k,ly+Math.sin(tilt)*step*k,lr,6,tilt));
   if(trio.every(o=>C.inBounds(o.x,o.y,o.r+8)&&!C.clearOfSpawn(o.x,o.y,o.r)&&!obsClash(o,obs,24))){ for(const o of trio) obs.push(o); break; }
  }
+}
+// A pillar of the arena ring: round-ish polygons of several orders, so the
+// ring reads as salvage gathered in a circle rather than one cast repeated.
+const RING_N=[6,7,9,10,8,4,3,5];
+function ringPillar(R,x,y,r,a){
+ const n=RING_N[(R()*RING_N.length)|0];
+ if(n===4) return shapeSquare(x,y,r*1.45,a+R()*1.57);
+ if(n===3) return shapeTri(x,y,r*1.2,a+R()*2.09,'eq');
+ return shapeNGon(x,y,r,n,a);
 }
 function layoutArena(R,obs,C,idx){
  // Open duelling floor: a pillar ring outside the clearing, heavy bunkers on the
@@ -827,53 +942,66 @@ function layoutArena(R,obs,C,idx){
  const ringR=Math.min(C.clearR+90+R()*70,span-60);
  const n=6+((R()*5)|0);
  for(let k=0;k<n;k++){ const a=k/n*6.283+R()*0.3;
-  place(obs,C,shapeNGon(C.px+Math.cos(a)*ringR,C.py+Math.sin(a)*ringR,(24+R()*16)*sz,6,a),26); }
+  place(obs,C,ringPillar(R,C.px+Math.cos(a)*ringR,C.py+Math.sin(a)*ringR,(24+R()*16)*sz,a),26); }
  const m=5+((R()*5)|0)+Math.min(6,idx>>1);
  for(let k=0;k<m;k++) for(let t=0;t<22;t++){
   const a=R()*6.283, rad=ringR+80+R()*300;
-  const x=C.px+Math.cos(a)*rad, y=C.py+Math.sin(a)*rad, roll=R(), r=(34+R()*30)*sz;
-  const cand=roll<0.4?shapeNGon(x,y,r,8,R()*6.283)
-   :(roll<0.72?shapeBar(x,y,(90+R()*110)*sz,(22+R()*16)*sz,R()*6.283)
-   :{kind:'rect',x:x-r,y:y-r*0.7,w:r*2,h:r*1.4});
+  const x=C.px+Math.cos(a)*rad, y=C.py+Math.sin(a)*rad, roll=R(), r=(34+R()*30)*sz, rot=R()*6.283;
+  const cand=roll<0.3?shapeNGon(x,y,r,R()<0.5?10:9,rot)
+   :(roll<0.44?shapeBar(x,y,(90+R()*110)*sz,(22+R()*16)*sz,rot)
+   :(roll<0.58?shapePara(x,y,(90+R()*110)*sz,(22+R()*16)*sz,(12+R()*14)*sz*(R()<0.5?-1:1),rot)
+   :(roll<0.72?{kind:'rect',x:x-r,y:y-r*0.7,w:r*2,h:r*1.4}
+   :(roll<0.86?shapeCompound(R,x,y,r*0.95,rot,['star','finned','capped'][(R()*3)|0])
+   :shapeNGon(x,y,r*0.9,7,rot)))));
   if(place(obs,C,cand,28)) break;
  }
 }
 function layoutCorridors(R,obs,C,idx){
  // Lanes of girders with deliberate gaps, sometimes diagonal. Fights here are
- // about corners and firing angles rather than open-field circling.
+ // about corners and firing angles rather than open-field circling. Girders
+ // are raked parallelograms; now and then a lane turns a corner in an L.
  const sz=C.sizeJ, diag=R()<0.4, lanes=3+((R()*3)|0);
  for(let k=0;k<lanes;k++){
   const horiz=R()<0.5, segs=2+((R()*3)|0);
   const rot=diag?(R()<0.5?0.7854:-0.7854):(horiz?0:1.5708);
   for(let sN=0;sN<segs;sN++) for(let t=0;t<16;t++){
-   const x=PX0+60+R()*(PX1-PX0-120), y=PY0+60+R()*(PY1-PY0-120);
-   if(place(obs,C,shapeBar(x,y,(150+R()*220)*sz,(22+R()*14)*sz,rot),30)) break;
+   const x=PX0+60+R()*(PX1-PX0-120), y=PY0+60+R()*(PY1-PY0-120), roll=R();
+   const w=(150+R()*220)*sz, h=(22+R()*14)*sz;
+   const cand=roll<0.68?shapePara(x,y,w,h,h*(0.5+R()*0.7)*(R()<0.5?-1:1),rot)
+    :(roll<0.88?shapeBar(x,y,w,h,rot)
+    :shapeL(x,y,w*0.62,(90+R()*90)*sz,h,rot+((R()*4)|0)*1.5708));
+   if(place(obs,C,cand,30)) break;
   }
  }
  const p=4+((R()*4)|0);
  for(let k=0;k<p;k++) for(let t=0;t<16;t++){
-  const x=PX0+50+R()*(PX1-PX0-100), y=PY0+50+R()*(PY1-PY0-100);
-  if(place(obs,C,{kind:'circle',x,y,r:(24+R()*20)*sz},26)) break;
+  const x=PX0+50+R()*(PX1-PX0-100), y=PY0+50+R()*(PY1-PY0-100), r=(24+R()*20)*sz;
+  if(place(obs,C,R()<0.6?{kind:'circle',x,y,r}:shapeSquare(x,y,r*1.5,R()*6.283),26)) break;
  }
 }
 function layoutBastion(R,obs,C,idx){
- // Heavy octagonal bunkers with lighter scatter filling the gaps between them.
+ // Heavy heptagon and nonagon bunkers with lighter scatter filling the gaps.
  const sz=C.sizeJ, big=3+((R()*3)|0);
  for(let k=0;k<big;k++) for(let t=0;t<24;t++){
-  const x=PX0+90+R()*(PX1-PX0-180), y=PY0+90+R()*(PY1-PY0-180);
-  if(place(obs,C,shapeNGon(x,y,(58+R()*36)*sz,8,R()*6.283),34)) break;
+  const x=PX0+90+R()*(PX1-PX0-180), y=PY0+90+R()*(PY1-PY0-180), roll=R(), rot=R()*6.283;
+  const cand=roll<0.84?shapeNGon(x,y,(58+R()*36)*sz,roll<0.42?7:9,rot)
+   :shapeCompound(R,x,y,(56+R()*26)*sz,rot,'finned');
+  if(place(obs,C,cand,34)) break;
  }
  const small=9+((R()*7)|0)+Math.min(10,idx);
  for(let k=0;k<small;k++) for(let t=0;t<20;t++){
   const x=PX0+50+R()*(PX1-PX0-100), y=PY0+50+R()*(PY1-PY0-100), roll=R();
-  const cand=roll<0.5?shapeNGon(x,y,(22+R()*20)*sz,6,R()*6.283)
-   :(roll<0.78?{kind:'circle',x,y,r:(20+R()*18)*sz}
-   :shapeTrap(x,y,(56+R()*46)*sz,(40+R()*30)*sz,R()*6.283));
+  const cand=roll<0.3?shapeNGon(x,y,(22+R()*20)*sz,6,R()*6.283)
+   :(roll<0.5?shapeNGon(x,y,(22+R()*18)*sz,7,R()*6.283)
+   :(roll<0.72?{kind:'circle',x,y,r:(20+R()*18)*sz}
+   :(roll<0.88?shapeTrap(x,y,(56+R()*46)*sz,(40+R()*30)*sz,R()*6.283)
+   :shapeSquare(x,y,(34+R()*22)*sz,R()*6.283))));
   if(place(obs,C,cand,24)) break;
  }
 }
 function layoutSpokes(R,obs,C,idx){
- // Radial avenues running out of the clearing, gaps between the arms.
+ // Radial avenues running out of the clearing, gaps between the arms. Each
+ // arm ends in a kite pointing outward, and kites drift in the gaps.
  const sz=C.sizeJ, arms=4+((R()*4)|0), base=R()*6.283, start=C.clearR+70;
  for(let k=0;k<arms;k++){
   const a=base+k/arms*6.283, segs=2+((R()*3)|0);
@@ -882,24 +1010,33 @@ function layoutSpokes(R,obs,C,idx){
    place(obs,C,shapeBar(C.px+Math.cos(a)*rad,C.py+Math.sin(a)*rad,(120+R()*110)*sz,(22+R()*14)*sz,a+1.5708),28);
   }
   const rad2=start+segs*(140+R()*60);
-  place(obs,C,shapeNGon(C.px+Math.cos(a)*rad2,C.py+Math.sin(a)*rad2,(26+R()*18)*sz,6,a),26);
+  place(obs,C,shapeKite(C.px+Math.cos(a)*rad2,C.py+Math.sin(a)*rad2,(38+R()*22)*sz,a),26);
  }
  const fill=5+((R()*5)|0);
  for(let k=0;k<fill;k++) for(let t=0;t<16;t++){
   const x=PX0+60+R()*(PX1-PX0-120), y=PY0+60+R()*(PY1-PY0-120);
-  if(place(obs,C,{kind:'circle',x,y,r:(22+R()*22)*sz},26)) break;
+  if(place(obs,C,R()<0.5?{kind:'circle',x,y,r:(22+R()*22)*sz}:shapeKite(x,y,(34+R()*26)*sz,R()*6.283),26)) break;
  }
 }
+// Scatter draws from the whole vocabulary: every single form, both built
+// blocks (L and cross) and every compound.
 function layoutScatter(R,obs,C,idx){
  const sz=C.sizeJ, n=10+((R()*6)|0)+Math.min(10,idx);
  for(let i=0;i<n;i++) for(let t=0;t<24;t++){
-  const x=PX0+50+R()*(PX1-PX0-100), y=PY0+50+R()*(PY1-PY0-100), roll=R();
+  const x=PX0+50+R()*(PX1-PX0-100), y=PY0+50+R()*(PY1-PY0-100), roll=R(), rot=R()*6.283;
   let cand;
-  if(roll<0.22) cand={kind:'circle',x,y,r:(26+R()*40)*sz};
-  else if(roll<0.44) cand=shapeNGon(x,y,(28+R()*32)*sz,R()<0.5?6:5,R()*6.283);
-  else if(roll<0.60) cand=shapeWedge(x,y,(32+R()*28)*sz,R()*6.283);
-  else if(roll<0.76) cand=shapeBar(x,y,(80+R()*120)*sz,(24+R()*18)*sz,R()*6.283);
-  else { const w=(50+R()*110)*sz, h=(50+R()*110)*sz; cand={kind:'rect',x:x-w/2,y:y-h/2,w,h}; }
+  if(roll<0.12) cand={kind:'circle',x,y,r:(26+R()*40)*sz};
+  else if(roll<0.26) cand=shapeNGon(x,y,(28+R()*32)*sz,[5,6,7,9,10][(R()*5)|0],rot);
+  else if(roll<0.36) cand=shapeTri(x,y,(34+R()*28)*sz,rot,['eq','iso','right'][(R()*3)|0]);
+  else if(roll<0.42) cand=shapeSquare(x,y,(44+R()*40)*sz,rot);
+  else if(roll<0.48){ const ra=(38+R()*30)*sz; cand=shapeRhombus(x,y,ra,ra*(0.4+R()*0.25),rot); }
+  else if(roll<0.54) cand=shapeKite(x,y,(38+R()*30)*sz,rot);
+  else if(roll<0.60) cand=shapeWedge(x,y,(32+R()*28)*sz,rot);
+  else if(roll<0.68){ const w=(80+R()*120)*sz, h=(24+R()*18)*sz; cand=R()<0.5?shapeBar(x,y,w,h,rot):shapePara(x,y,w,h,h*(0.5+R()*0.7),rot); }
+  else if(roll<0.76){ const w=(50+R()*110)*sz, h=(50+R()*110)*sz; cand={kind:'rect',x:x-w/2,y:y-h/2,w,h}; }
+  else if(roll<0.82){ const t2=(24+R()*14)*sz; cand=shapeL(x,y,(90+R()*80)*sz,(70+R()*70)*sz,t2,rot); }
+  else if(roll<0.88){ const t2=(22+R()*12)*sz, a2=(90+R()*80)*sz; cand=shapeCross(x,y,a2,(70+R()*60)*sz,t2,(R()-0.5)*a2*0.5,rot); }
+  else cand=shapeCompound(R,x,y,(36+R()*22)*sz,rot);
   if(place(obs,C,cand,24)) break;
  }
 }
@@ -914,9 +1051,33 @@ function buildLayout(kind,R,obs,C,idx){
  // outside the bounds, must still offer real cover rather than an empty void
  const minObs=idx<3?8:6;
  if(obs.length<minObs) layoutScatter(R,obs,C,idx);
+ unsealGroups(obs,C);
+}
+// A compound is concave where its pieces meet. Against the rim or another
+// hull that notch can close off floor nothing can reach, and a hostile
+// wedged there would hold a sector open. On the validator's grid, any group
+// beside an open cell the drop cannot reach is lifted out whole.
+function unsealGroups(obs,C){
+ if(!obs.some(o=>o.grp!==undefined)) return;
+ const cols=Math.floor((PX1-PX0)/CELL), rows=Math.floor((PY1-PY0)/CELL), N=cols*rows;
+ const blocked=new Uint8Array(N), seen=new Uint8Array(N);
+ for(let k=0;k<N;k++) blocked[k]=pointBlocked(PX0+(k%cols)*CELL+CELL/2,PY0+((k/cols)|0)*CELL+CELL/2,16,obs)?1:0;
+ const s=clamp(Math.floor((C.py-PY0)/CELL),0,rows-1)*cols+clamp(Math.floor((C.px-PX0)/CELL),0,cols-1);
+ if(blocked[s]) return;
+ const q=[s]; seen[s]=1;
+ while(q.length){ const c=q.pop(), cx=c%cols, cy=(c/cols)|0;
+  if(cx>0&&!seen[c-1]&&!blocked[c-1]){ seen[c-1]=1; q.push(c-1); }
+  if(cx<cols-1&&!seen[c+1]&&!blocked[c+1]){ seen[c+1]=1; q.push(c+1); }
+  if(cy>0&&!seen[c-cols]&&!blocked[c-cols]){ seen[c-cols]=1; q.push(c-cols); }
+  if(cy<rows-1&&!seen[c+cols]&&!blocked[c+cols]){ seen[c+cols]=1; q.push(c+cols); } }
+ const lift={}, pieces=obs.filter(o=>o.grp!==undefined);
+ for(let k=0;k<N;k++){ if(blocked[k]||seen[k]) continue;
+  const x=PX0+(k%cols)*CELL+CELL/2, y=PY0+((k/cols)|0)*CELL+CELL/2;
+  for(const o of pieces) if(!lift[o.grp]&&pointBlocked(x,y,16+CELL,[o])) lift[o.grp]=1; }
+ for(let k=obs.length-1;k>=0;k--) if(obs[k].grp!==undefined&&lift[obs[k].grp]) obs.splice(k,1);
 }
 function genArenaValidated(baseSeed, idx, spawnTypes){
- const theme=THEMES[idx%THEMES.length];
+ const theme=sectorTheme(idx);
  const px=(PX0+PX1)/2, py=(PY0+PY1)/2; // player drops at map center: keep it clear
  // One shuffled deck of archetypes per run, dealt by sector index: every run
  // cycles through all six. Picking from runSeed alone gave every normal sector
@@ -1848,6 +2009,27 @@ function playerShoot(){
  SFX.shoot();
  pushPart({x:p.x+Math.cos(base)*15,y:p.y+Math.sin(base)*15,vx:0,vy:0,life:0.06,maxlife:0.06,col:K.goldHi,r:4});
 }
+// SEEKER guidance. At range a round turns at its card rate b.turn (2.2 rad/s +1.6
+// per Seeker level), a 120-170px turning radius at 640px/s. A target that falls inside that
+// circle (a near miss, a close off-aim shot) can never be reached: the round
+// orbits it for its whole life. So inside two turning radii the limit rises as
+// (2R/d)^2: continuous with the card rate at the boundary, 4x at one radius, a
+// near-snap point-blank. That keeps the effective radius under d/2, and with it
+// the heading error shrinks every frame, so every approach converges.
+// Foes already in hitUid are skipped: a pierced target is behind the round, and
+// chasing it back made Lance rounds loop through a boss they could not hit again.
+// With no other foe in reach the round flies straight.
+const SEEK_SNAP=40; // rad/s ceiling: ~0.67 rad a frame at 60Hz, a visible hook rather than a teleport of heading
+function seekSteer(b,dt){
+ let bd=420*420, be=null;
+ for(const e of enemies){ if(b.hitUid&&b.hitUid.indexOf(e.uid)>=0) continue; const d=dist2(b.x,b.y,e.x,e.y); if(d<bd){ bd=d; be=e; } }
+ if(!be) return;
+ const want=Math.atan2(be.y-b.y,be.x-b.x), cur=Math.atan2(b.vy,b.vx);
+ let dA=want-cur; while(dA>Math.PI)dA-=6.283; while(dA<-Math.PI)dA+=6.283;
+ const sp=len(b.vx,b.vy), d=Math.max(1,Math.sqrt(bd)), R2=2*sp/b.turn;
+ const lim=d<R2?Math.min(SEEK_SNAP,b.turn*(R2/d)*(R2/d)):b.turn;
+ const na=cur+clamp(dA,-lim*dt,lim*dt); b.vx=Math.cos(na)*sp; b.vy=Math.sin(na)*sp;
+}
 function shieldBlock(msg,col){ const p=player; p.invuln=Math.max(p.invuln,0.4); addFloater(p.x,p.y-20,msg,col); SFX.block(); spawnBurst(p.x,p.y,10,col,180,0.4,3); }
 // heavy=true: sniper/tempest bolts, brute rings, boss contact+bursts (blocked by Crit Ward)
 // ---------- what brought the hull down ----------
@@ -2059,12 +2241,41 @@ function splashDamage(x,y,r,amount,col,skipUid){
   if(e.hp<=0){ const ix=enemies.indexOf(e); if(ix>=0) killEnemy(ix); } }
  rings.push({x,y,r:4,maxR:r,spd:r*4,dmg:0,hit:true,own:true});
 }
+// ---------- hit shapes ----------
+// One swept test for every way a round can touch an enemy, so the sweep, the
+// boss engine and the hitbox overlay all agree on what a hit is:
+//   body     : e.r at the DRAWN scale. Hulls render at vscale 0.92-1.08, and
+//              testing the bare e.r left a rim of silhouette rounds crossed clean.
+//   hitParts : world-space {x,y,r} circles a non-circular boss keeps current;
+//              striking one is a body hit.
+//   parts    : world-space {x,y,r,hp} destructible children, resolved by the
+//              engine's hitBossPart. Dead parts (hp<=0 or .dead) and any in
+//              `skip` (parts this round already passed) are ignored.
+//   segs     : LEVIATHAN's trailing body. Real hits; SEG_PASS of the damage
+//              reaches the boss, so the tail is a target, not a free shield.
+// Returns the earliest entry t in [0,1] or -1. What was struck is left in HIT
+// (module scratch: this runs per round per enemy per frame, so it never allocates).
+// Ties go to parts and segments, which sit on top of the body they belong to.
+const SEG_PASS=0.6, HIT={kind:null,ref:null};
+function enemyHitT(e,px,py,x,y,br,skip){
+ let bt=segCircleT(px,py,x,y,e.x,e.y,e.r*(e.vscale||1)+br), t;
+ HIT.kind='body'; HIT.ref=null;
+ const hp=e.hitParts;
+ if(hp) for(let i=0;i<hp.length;i++){ const c=hp[i]; t=segCircleT(px,py,x,y,c.x,c.y,c.r+br); if(t>=0&&(bt<0||t<bt)){ bt=t; HIT.kind='body'; HIT.ref=null; } }
+ const sg=e.segs;
+ if(sg) for(let i=0;i<sg.length;i++){ const g=sg[i]; t=segCircleT(px,py,x,y,g.x,g.y,g.r+br); if(t>=0&&(bt<0||t<=bt)){ bt=t; HIT.kind='seg'; HIT.ref=g; } }
+ const pt=e.parts;
+ if(pt) for(let i=0;i<pt.length;i++){ const c=pt[i]; if(c.hp<=0||c.dead||(skip&&skip.indexOf(c)>=0)) continue;
+  t=segCircleT(px,py,x,y,c.x,c.y,c.r+br); if(t>=0&&(bt<0||t<=bt)){ bt=t; HIT.kind='part'; HIT.ref=c; } }
+ return bt;
+}
 // ---------- bullet impact ----------
 // Resolve one bullet against one enemy at the contact point. Returns true when
 // the round is spent, so it is removed rather than continuing out the far side.
-function applyBulletHit(e,b,hx,hy){
+// `mul` scales the round's damage for indirect hits (a LEVIATHAN segment).
+function applyBulletHit(e,b,hx,hy,mul){
  const phased=!!e.phased;
- let dmg=b.dmg*(phased?0.30:1)*corrodeMul(e);
+ let dmg=b.dmg*(mul||1)*(phased?0.30:1)*corrodeMul(e);
  if(b.corrode&&!phased) e.corrode=Math.min(5,(e.corrode||0)+b.corrode);
  // ORACLE wards soak most of the round until they are broken — a visible,
  // solvable reason the boss is tanky, instead of an invisible damage reduction.
@@ -2109,19 +2320,29 @@ function applyBulletHit(e,b,hx,hy){
 }
 // Sweep this frame's travel against every enemy, resolving hits nearest-first
 // so a pierce round chews through targets in the order it actually meets them.
+// Boss-engine hooks, each optional (typeof-guarded, so this runs without them):
+//   bossDeflect(e,b,hx,hy) -> true : the round was reflected. No damage, and it
+//     is NOT removed here; the engine converts or kills it (b.dead=true).
+//   hitBossPart(e,part,b,hx,hy) -> true : the part took the round; it is spent.
+//     false lets it fly on, remembered in b.hitPart so it cannot re-hit that
+//     part every frame it overlaps. Without the hook a part hit is a body hit.
 function bulletSweep(b){
  let hits=null;
  for(let j=0;j<enemies.length;j++){ const e=enemies[j];
   if(b.hitUid&&b.hitUid.indexOf(e.uid)>=0) continue;
-  const t=segCircleT(b.px,b.py,b.x,b.y,e.x,e.y,e.r+b.r);
-  if(t>=0){ if(!hits) hits=[]; hits.push({t,e}); }
+  const t=enemyHitT(e,b.px,b.py,b.x,b.y,b.r,b.hitPart);
+  if(t>=0){ if(!hits) hits=[]; hits.push({t,e,kind:HIT.kind,ref:HIT.ref}); }
  }
  if(!hits) return false;
  if(hits.length>1) hits.sort((p,q)=>p.t-q.t);
  for(const h of hits){
   if(enemies.indexOf(h.e)<0) continue; // already died to an earlier hit this pass
   const hx=b.px+(b.x-b.px)*h.t, hy=b.py+(b.y-b.py)*h.t;
-  if(applyBulletHit(h.e,b,hx,hy)) return true;
+  if(typeof bossDeflect==='function'&&bossDeflect(h.e,b,hx,hy)) return false; // the engine owns it now
+  if(h.kind==='part'&&typeof hitBossPart==='function'){
+   if(hitBossPart(h.e,h.ref,b,hx,hy)) return true;
+   (b.hitPart=b.hitPart||[]).push(h.ref); continue; }
+  if(applyBulletHit(h.e,b,hx,hy,h.kind==='seg'?SEG_PASS:1)) return true;
  }
  return false;
 }
@@ -2216,11 +2437,16 @@ function update(dt){
   p.aim=Math.atan2(wmy()-p.y,wmx()-p.x);
   if((mouse.down||p.autoFire)&&p.fireCd<=0) playerShoot();
   // player bullets (homing + ricochet)
+  // Boss-engine hooks, typeof-guarded so the loop runs without them:
+  //   bulletField(b,dt)  bends the round before it moves (gravity, currents)
+  //   bulletErased(b)    true deletes it (NULLIFIER's erase zone)
+  const bField=typeof bulletField==='function'?bulletField:null, bErase=typeof bulletErased==='function'?bulletErased:null;
   for(let i=bullets.length-1;i>=0;i--){ const b=bullets[i];
-   if(b.turn>0&&enemies.length){ let bd=420*420, be=null; for(const e of enemies){ const d=dist2(b.x,b.y,e.x,e.y); if(d<bd){ bd=d; be=e; } } if(be){ const want=Math.atan2(be.y-b.y,be.x-b.x), cur=Math.atan2(b.vy,b.vx); let dA=want-cur; while(dA>Math.PI)dA-=6.283; while(dA<-Math.PI)dA+=6.283; const na=cur+clamp(dA,-b.turn*dt,b.turn*dt); const sp=len(b.vx,b.vy); b.vx=Math.cos(na)*sp; b.vy=Math.sin(na)*sp; } }
+   if(b.turn>0&&enemies.length) seekSteer(b,dt);
+   if(bField) bField(b,dt);
    b.px=b.x; b.py=b.y;
    b.x+=b.vx*dt; b.y+=b.vy*dt; b.life-=dt;
-   let dead=b.life<=0;
+   let dead=b.life<=0||b.dead||(bErase!==null&&!!bErase(b));
    if(!dead&&(b.x<PX0+b.r||b.x>PX1-b.r)){ if(b.bounce>0){ b.bounce--; if(b.x<PX0+b.r){b.x=PX0+b.r;b.vx=Math.abs(b.vx);} else {b.x=PX1-b.r;b.vx=-Math.abs(b.vx);} b.px=b.x; b.py=b.y; } else dead=true; }
    if(!dead&&(b.y<PY0+b.r||b.y>PY1-b.r)){ if(b.bounce>0){ b.bounce--; if(b.y<PY0+b.r){b.y=PY0+b.r;b.vy=Math.abs(b.vy);} else {b.y=PY1-b.r;b.vy=-Math.abs(b.vy);} b.px=b.x; b.py=b.y; } else dead=true; }
    if(!dead&&bulletPathBlocked(b)){
@@ -2228,7 +2454,9 @@ function update(dt){
     else { spawnBurst(b.x,b.y,3,K.metal,120,0.3,2); dead=true; }
    }
    if(!dead&&bulletSweep(b)) dead=true;
-   if(dead) bullets.splice(i,1);
+   // b.dead: the engine killed a round it deflected. Splice only if it is still
+   // at i, in case the engine already moved it out of the array itself.
+   if((dead||b.dead)&&bullets[i]===b) bullets.splice(i,1);
   }
   // enemy bullets
   for(let i=ebullets.length-1;i>=0;i--){ const b=ebullets[i];
@@ -3117,7 +3345,7 @@ function paintWorld(g,th){
  for(let k=0;k<9;k++){ g.beginPath(); g.arc(sx,sy,sr+k*9,0,6.283); g.stroke(); }
  g.strokeStyle=P.dim; g.beginPath(); g.arc(sx,sy,sr,0,6.283); g.stroke();
  paintMotif(g,th.motif,R,P);
- for(const o of arena.obs) engrave(g,o,Lx,Ly,P);
+ paintObstacles(g,arena.obs,Lx,Ly,P);
  // the rim: a graduated edge, like the rim of a dial
  g.strokeStyle=P.dim; g.lineWidth=1; g.strokeRect(PX0+0.5,PY0+0.5,PX1-PX0-1,PY1-PY0-1);
  g.beginPath();
@@ -3145,26 +3373,40 @@ function paintMotif(g,m,R,P){
 }
 // Wreckage: hull fill, hairline outline, the lit edge in bare metal, and
 // hatching on the side facing away from the sector's star.
+function polyPath(g,o){ o.pts.forEach((p,i)=>{ if(i) g.lineTo(o.x+p[0],o.y+p[1]); else g.moveTo(o.x+p[0],o.y+p[1]); }); g.closePath(); }
 function shapePath(g,o){
  g.beginPath();
  if(o.kind==='rect') g.rect(o.x,o.y,o.w,o.h);
- else if(o.kind==='poly'){ o.pts.forEach((p,i)=>{ if(i) g.lineTo(o.x+p[0],o.y+p[1]); else g.moveTo(o.x+p[0],o.y+p[1]); }); g.closePath(); }
+ else if(o.kind==='poly') polyPath(g,o);
  else g.arc(o.x,o.y,o.r,0,6.283);
+}
+// hatching at 4px, clipped to whatever path is current and to the half of
+// (cx,cy,rad) facing away from the star
+function hatchShadow(g,cx,cy,rad,Lx,Ly,P){
+ g.clip();
+ g.translate(cx,cy); g.rotate(Math.atan2(Ly,Lx)); g.beginPath(); g.rect(-rad*0.15,-rad-4,rad*2+8,rad*2+8); g.clip();
+ g.rotate(0.7); g.strokeStyle=P.faint; g.lineWidth=1; g.beginPath();
+ for(let d=-rad*1.6;d<rad*1.6;d+=4){ g.moveTo(d,-rad*1.6); g.lineTo(d,rad*1.6); }
+ g.stroke();
+}
+function polySpokes(g,o){ g.beginPath(); for(const p of o.pts){ g.moveTo(o.x,o.y); g.lineTo(o.x+p[0]*0.8,o.y+p[1]*0.8); } g.stroke(); }
+function paintObstacles(g,obs,Lx,Ly,P){
+ const groups={};
+ for(const o of obs) if(o.grp!==undefined&&o.kind==='poly') (groups[o.grp]||(groups[o.grp]=[])).push(o);
+ for(const o of obs){ const G=o.grp!==undefined?groups[o.grp]:null;
+  if(G&&G.length>1){ if(G[0]===o) engraveGroup(g,G,Lx,Ly,P); }
+  else engrave(g,o,Lx,Ly,P); }
 }
 function engrave(g,o,Lx,Ly,P){
  const cx=o.kind==='rect'?o.x+o.w/2:o.x, cy=o.kind==='rect'?o.y+o.h/2:o.y;
  const rad=o.kind==='rect'?Math.hypot(o.w,o.h)/2:o.r;
  shapePath(g,o); g.fillStyle=P.hull; g.fill();
  // hatching, clipped to the shadowed half
- g.save(); shapePath(g,o); g.clip();
- g.translate(cx,cy); g.rotate(Math.atan2(Ly,Lx)); g.beginPath(); g.rect(-rad*0.15,-rad-4,rad*2+8,rad*2+8); g.clip();
- g.rotate(0.7); g.strokeStyle=P.faint; g.lineWidth=1; g.beginPath();
- for(let d=-rad*1.6;d<rad*1.6;d+=4){ g.moveTo(d,-rad*1.6); g.lineTo(d,rad*1.6); }
- g.stroke(); g.restore();
+ g.save(); shapePath(g,o); hatchShadow(g,cx,cy,rad,Lx,Ly,P); g.restore();
  // inner detail: seams, tank rings and facet lines read as built things
  g.strokeStyle=P.faint; g.lineWidth=1;
  if(o.kind==='rect'){ if(o.w>60&&o.h>14){ g.beginPath(); g.moveTo(o.x+5,o.y+o.h*0.5); g.lineTo(o.x+o.w-5,o.y+o.h*0.5); g.stroke(); } }
- else if(o.kind==='poly'){ g.beginPath(); for(const p of o.pts){ g.moveTo(o.x,o.y); g.lineTo(o.x+p[0]*0.8,o.y+p[1]*0.8); } g.stroke(); }
+ else if(o.kind==='poly') polySpokes(g,o);
  else { g.beginPath(); g.arc(o.x,o.y,o.r*0.62,0,6.283); g.stroke(); }
  // outline, then the lit edges brighter
  shapePath(g,o); g.strokeStyle=P.dim; g.lineWidth=1.25; g.stroke();
@@ -3175,6 +3417,69 @@ function engrave(g,o,Lx,Ly,P){
    const ex=b[0]-a[0], ey=b[1]-a[1], L=Math.hypot(ex,ey)||1; let nx=ey/L, ny=-ex/L;
    const mx=(a[0]+b[0])/2-cx, my=(a[1]+b[1])/2-cy; if(nx*mx+ny*my<0){ nx=-nx; ny=-ny; }
    if(-(nx*Lx+ny*Ly)>0.25){ g.moveTo(a[0],a[1]); g.lineTo(b[0],b[1]); } } }
+ g.stroke();
+}
+// Compound wreckage is painted as one hull. Pieces fill in order, each laid
+// over the last with its own facet lines; the hatching and its shadow side
+// come from the whole group; the outline and the lit silver edge run only
+// round the union. Where a later piece's edge lies over an earlier piece it
+// stays as a faint seam, the only sign the hull was ever two.
+// segInPoly: the span [t0,t1] of segment a->b strictly inside convex poly q
+// (inset half a pixel, so a border two pieces share counts as outside), or null.
+function segInPoly(ax,ay,bx,by,q){
+ let t0=0, t1=1; const p=q.pts, n=p.length, dx=bx-ax, dy=by-ay;
+ for(let i=0;i<n;i++){
+  const px=q.x+p[i][0], py=q.y+p[i][1], ex=q.x+p[(i+1)%n][0]-px, ey=q.y+p[(i+1)%n][1]-py;
+  const num=ex*(ay-py)-ey*(ax-px)-0.5*Math.hypot(ex,ey), den=ex*dy-ey*dx;
+  if(Math.abs(den)<1e-9){ if(num<0) return null; continue; }
+  const t=-num/den; if(den>0){ if(t>t0) t0=t; } else if(t<t1) t1=t;
+  if(t0>=t1) return null;
+ }
+ return [t0,t1];
+}
+// the spans of a->b (within `from`, default all of it) outside every poly in qs
+function segOutside(ax,ay,bx,by,qs,from){
+ let segs=from||[[0,1]];
+ for(const q of qs){ const iv=segInPoly(ax,ay,bx,by,q); if(!iv) continue; const out=[];
+  for(const s of segs){ if(iv[1]<=s[0]||iv[0]>=s[1]){ out.push(s); continue; } if(iv[0]>s[0]) out.push([s[0],iv[0]]); if(iv[1]<s[1]) out.push([iv[1],s[1]]); }
+  segs=out; if(!segs.length) break; }
+ return segs;
+}
+// Every edge span of the group, sorted into outline (on the union's rim) and
+// seam (a piece's edge lying over an earlier piece, not under a later one).
+// Each span carries its piece's outward normal for the light test.
+function groupEdges(G){
+ const rim=[], seam=[];
+ for(let i=0;i<G.length;i++){ const o=G[i], n=o.pts.length, lower=G.slice(0,i), upper=G.slice(i+1);
+  for(let k=0;k<n;k++){
+   const ax=o.x+o.pts[k][0], ay=o.y+o.pts[k][1], bx=o.x+o.pts[(k+1)%n][0], by=o.y+o.pts[(k+1)%n][1];
+   const L=Math.hypot(bx-ax,by-ay)||1, nx=(by-ay)/L, ny=-(bx-ax)/L; // outward: mkPoly fixes the winding
+   const shown=segOutside(ax,ay,bx,by,upper), out=segOutside(ax,ay,bx,by,lower,shown);
+   for(const s of out) rim.push([ax+(bx-ax)*s[0],ay+(by-ay)*s[0],ax+(bx-ax)*s[1],ay+(by-ay)*s[1],nx,ny]);
+   // seam = shown minus out
+   for(const s of shown){ let lo=s[0];
+    for(const u of out){ if(u[1]<=s[0]||u[0]>=s[1]) continue; if(u[0]>lo+1e-6) seam.push([ax+(bx-ax)*lo,ay+(by-ay)*lo,ax+(bx-ax)*u[0],ay+(by-ay)*u[0]]); lo=Math.max(lo,u[1]); }
+    if(s[1]>lo+1e-6) seam.push([ax+(bx-ax)*lo,ay+(by-ay)*lo,ax+(bx-ax)*s[1],ay+(by-ay)*s[1]]); }
+  }
+ }
+ return {rim,seam};
+}
+function engraveGroup(g,G,Lx,Ly,P){
+ let x0=1e9, y0=1e9, x1=-1e9, y1=-1e9;
+ for(const o of G) for(const p of o.pts){ const x=o.x+p[0], y=o.y+p[1]; if(x<x0) x0=x; if(x>x1) x1=x; if(y<y0) y0=y; if(y>y1) y1=y; }
+ const cx=(x0+x1)/2, cy=(y0+y1)/2, rad=Math.hypot(x1-x0,y1-y0)/2;
+ g.strokeStyle=P.faint; g.lineWidth=1;
+ for(const o of G){ shapePath(g,o); g.fillStyle=P.hull; g.fill(); g.strokeStyle=P.faint; g.lineWidth=1; polySpokes(g,o); }
+ // one shadow for the whole hull: every piece winds the same way, so the
+ // nonzero clip of all of them is their union
+ g.save(); g.beginPath(); for(const o of G) polyPath(g,o); hatchShadow(g,cx,cy,rad,Lx,Ly,P); g.restore();
+ const E=groupEdges(G);
+ g.strokeStyle=P.faint; g.lineWidth=1; g.beginPath();
+ for(const s of E.seam){ g.moveTo(s[0],s[1]); g.lineTo(s[2],s[3]); } g.stroke();
+ g.strokeStyle=P.dim; g.lineWidth=1.25; g.beginPath();
+ for(const s of E.rim){ g.moveTo(s[0],s[1]); g.lineTo(s[2],s[3]); } g.stroke();
+ g.strokeStyle=P.metal; g.lineWidth=1.5; g.beginPath();
+ for(const s of E.rim) if(-(s[4]*Lx+s[5]*Ly)>0.25){ g.moveTo(s[0],s[1]); g.lineTo(s[2],s[3]); }
  g.stroke();
 }
 
@@ -3814,7 +4119,7 @@ function drawTitle(){
 // ---------- galaxy hub: the pulsar map ----------
 function drawGalaxy(){
  // the chart takes on the light of the sector it points at
- const s=galaxySel, th=THEMES[s%THEMES.length];
+ const s=galaxySel, th=sectorTheme(s);
  ctx.fillStyle=th.pal.ground; ctx.fillRect(0,0,W,H);
  drawFarStars(runSeed%512,0);
  heading('SECTOR '+String(s+1).padStart(2,'0')+' · '+th.name.toUpperCase(),W<600?16:64,86,W<420?13:(W<600?14:18),K.gold);
@@ -4727,7 +5032,7 @@ function srSummary(){
   if(state==='title'){ const sv=readRun();
    if(titleConfirm&&titleConfirmT>performance.now()) return 'Abandon the saved run? Press N again to confirm — the saved run is lost. Or Enter continues it.';
   return 'KRIEFNE, roguelite. '+(sv?'Enter continues at '+sectorName(sv.galaxySel|0)+'. N starts a new run.':'Enter starts a run.')+keys; }
- if(state==='galaxy'){ const th=THEMES[galaxySel%THEMES.length];
+ if(state==='galaxy'){ const th=sectorTheme(galaxySel);
   const note=hubNote&&performance.now()-hubNote.at<8000?hubNote.txt+' ':'';
   return note+'Galaxy chart. Sector '+(galaxySel+1)+', '+th.name+(isBossSector(galaxySel)?', boss nest':'')+'. '+galaxyLore(galaxySel,th.name)+(galaxySel<=clearedMax?' Cleared: a replay banks no XP and restores the hull after.':'')+' Arrows select, Enter sets course, Escape returns to title.'; }
  if(state==='playing'){ if(!player) return '';
@@ -4795,6 +5100,21 @@ arena={seed:1337, obs:[], theme:THEMES[0], spawns:[], port:{x:800,y:500}, valida
    get viewScale(){ return viewScale; }, get devicePx(){ return devicePx; },
     get vw(){ return W; }, get vh(){ return H; }, get btn(){ return BTN; }, draftLayout, draftRect, rowRects, helpTabRects, codexTabRects, codexRects, layoutButtons,
     coachStep, coachLines, dismissCoach, coachSeen, markCoach, drawCoach, updateCoach }; }catch(e){}
+// bullet hooks. defineProperties, not Object.assign: assign would read the
+// getter once and pin a stale array (bullets is reassigned on every sector load).
+try{ Object.defineProperties(window.__kriefne,Object.getOwnPropertyDescriptors({ get bullets(){ return bullets; }, enemyHitT, get hitWhat(){ return HIT; }, SEG_PASS })); }catch(e){}
+// map hooks: generate a sector's map without loading it (the field bounds are
+// set for that sector, then put back), and the pieces the maps suite audits
+try{ Object.assign(window.__kriefne,{
+ sectorTheme, mkSectorPal, nearRed, pointBlocked, polyDist, groupEdges, obsClash, place, worldLayer, get layouts(){ return LAYOUTS; },
+ pushOut(obs,e){ const keep=arena.obs; arena.obs=obs; try{ resolveObstacles(e); } finally{ arena.obs=keep; } },
+ mapProbe(seed,idx,types){
+  const keep=[WW,HH,PX0,PY0,PX1,PY1], wz=sectorWorld(idx);
+  WW=wz.w; HH=wz.h; PX0=WALL; PY0=HUD_H+WALL; PX1=WW-WALL; PY1=HH-WALL;
+  try{ const g=genArenaValidated(seed>>>0,idx,types||[]);
+   return { map:g, bounds:{x0:PX0,y0:PY0,x1:PX1,y1:PY1}, drop:{x:(PX0+PX1)/2,y:(PY0+PY1)/2} }; }
+  finally{ [WW,HH,PX0,PY0,PX1,PY1]=keep; } }
+}); }catch(e){}
 // ---------- DevX lab hooks ----------
 // Inert unless window.__KRIEFNE_DEV===true is set before this file loads (only
 // DevX/lab.html does). `__dev` is read by five one-line guarded touch-points:
@@ -4812,7 +5132,7 @@ try{ if(window.__KRIEFNE_DEV===true&&window.__kriefne){
   hose:{array:3,seek:2,dmg:4,rate:3},
   empty:{}
  };
- const HC={ body:'#39d0ff', core:'#ffffff', part:'#ffd23c', seg:'#c38bff', haz:'#ff9a3c', mark:'#ff5ad1', beam:'#ff5ad1', ring:'#ff6b6b', player:'#7dff7a', pb:'#bfe8f3', eb:'#ff6b6b' };
+ const HC={ body:'#39d0ff', part:'#ffd23c', seg:'#c38bff', haz:'#ff9a3c', mark:'#ff5ad1', beam:'#ff5ad1', ring:'#ff6b6b', player:'#7dff7a', pb:'#bfe8f3', eb:'#ff6b6b' };
  const hpSeen=new Map(), removed=new Set(), fights=[];
  let lastArena=null, lastHp=null, fight=null, fightN=0, dpsWin=[];
  const r1=v=>Math.round(v*10)/10;
@@ -4889,9 +5209,9 @@ try{ if(window.__KRIEFNE_DEV===true&&window.__kriefne){
  }
  // ----- overlay -----
  function circ(x,y,r,col,w,dash){ if(!(r>0)||!isFinite(x)||!isFinite(y)) return; ctx.setLineDash(dash||[]); ctx.strokeStyle=col; ctx.lineWidth=w||1; ctx.beginPath(); ctx.arc(x,y,r,0,6.283); ctx.stroke(); }
- function bodyAng(e){ const a=[e.hitAng,e.ang,e.rot,e.facing]; for(const v of a) if(typeof v==='number'&&isFinite(v)) return v; return 0; }
- function local(e,lx,ly){ const a=bodyAng(e), c=Math.cos(a), s=Math.sin(a), sc=e.vscale||1; return {x:e.x+(lx*c-ly*s)*sc, y:e.y+(lx*s+ly*c)*sc}; }
- function partPos(e,q){ if(q.wx!=null) return {x:q.wx,y:q.wy}; if(q.ox!=null) return local(e,q.ox,q.oy); if(q.lx!=null) return local(e,q.lx,q.ly); return {x:q.x,y:q.y}; }
+ // Same shapes enemyHitT tests (all world-space): body at the drawn scale,
+ // hitParts, live parts, segments.
+ function partPos(e,q){ return {x:q.x,y:q.y}; }
  function paintBeam(b){
   if(!b) return; ctx.setLineDash(b.live===false||b.warn>0?[6,4]:[]); ctx.strokeStyle=HC.beam; ctx.lineWidth=1;
   let x1,y1,x2,y2; if(b.x1!=null){ x1=b.x1; y1=b.y1; x2=b.x2; y2=b.y2; } else if(b.a!=null){ x1=b.x; y1=b.y; const L=b.len||b.reach||600; x2=x1+Math.cos(b.a)*L; y2=y1+Math.sin(b.a)*L; } else return;
@@ -4909,9 +5229,8 @@ try{ if(window.__KRIEFNE_DEV===true&&window.__kriefne){
   for(const a of bl) if(a) for(const b of a) paintBeam(b);
   for(const g of rings) if(g.dmg>0&&!g.own) circ(g.x,g.y,g.r,HC.ring,1,[3,5]);
   for(const e of enemies){
-   const sc=e.vscale||1; circ(e.x,e.y,e.r*sc,HC.body,e.type==='boss'?1.5:1);
-   if(Math.abs(sc-1)>0.005) circ(e.x,e.y,e.r,HC.core,1,[2,3]); // current hit-test radius, when it differs from the drawn one
-   if(Array.isArray(e.hitParts)) for(const q of e.hitParts){ const c=local(e,q.x||0,q.y||0); circ(c.x,c.y,(q.r||0)*sc,HC.part,1); }
+   circ(e.x,e.y,e.r*(e.vscale||1),HC.body,e.type==='boss'?1.5:1);
+   if(Array.isArray(e.hitParts)) for(const q of e.hitParts) circ(q.x,q.y,q.r,HC.body,1,[4,2]);
    if(Array.isArray(e.parts)) for(const q of e.parts){ if(q.dead||q.hp<=0) continue; const c=partPos(e,q); circ(c.x,c.y,q.r,HC.part,1.5,[5,2]); }
    if(Array.isArray(e.segs)) for(const q of e.segs) circ(q.x,q.y,q.r,HC.seg,1);
   }
