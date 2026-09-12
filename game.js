@@ -546,18 +546,52 @@ function galaxyLore(s,thName){
   'Dead relays on every band. Somebody built all this to be heard.'];
  return pools[(s+runSeed)%pools.length];
 }
-// normal-sector composition: totals rise with depth, new species unlock along the way.
-// S1 fields ~11 hostiles, S4 ~33, deep sectors push toward 45 — density keeps pace
-// with the growing worlds so sectors feel populated, not empty.
+// normal-sector composition (spec §7): the total keeps growing with depth —
+// about 12 + 2.2 per sector, bounded by the world's area (one hostile per 18k
+// px², which only bites past S90) — instead of flatlining at 48 by S12. Each
+// species unlocks where it always has, then holds a fixed share; the split is
+// largest-remainder, so the counts always sum to the total.
+const COMP_W={ drone:[0,8], stalker:[0,4], mite:[1,3], tempest:[1,2.6], sniper:[2,2.6], brute:[3,1.8] }; // [first sector idx, share]
+function compTotal(s){ const w=sectorWorld(s); return Math.round(Math.min(12+2.2*(s+1),w.w*w.h/18000)); }
 function compFor(s){
- return {
-  drone: 8+Math.min(8,s),
-  stalker: 3+Math.min(6,((s+1)/2)|0),
-  mite: s>=1?3+Math.min(4,s):0,
-  tempest: s>=1?2+Math.min(4,(s/2)|0):0,
-  sniper: s>=2?2+Math.min(4,((s-1)/2)|0):0,
-  brute: s>=3?1+Math.min(3,((s-2)/2)|0):0
- };
+ const tot=compTotal(s), out={}, rem=[];
+ let wsum=0, used=0;
+ for(const k in COMP_W) if(s>=COMP_W[k][0]) wsum+=COMP_W[k][1];
+ for(const k in COMP_W){
+  if(s<COMP_W[k][0]){ out[k]=0; continue; }
+  const x=tot*COMP_W[k][1]/wsum; out[k]=Math.floor(x); used+=out[k]; rem.push([x-out[k],k]);
+ }
+ rem.sort((a,b)=>b[0]-a[0]);
+ for(let i=0;used<tot;i++,used++) out[rem[i%rem.length][1]]++;
+ return out;
+}
+// XP per normal sector is held where the old flat-lining roster put it: the
+// spec changes the PACE of a sector, not how many drafts it funds (the whole
+// balance model assumes ~1.15 picks per sector). So each foe pays its base XP
+// times old-roster-size / new-roster-size — more than before early, where the
+// new roster is smaller, and less deep down, where it is up to 4x larger.
+function compXpScale(s){
+ const old=11+Math.min(8,s)+Math.min(6,((s+1)/2)|0)+(s>=1?5+Math.min(4,s)+Math.min(4,(s/2)|0):0)
+  +(s>=2?2+Math.min(4,((s-1)/2)|0):0)+(s>=3?1+Math.min(3,((s-2)/2)|0):0);
+ return old/compTotal(s);
+}
+// Normal-sector wave plan (spec §7). The opening pack is small; the rest of the
+// roster streams in from 700-1000px out, a pack at a time, released evenly over
+// a planned window, so a strong ship is paced by the stream rather than by how
+// fast it can melt a static field. The alive cap rises with depth; a ship too
+// weak to keep up is paced by the cap instead and simply takes longer.
+//   win     seconds over which the queue is released (tune: fight sim, §10)
+//   pack    hostiles per release; every = win / releases
+const WAVE_WIN=[56,84,110]; // S1-S9, S11-S49, S51+ (the spec §7 bands)
+const _wavePlans={};
+function wavePlan(s){
+ if(_wavePlans[s]) return _wavePlans[s];
+ const n=s+1, tot=compTotal(s);
+ const initial=Math.min(tot,4+Math.min(8,(s/6)|0));
+ const pack=Math.min(7,1+(((s+3)/10)|0));
+ const win=n<=9?WAVE_WIN[0]:(n<=49?WAVE_WIN[1]:WAVE_WIN[2]);
+ const every=win/Math.max(1,Math.ceil((tot-initial)/pack));
+ return (_wavePlans[s]={ initial, pack, every, cap:10+Math.min(24,(s/3)|0), win });
 }
 function sectorWorld(s){ return { w:Math.min(2400,1200+s*130), h:Math.min(1600,880+s*85) }; }
 // r: rarity 0 common (w10) / 1 uncommon (w5) / 2 rare (w2, RARE tag + jingle); drawn as 1/2/3 rim ticks
@@ -1147,13 +1181,24 @@ function seg(a,lo,hi){ return Math.max(0,Math.min(a,hi)-lo); }
 function eHpScale(a){ return (1+0.32*Math.min(a,4))*Math.pow(EXP_HP,seg(a,4,59))*Math.pow(EXP_HP_LATE,seg(a,59,109))*Math.pow(EXP_HP_APEX,Math.max(0,a-109)); }
 function eDmgScale(a){ return (1+0.10*Math.min(a,6))*Math.pow(EXP_DMG,seg(a,6,59))*Math.pow(EXP_DMG_LATE,seg(a,59,109))*Math.pow(EXP_DMG_APEX,Math.max(0,a-109)); }
 const EBASE={ drone:{hp:24,sp:130,dmg:8,r:10,xp:3}, stalker:{hp:40,sp:110,dmg:12,r:11,xp:4}, sniper:{hp:30,sp:70,dmg:10,r:10,xp:4}, brute:{hp:130,sp:75,dmg:20,r:18,xp:8}, boss:{hp:1500,sp:90,dmg:15,r:30,xp:50}, mite:{hp:18,sp:155,dmg:6,r:7,xp:2}, tempest:{hp:46,sp:95,dmg:9,r:11,xp:5} };
+// Ordinary enemies get their own HP curve on top of eHpScale (spec §7), fitted
+// by the fight simulator (test.js --only fightsim). eHpScale itself is the boss
+// engine's and stays put. S1-S9 are left alone (the early sectors are already
+// paced by a thin gun); from S9 a linear lift of `ramp` per sector, steepening
+// by `late` from S60, up to +`cap`: x1.44 at S46, x1.96 at S71, x2.86 at S99. A
+// multi-barrel build is still paced by the stream, not by the HP; the lift is
+// what keeps a mixed build from strolling through deep sectors, and it stops
+// short of walling one through the S31-S61 stretch (the sim's Balanced build).
+const FOE_HP={ ramp:0.012, from:8, late:0.02, lateFrom:59, cap:2.2 };
+function eHpScaleFoe(a){ const f=FOE_HP; return eHpScale(a)*(1+Math.min(f.cap,f.ramp*Math.max(0,a-f.from)+f.late*Math.max(0,a-f.lateFrom))); }
 let uidC=1;
 function mkEnemy(type,x,y,a){
- const hm=eHpScale(a), dm=eDmgScale(a);
+ const boss=type==='boss';
+ const hm=boss?eHpScale(a):eHpScaleFoe(a), dm=eDmgScale(a);
  const b=EBASE[type];
  const j=0.9+Math.random()*0.2;
   return { type, kind:null, x, y, r:b.r, hp:b.hp*hm, maxhp:b.hp*hm, sp:b.sp*j*(1+Math.min(0.25,0.02*a)), dmg:Math.round(b.dmg*dm),
-   xp:b.xp, uid:uidC++, orbCd:0, slowT:0, burnT:0, burnDps:0, lastHit:timeSec, t:Math.random()*10, fireCd:1+Math.random()*1.5, slamCd:1.5, windup:0,
+   xp:(boss||isBossSector(a))?b.xp:b.xp*compXpScale(a), uid:uidC++, orbCd:0, slowT:0, burnT:0, burnDps:0, lastHit:timeSec, t:Math.random()*10, fireCd:1+Math.random()*1.5, slamCd:1.5, windup:0,
   dashState:0, strafeT:0.8+Math.random()*0.8, dashT:0, dashDx:0, dashDy:0, strafeDir:Math.random()<0.5?1:-1,
   aimT:0, flash:0, contactCd:0, phase:0, phaseT:0, burstT:0, charging:false, chargeDx:0, chargeDy:0, teleCd:2, spirT:0,
   mode:'hunt', modeT:8, warnT:0, warnX:0, warnY:0, phased:false, spawned:[], spdMul:1, bname:'',
@@ -1485,8 +1530,8 @@ function loadArena(i){
  const g=genArenaValidated(runSeed,i,types);
  arena=g;
  // opening wave materializes on load; the rest streams in off-screen as the round progresses.
- // The opening pack scales with depth so big new maps start busy, not vacant.
- const initial=boss?types.length:Math.min(types.length,6+s);
+ // The opening pack stays small (spec §7): the sector is the stream, not the first screen.
+ const initial=boss?types.length:Math.min(types.length,wavePlan(s).initial);
  types.forEach((ty,k)=>{
   if(k<initial){
    const sp=g.spawns[k]||{x:PX0+80,y:PY0+80};
@@ -1504,20 +1549,34 @@ function loadArena(i){
 }
 // hostiles remaining this sector (alive + queued)
 function hostiles(){ return enemies.length+spawnQueue.length; }
-// reinforcement spawn point: off-screen edge, far from the player, out of walls
-function spawnEdgePos(){
- const p=player, m=36;
- for(let t=0;t<12;t++){
-  const a=Math.random()*6.283, d=560+Math.random()*220;
+// Spawn point far from the player and out of walls. Called bare (boss code) it
+// keeps its old 560-780px ring. Reinforcements pass a band (700-1000px, spec
+// §7) and then also want to be OFF-SCREEN, so a pack is seen flying in rather
+// than popping up beside the ship; a world too small to hide one (S1 fits on a
+// big monitor) settles for the farthest free point found.
+function spawnEdgePos(lo,hi){
+ const p=player, m=36, band=lo!==undefined;
+ if(!band){ lo=560; hi=780; }
+ let best=null, bd=0;
+ for(let t=0;t<(band?20:12);t++){
+  const a=Math.random()*6.283, d=lo+Math.random()*(hi-lo);
   const x=clamp(p.x+Math.cos(a)*d,PX0+m,PX1-m), y=clamp(p.y+Math.sin(a)*d,PY0+m,PY1-m);
-  const dx=x-p.x, dy=y-p.y;
-  if(dx*dx+dy*dy>380*380&&!pointBlocked(x,y,24,arena.obs)) return {x,y};
+  const dx=x-p.x, dy=y-p.y, d2=dx*dx+dy*dy;
+  if(d2<=380*380||pointBlocked(x,y,24,arena.obs)) continue;
+  if(!band) return {x,y};
+  const off=x<cam.x-40||x>cam.x+W+40||y<cam.y-40||y>cam.y+H+40;
+  if(off&&d2>=lo*lo*0.64) return {x,y};
+  if(d2>bd){ bd=d2; best={x,y}; }
  }
+ if(best) return best;
  const fx=p.x<(PX0+PX1)/2?PX1-m-40:PX0+m+40, fy=p.y<(PY0+PY1)/2?PY1-m-40:PY0+m+40;
  return {x:clamp(fx,PX0+m,PX1-m), y:clamp(fy,PY0+m,PY1-m)};
 }
-function spawnEnemy(type){
- const q=spawnEdgePos();
+// q: where to put it (a pack shares one point, jittered); default a fresh far point
+function spawnEnemy(type,q){
+ q=q||spawnEdgePos(700,1000);
+ if(q.pack){ const a=Math.random()*6.283, r=18+Math.random()*44, x=clamp(q.x+Math.cos(a)*r,PX0+36,PX1-36), y=clamp(q.y+Math.sin(a)*r,PY0+36,PY1-36);
+  if(!pointBlocked(x,y,20,arena.obs)) q={x,y}; }
  const e=type.indexOf('boss:')===0?mkBoss(type.slice(5),q.x,q.y,arenaIdx):mkEnemy(type,q.x,q.y,arenaIdx);
  e.spawnT=0.9; enemies.push(e);
  rings.push({x:q.x,y:q.y,r:6,maxR:46,spd:220,dmg:0,hit:true}); // harmless spawn ripple
@@ -2513,21 +2572,21 @@ function update(dt){
    }
     else if(e.type==='sniper'){
      // deep snipers aim faster and cycle shots quicker — keep strafing
-     if(e.aimT>0){ e.aimT-=dt; e.aimX=nx; e.aimY=ny; if(e.aimT<=0){ ebullets.push({x:e.x,y:e.y,vx:nx*300,vy:ny*300,r:5,dmg:e.dmg,life:3,heavy:true}); SFX.eshoot(); e.fireCd=Math.max(1.4,2.0-arenaIdx*0.1); e.reloc=0.5; } }
+     if(e.aimT>0){ e.aimT-=dt; e.aimX=nx; e.aimY=ny; if(e.aimT<=0){ ebullets.push({x:e.x,y:e.y,vx:nx*300,vy:ny*300,r:5,dmg:e.dmg,life:3,heavy:true}); SFX.eshoot(); e.fireCd=Math.max(arenaIdx>=39?1.15:1.4,2.0-arenaIdx*0.1); e.reloc=0.5; } }
      else { const ms=e.sp*sF; if(d<280){ e.x-=nx*ms*dt; e.y-=ny*ms*dt; } else if(d>430){ e.x+=nx*ms*dt; e.y+=ny*ms*dt; } else { e.x+=Math.cos(e.t*1.5)*30*dt; e.y+=Math.sin(e.t*1.5)*30*dt; }
       if(e.reloc>0){ e.reloc-=dt; e.x+=-ny*ms*dt; e.y+=nx*ms*0.5*dt; }
-      e.fireCd-=dt; if(e.fireCd<=0&&d<580){ e.aimT=arenaIdx>=5?0.35:0.5; } }
+      e.fireCd-=dt; if(e.fireCd<=0&&d<580){ e.aimT=arenaIdx>=39?0.28:(arenaIdx>=5?0.35:0.5); } }
     }
     else if(e.type==='tempest'){ // weaver: holds ~340 range, telegraphed bolt spread —
      // 5-wide past S6, cycling faster with depth
-     if(e.aimT>0){ e.aimT-=dt; if(e.aimT<=0){ const base=Math.atan2(dy,dx); const fan=arenaIdx>=6?2:1; for(let k=-fan;k<=fan;k++){ const a=base+k*0.18; ebullets.push({x:e.x,y:e.y,vx:Math.cos(a)*280,vy:Math.sin(a)*280,r:5,dmg:e.dmg,life:3,heavy:true}); } SFX.eshoot(); e.fireCd=Math.max(1.8,2.6-arenaIdx*0.12); } }
+     if(e.aimT>0){ e.aimT-=dt; if(e.aimT<=0){ const base=Math.atan2(dy,dx); const fan=arenaIdx>=49?3:(arenaIdx>=6?2:1); for(let k=-fan;k<=fan;k++){ const a=base+k*0.18; ebullets.push({x:e.x,y:e.y,vx:Math.cos(a)*280,vy:Math.sin(a)*280,r:5,dmg:e.dmg,life:3,heavy:true}); } SFX.eshoot(); e.fireCd=Math.max(1.8,2.6-arenaIdx*0.12); } }
      else { const ms=e.sp*sF; if(d<280){ e.x-=nx*ms*dt; e.y-=ny*ms*dt; } else if(d>400){ e.x+=nx*ms*dt; e.y+=ny*ms*dt; } else { e.x+=-ny*ms*0.8*dt; e.y+=nx*ms*0.8*dt; }
       e.fireCd-=dt; if(e.fireCd<=0&&d<560){ e.aimT=arenaIdx>=5?0.28:0.35; } }
     }
     else if(e.type==='brute'){
      // deep brutes slam more often with wider rings — stay out of the band
-     if(e.windup>0){ e.windup-=dt; if(e.windup<=0){ rings.push({x:e.x,y:e.y,r:20,maxR:110+Math.min(60,arenaIdx*6),spd:260,dmg:e.dmg,hit:false,heavy:true}); SFX.ring(); if(settings.shake) shake=Math.min(10,shake+3); spawnBurst(e.x,e.y,12,K.red,200,0.5,3); } }
-     else { const sv=steer(e,nx,ny); e.x+=sv[0]*e.sp*sF*dt; e.y+=sv[1]*e.sp*sF*dt; e.slamCd-=dt; if(d<95&&e.slamCd<=0){ e.windup=0.6; e.slamCd=Math.max(1.6,2.6-arenaIdx*0.12); } }
+     if(e.windup>0){ e.windup-=dt; if(e.windup<=0){ rings.push({x:e.x,y:e.y,r:20,maxR:110+Math.min(60,arenaIdx*6)+(arenaIdx>=59?30:0),spd:260,dmg:e.dmg,hit:false,heavy:true}); SFX.ring(); if(settings.shake) shake=Math.min(10,shake+3); spawnBurst(e.x,e.y,12,K.red,200,0.5,3); } }
+     else { const sv=steer(e,nx,ny); e.x+=sv[0]*e.sp*sF*dt; e.y+=sv[1]*e.sp*sF*dt; e.slamCd-=dt; if(d<95&&e.slamCd<=0){ e.windup=0.6; e.slamCd=Math.max(arenaIdx>=59?1.3:1.6,2.6-arenaIdx*0.12); } }
     }
    else if(e.type==='boss'){
     const enrage=e.hp<e.maxhp*0.3||e.hardEnrage;
@@ -2609,14 +2668,16 @@ function update(dt){
     gainXp(g.v); if(state!=='playing') break; }
   }
   // wave director: reinforcements stream in from off-screen as the round progresses.
-  // Deeper sectors trickle faster, in bigger packs (max 3), against a higher alive cap.
+  // One pack per release, all from one far point (wavePlan: pack size, cadence,
+  // alive cap). A release held by the cap goes out the moment there is room.
   if(spawnQueue.length>0&&!(__dev&&__dev.spawnsOff)){ // DevX lab only: spawns off
    spawnT-=dt;
-   const cap=8+Math.min(8,arenaIdx);
-   if(spawnT<=0&&enemies.length<cap){
-    spawnT=Math.max(0.5,2.0-arenaIdx*0.18);
-    let n=1+(arenaIdx>=2?1:0)+(arenaIdx>=5?1:0);
-    while(n-->0&&spawnQueue.length>0&&enemies.length<cap) spawnEnemy(spawnQueue.shift());
+   const wp=wavePlan(arenaIdx);
+   if(spawnT<=0&&enemies.length<wp.cap){
+    spawnT=wp.every;
+    const q=spawnEdgePos(700,1000); q.pack=true;
+    let n=wp.pack;
+    while(n-->0&&spawnQueue.length>0&&enemies.length<wp.cap) spawnEnemy(spawnQueue.shift(),q);
    }
   }
   if(enemies.length===0&&spawnQueue.length===0&&!portal){
@@ -5396,6 +5457,10 @@ try{ if(window.__KRIEFNE_DEV===true&&window.__kriefne){
   fightLog:{ get(){ return { current:fightJSON(fight), history:fights.map(fightJSON) }; }, configurable:true, enumerable:true }
  });
 }}catch(e){ try{ console.warn('DevX hooks failed', e); }catch(_){} }
+// fight-simulator hooks (test.js --only fightsim): pacing internals, readable
+// and, for fitting only, tunable without editing the file.
+try{ Object.assign(window.__kriefne,{ compTotal, compXpScale, wavePlan, eHpScale, eHpScaleFoe, get foeHp(){ return FOE_HP; }, get waveWin(){ return WAVE_WIN; },
+ retuneWaves(){ for(const k in _wavePlans) delete _wavePlans[k]; } }); }catch(e){}
 fitCanvas();
 requestAnimationFrame(frame);
 })();
