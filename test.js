@@ -627,6 +627,37 @@ const FIGHTSIM_FULL = process.argv.indexOf('--full') >= 0; // every build on eve
 // Picks banked on arrival at sector n (1-based): the same 1.15 per cleared
 // sector the analytic model uses for a player who pushes forward.
 function simPicks(n) { return Math.round((n - 1) * 1.15); }
+// Hunting across a debris field: a straight line plus the game's 48px steering
+// probe wedges on the far side of a wall from its target forever. So the pilot
+// runs a BFS on a 40px grid of the (static) obstacles and flies at a cell a few
+// steps down the path.
+function simWaypoint(api, st, tx, ty) {
+ const C = 40, p = api.player;
+ if (!st.grid) {
+  const cols = Math.ceil(st.w / C), rows = Math.ceil(st.h / C), free = new Uint8Array(cols * rows), obs = api.arena.obs;
+  for (let j = 0; j < rows; j++) for (let i = 0; i < cols; i++) free[j * cols + i] = api.pointBlocked(i * C + C / 2, j * C + C / 2, p.r + 6, obs) ? 0 : 1;
+  st.grid = { cols, rows, free, prev: new Int32Array(cols * rows) };
+ }
+ const g = st.grid, cell = (x, y) => Math.max(0, Math.min(g.rows - 1, (y / C) | 0)) * g.cols + Math.max(0, Math.min(g.cols - 1, (x / C) | 0));
+ const a = cell(p.x, p.y), b = cell(tx, ty);
+ if (a === b) return [tx, ty];
+ g.prev.fill(-1); g.prev[a] = a;
+ const q = [a];
+ for (let h = 0; h < q.length && g.prev[b] < 0; h++) {
+  const c = q[h], ci = c % g.cols, cj = (c / g.cols) | 0;
+  for (const [di, dj] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+   const ni = ci + di, nj = cj + dj;
+   if (ni < 0 || nj < 0 || ni >= g.cols || nj >= g.rows) continue;
+   const nc = nj * g.cols + ni;
+   if (g.prev[nc] >= 0 || (!g.free[nc] && nc !== b)) continue;
+   g.prev[nc] = c; q.push(nc);
+  }
+ }
+ if (g.prev[b] < 0) return [tx, ty];
+ const path = []; for (let c = b; c !== a; c = g.prev[c]) path.push(c);
+ const w = path[Math.max(0, path.length - 3)];
+ return [(w % g.cols) * C + C / 2, ((w / g.cols) | 0) * C + C / 2];
+}
 function simPilot(api, st) {
  const p = api.player, keys = api.keys, E = api.enemies;
  let vx = 0, vy = 0, danger = false;
@@ -648,7 +679,11 @@ function simPilot(api, st) {
   if (gem && gd < 160 && nd > 200) { vx += (gem.x - p.x) / gd; vy += (gem.y - p.y) / gd; }
  } else {
   const tgt = (gem && gd < nd) ? gem : near;
-  if (tgt) { const d = Math.hypot(tgt.x - p.x, tgt.y - p.y) || 1; vx += (tgt.x - p.x) / d; vy += (tgt.y - p.y) / d; }
+  if (tgt) {
+   st.pathT -= DT;
+   if (st.pathT <= 0 || !st.wp) { st.pathT = 0.4; st.wp = simWaypoint(api, st, tgt.x, tgt.y); }
+   const d = Math.hypot(st.wp[0] - p.x, st.wp[1] - p.y) || 1; vx += (st.wp[0] - p.x) / d; vy += (st.wp[1] - p.y) / d;
+  }
  }
  // personal space
  for (const e of E) {
@@ -709,7 +744,7 @@ function simFight(api, s, order) {
  api.loadSector(s); api.forceState('playing');
  p.autoFire = true; api.mouse.down = false;
  const w = api.sectorWorld(s);
- const st = { dir: 1, flipT: 4, flips: 0, sampleT: 0.5, lx: p.x, ly: p.y, stall: 0, unstickT: 0, ux: 0, uy: 0, w: w.w, h: w.h };
+ const st = { dir: 1, flipT: 4, flips: 0, sampleT: 0.5, lx: p.x, ly: p.y, stall: 0, unstickT: 0, ux: 0, uy: 0, w: w.w, h: w.h, grid: null, wp: null, pathT: 0 };
  let leadUid = -1, leadKind = '';
  if (nest) {
   const k = api.bossKindsFor(s)[0];
@@ -740,7 +775,7 @@ function simFight(api, s, order) {
   if (nest ? !api.enemies.some(e => e.uid === leadUid) : api.hostiles() === 0) { r.done = true; break; }
  }
  for (const k of ['KeyW', 'KeyA', 'KeyS', 'KeyD']) api.keys[k] = false;
- r.kills = api.kills - r.kills; r.maxhp = p.maxhp; r.level = p.level;
+ r.kills = api.kills - r.kills; r.maxhp = p.maxhp; r.level = p.level; r.left = api.hostiles();
  return r;
 }
 function simRun(s, build, seed, tune) {
@@ -780,7 +815,7 @@ function suiteFightsim() {
  if (VERBOSE) { console.log(head); for (const r of norm) console.log(simRow(r)); }
  for (const r of norm.filter(x => x.build === 'hose')) {
   const [lo, hi] = sectorBand(r.n);
-  ok('S' + r.n + ' Homing Hose clears the sector', r.done, 'still ' + r.hostiles + ' hostiles after ' + SIM_CAP + 's');
+  ok('S' + r.n + ' Homing Hose clears the sector', r.done, 'still ' + r.left + ' of ' + r.hostiles + ' hostiles after ' + SIM_CAP + 's');
   range('S' + r.n + ' Homing Hose clear time in the §7 band (' + lo + '-' + hi + 's)', +r.t.toFixed(1), lo, hi);
  }
  for (const r of norm.filter(x => x.build !== 'hose')) ok('S' + r.n + ' ' + r.build + ' clears the sector', r.done, r.t.toFixed(0) + 's');

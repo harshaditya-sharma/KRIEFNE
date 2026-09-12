@@ -582,7 +582,7 @@ function compXpScale(s){
 // weak to keep up is paced by the cap instead and simply takes longer.
 //   win     seconds over which the queue is released (tune: fight sim, §10)
 //   pack    hostiles per release; every = win / releases
-const WAVE_WIN=[40,66,90]; // S1-S9, S11-S49, S51+ (the spec §7 bands)
+const WAVE_WIN=[56,84,110]; // S1-S9, S11-S49, S51+ (the spec §7 bands)
 const _wavePlans={};
 function wavePlan(s){
  if(_wavePlans[s]) return _wavePlans[s];
@@ -1182,12 +1182,15 @@ function eHpScale(a){ return (1+0.32*Math.min(a,4))*Math.pow(EXP_HP,seg(a,4,59))
 function eDmgScale(a){ return (1+0.10*Math.min(a,6))*Math.pow(EXP_DMG,seg(a,6,59))*Math.pow(EXP_DMG_LATE,seg(a,59,109))*Math.pow(EXP_DMG_APEX,Math.max(0,a-109)); }
 const EBASE={ drone:{hp:24,sp:130,dmg:8,r:10,xp:3}, stalker:{hp:40,sp:110,dmg:12,r:11,xp:4}, sniper:{hp:30,sp:70,dmg:10,r:10,xp:4}, brute:{hp:130,sp:75,dmg:20,r:18,xp:8}, boss:{hp:1500,sp:90,dmg:15,r:30,xp:50}, mite:{hp:18,sp:155,dmg:6,r:7,xp:2}, tempest:{hp:46,sp:95,dmg:9,r:11,xp:5} };
 // Ordinary enemies get their own HP curve on top of eHpScale (spec §7), fitted
-// by the fight simulator against the Homing Hose. eHpScale itself is the boss
-// engine's and stays put. `base` is a flat lift from S1; `ramp` adds a linear
-// share per sector, up to `cap`, so deep foes soak a volley of a multi-barrel
-// build instead of evaporating under it.
-const FOE_HP={ base:1.25, ramp:0.012, cap:1.0 };
-function eHpScaleFoe(a){ return eHpScale(a)*FOE_HP.base*(1+Math.min(FOE_HP.cap,FOE_HP.ramp*a)); }
+// by the fight simulator (test.js --only fightsim). eHpScale itself is the boss
+// engine's and stays put. S1-S9 are left alone (the early sectors are already
+// paced by a thin gun); from S9 a linear lift of `ramp` per sector, steepening
+// by `late` from S60, up to +`cap`: x1.44 at S46, x1.96 at S71, x2.86 at S99. A
+// multi-barrel build is still paced by the stream, not by the HP; the lift is
+// what keeps a mixed build from strolling through deep sectors, and it stops
+// short of walling one through the S31-S61 stretch (the sim's Balanced build).
+const FOE_HP={ ramp:0.012, from:8, late:0.02, lateFrom:59, cap:2.2 };
+function eHpScaleFoe(a){ const f=FOE_HP; return eHpScale(a)*(1+Math.min(f.cap,f.ramp*Math.max(0,a-f.from)+f.late*Math.max(0,a-f.lateFrom))); }
 let uidC=1;
 function mkEnemy(type,x,y,a){
  const boss=type==='boss';
@@ -2569,21 +2572,21 @@ function update(dt){
    }
     else if(e.type==='sniper'){
      // deep snipers aim faster and cycle shots quicker — keep strafing
-     if(e.aimT>0){ e.aimT-=dt; e.aimX=nx; e.aimY=ny; if(e.aimT<=0){ ebullets.push({x:e.x,y:e.y,vx:nx*300,vy:ny*300,r:5,dmg:e.dmg,life:3,heavy:true}); SFX.eshoot(); e.fireCd=Math.max(1.4,2.0-arenaIdx*0.1); e.reloc=0.5; } }
+     if(e.aimT>0){ e.aimT-=dt; e.aimX=nx; e.aimY=ny; if(e.aimT<=0){ ebullets.push({x:e.x,y:e.y,vx:nx*300,vy:ny*300,r:5,dmg:e.dmg,life:3,heavy:true}); SFX.eshoot(); e.fireCd=Math.max(arenaIdx>=39?1.15:1.4,2.0-arenaIdx*0.1); e.reloc=0.5; } }
      else { const ms=e.sp*sF; if(d<280){ e.x-=nx*ms*dt; e.y-=ny*ms*dt; } else if(d>430){ e.x+=nx*ms*dt; e.y+=ny*ms*dt; } else { e.x+=Math.cos(e.t*1.5)*30*dt; e.y+=Math.sin(e.t*1.5)*30*dt; }
       if(e.reloc>0){ e.reloc-=dt; e.x+=-ny*ms*dt; e.y+=nx*ms*0.5*dt; }
-      e.fireCd-=dt; if(e.fireCd<=0&&d<580){ e.aimT=arenaIdx>=5?0.35:0.5; } }
+      e.fireCd-=dt; if(e.fireCd<=0&&d<580){ e.aimT=arenaIdx>=39?0.28:(arenaIdx>=5?0.35:0.5); } }
     }
     else if(e.type==='tempest'){ // weaver: holds ~340 range, telegraphed bolt spread —
      // 5-wide past S6, cycling faster with depth
-     if(e.aimT>0){ e.aimT-=dt; if(e.aimT<=0){ const base=Math.atan2(dy,dx); const fan=arenaIdx>=6?2:1; for(let k=-fan;k<=fan;k++){ const a=base+k*0.18; ebullets.push({x:e.x,y:e.y,vx:Math.cos(a)*280,vy:Math.sin(a)*280,r:5,dmg:e.dmg,life:3,heavy:true}); } SFX.eshoot(); e.fireCd=Math.max(1.8,2.6-arenaIdx*0.12); } }
+     if(e.aimT>0){ e.aimT-=dt; if(e.aimT<=0){ const base=Math.atan2(dy,dx); const fan=arenaIdx>=49?3:(arenaIdx>=6?2:1); for(let k=-fan;k<=fan;k++){ const a=base+k*0.18; ebullets.push({x:e.x,y:e.y,vx:Math.cos(a)*280,vy:Math.sin(a)*280,r:5,dmg:e.dmg,life:3,heavy:true}); } SFX.eshoot(); e.fireCd=Math.max(1.8,2.6-arenaIdx*0.12); } }
      else { const ms=e.sp*sF; if(d<280){ e.x-=nx*ms*dt; e.y-=ny*ms*dt; } else if(d>400){ e.x+=nx*ms*dt; e.y+=ny*ms*dt; } else { e.x+=-ny*ms*0.8*dt; e.y+=nx*ms*0.8*dt; }
       e.fireCd-=dt; if(e.fireCd<=0&&d<560){ e.aimT=arenaIdx>=5?0.28:0.35; } }
     }
     else if(e.type==='brute'){
      // deep brutes slam more often with wider rings — stay out of the band
-     if(e.windup>0){ e.windup-=dt; if(e.windup<=0){ rings.push({x:e.x,y:e.y,r:20,maxR:110+Math.min(60,arenaIdx*6),spd:260,dmg:e.dmg,hit:false,heavy:true}); SFX.ring(); if(settings.shake) shake=Math.min(10,shake+3); spawnBurst(e.x,e.y,12,K.red,200,0.5,3); } }
-     else { const sv=steer(e,nx,ny); e.x+=sv[0]*e.sp*sF*dt; e.y+=sv[1]*e.sp*sF*dt; e.slamCd-=dt; if(d<95&&e.slamCd<=0){ e.windup=0.6; e.slamCd=Math.max(1.6,2.6-arenaIdx*0.12); } }
+     if(e.windup>0){ e.windup-=dt; if(e.windup<=0){ rings.push({x:e.x,y:e.y,r:20,maxR:110+Math.min(60,arenaIdx*6)+(arenaIdx>=59?30:0),spd:260,dmg:e.dmg,hit:false,heavy:true}); SFX.ring(); if(settings.shake) shake=Math.min(10,shake+3); spawnBurst(e.x,e.y,12,K.red,200,0.5,3); } }
+     else { const sv=steer(e,nx,ny); e.x+=sv[0]*e.sp*sF*dt; e.y+=sv[1]*e.sp*sF*dt; e.slamCd-=dt; if(d<95&&e.slamCd<=0){ e.windup=0.6; e.slamCd=Math.max(arenaIdx>=59?1.3:1.6,2.6-arenaIdx*0.12); } }
     }
    else if(e.type==='boss'){
     const enrage=e.hp<e.maxhp*0.3||e.hardEnrage;
