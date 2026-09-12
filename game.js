@@ -5266,7 +5266,8 @@ try{ if(window.__KRIEFNE_DEV===true&&window.__kriefne){
   if(!player) return;
   try{
    ctx.save();
-   if(D.hit||D.nums){ ctx.save(); ctx.beginPath(); ctx.rect(0,HUD_H,W,H-HUD_H); ctx.clip(); ctx.translate(-cam.x,-cam.y);
+   // world overlays only in live play, never over a menu or a draft
+   if((D.hit||D.nums)&&state==='playing'){ ctx.save(); ctx.beginPath(); ctx.rect(0,HUD_H,W,H-HUD_H); ctx.clip(); ctx.translate(-cam.x,-cam.y);
     if(D.hit) paintHit(); if(D.nums) paintNums(); ctx.restore(); }
    if(D.meter) paintMeter();
    ctx.restore();
