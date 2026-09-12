@@ -1,4 +1,4 @@
-# KRIEFNE — Neon Roguelite (endless)
+# KRIEFNE — Roguelite (endless)
 
 Small polished top-down action roguelite, set in deep space: you are KRIEFNE, a machine exploration ship,
 fighting alien machine ships ranked like Norse gods. Vanilla JS Canvas, zero dependencies, zero assets, zero API keys.
@@ -32,9 +32,14 @@ python -m http.server 8000
   **E** next to your gate moves it for free. Gates reset each arena; charges persist.
 - The first level-up of every run **always offers both unlocks** (thrusters + portal cell + one random).
   Pass on either and it keeps coming back: once it has been missing from 3 drafts in a row it returns
-  as a **fourth card** marked BACK ON OFFER, under the usual three, never replacing one of them.
+  as a **fourth card** marked "offered again", under the usual three, never replacing one of them.
+- Mouse picks land on **release**, on the card the press began on, and a draft ignores the mouse for
+  300ms after it opens, so a click meant as a shot never picks a card. **C** and **H** open the codex
+  and help from a draft and return to the same cards. Each card shows how many you already own
+  (`OWNED 2 OF 10`) and what it does to this hull (`DMG ×1.52 → ×1.82`), computed by applying the
+  card to a copy of the ship.
 - **1 / 2 / 3 (4) or Click** — choose upgrade · **Esc / P** — pause · **Q** (paused) — quit to title
-- **C** — codex (title, galaxy hub, pause, or mid-fight) · **H** — help · **O** — settings · **M** — mute · **R** — restart
+- **C** — codex (title, galaxy hub, pause, a draft, or mid-fight) · **H** — help · **O** — settings · **M** — mute · **R** — restart (press twice: it abandons the saved run)
 - **Enter** — start, or **continue** a saved run · **N** — new run (press twice when a run is saved)
 - Switching tabs or alt-tabbing **auto-pauses** (shows AUTO-PAUSED; resume with Esc/click).
   Three paths catch it — `visibilitychange`, window `blur`, and a 250ms `hasFocus()` watchdog —
@@ -59,12 +64,15 @@ Neither ever takes away your guns — being unable to shoot is not a mechanic, i
    cap (8 → 16) the deeper you go.
    Kill everything (alive + queued = FOES in HUD) → grab XP gems → level up → pick 1-of-3 upgrades.
 4. The EXIT gate lands near you (250–550px, never on top) and fires a tapered beacon column;
-   a glowing off-screen marker always points the way. **XP is collected, never handed out:**
+   an engraved off-screen marker always points the way. **XP is collected, never handed out:**
    gems stay where they fell when the sector clears. Fly over them, or pull them in with Magnet
    Core / Tractor Core (a Magnet Core pick vacuums the whole field). Once the foes are gone the HUD
    counter switches to `XP ON FIELD n`; anything still lying there when you take the EXIT is gone.
 5. Every 5th sector is a boss **NEST** — see the chain of command below.
-6. Die = game over (score + depth banked). `R` instantly restarts.
+6. Die = **HULL LOST** (score + depth banked). The end screen names what brought the hull down and
+   the blow (every hostile round, ring and field is stamped with its maker), shows that foe's TELL and
+   COUNTER, the build as it stood, NEW BEST, and the next god on the trail. `R`/`Enter` retry once the
+   screen has settled (600ms); Space, which is dash, never skips it.
 7. **The run is saved** (`kriefne_run` in localStorage) every time you reach the hub or enter a
    sector, so closing the tab, reloading, or quitting to the title never ends it — only death does.
    The title then offers **CONTINUE**, which lands on the hub at the sector you were on. Progress
@@ -196,23 +204,35 @@ Boss nests always use **arena** — a large body cannot wedge on terrain that is
 drop on a clear ring around the centre rather than in a corner.
 
 6 themes (Relay Drift · Archive Reef · Broken Ring · Slag Belt · Hull Ossuary · Rose Veil) change
-palette, wall/trim colours, obstacle style, bass pattern, lead motif and tempo.
+the light (one star per sector, which sets the hatching direction and a slight tint of the dark,
+the wreckage and the motif: steel, teal, sage, umber, ash-lilac, rose), the motif, bass pattern,
+lead motif and tempo.
+
+Colour has one meaning each: **gold** is KRIEFNE and its instrument, **red** is harm (every round,
+blast, beam, field and tell, and any hostile in the moment it commits), **hydrogen blue-white** is
+salvage, **bare metal** is wreckage. Every servitor and every god has its own muted **pigment**
+(`PIGMENT_DEF`), always quieter than gold and red, so a mixed wave or a court reads as kinds at a
+glance. Unmet gods show no pigment on the chart or in the codex. XP gems are the record's hydrogen
+mark (two linked circles), so no hull can pass for salvage.
 Generative WebAudio: ambient title theme, per-arena bass + lead, sparse pause theme, win/lose stingers.
 
 ## Settings, Help and Codex
 
 - **Settings** (O): screen shake, particles, music, auto-fire default, seed display, wipe records,
-  music + SFX volume — all persisted.
+  music + SFX volume, damage numbers — all persisted.
+- **Pause** shows the hull as it stands: its refits (with stack counts) on the left, its systems
+  (hull, damage, rate, shots, crit, speed, magnet, boss bonus) on the right. The hub shows the build too.
 - **Help** (H): `CONTROLS · SHIELDS · ARSENAL · LORE`.
 - **Codex** (C) is its own screen, reachable from the **title, galaxy hub and pause** — and mid-fight,
   where it pauses and returns you to the pause menu rather than straight back into combat.
-  - **Locked until your first kill.** An unseen entry shows `? ? ? ? ?` and its sprite as a flat
-    grey silhouette; everything else is hidden. Killing one (a lieutenant counts) unlocks the full
-    entry, and a `CODEX UNLOCKED` floater says so. Progress persists across runs and shows as
-    `DEFEATED n / 18`. Wiping records in Settings clears it.
+  - **Opened by meeting, finished by killing.** Every encounter ends in a kill or a lost hull, so
+    meeting a foe opens its entry: the real portrait in its pigment, name, rank, role, TELL and
+    COUNTER. The **field note** (the lore) waits for the first kill (a lieutenant counts), and a
+    `CODEX UNLOCKED` floater says so. An entry never met shows `? ? ? ? ?` and a flat grey silhouette.
+    Progress persists across runs and shows as `MET m · DEFEATED n / 18`. Wiping records clears both.
   - **BOSSES is the command tree itself** — listed under rank headers from APEX down, each with its
     rank, what it answers to and who it commands (subordinates you haven't met stay `???`).
-  - Each unlocked entry renders the **real sprite** from the game's own draw code, with role, threat,
+  - Each opened entry renders the **real sprite** from the game's own draw code, with role, threat,
     **TELL** (what you see before it hurts), **COUNTER** (what you do about it) and a field note.
   - `1/2` or `←→` switch tabs, `↑↓` or click walk entries, `C`/`Esc` back.
 - **Hub lore** gives every boss a bespoke debut line naming its rank, and every court a line naming
@@ -340,6 +360,9 @@ every boss kind live-fought for 90s · adversarial combo audit ·
 **codex** (access from every screen, locked/unlocked rendering, persistence, wipe) ·
 endless-run integrity (pool exhaustion, multi-level XP, softlock guards) ·
 **run save / resume** (reopen after closing, mid-sector quit, hub Esc, double-press new run,
-death deletes the save, corrupt saves ignored).
+death deletes the save, corrupt saves ignored) · **pigment** rules · **voice and access** (no
+shouting, no FTL words, screen-reader lines) · **death, input safety, encounters** (every hostile
+object stamped with its maker, end screen, restart guards, draft grace, card previews that never
+touch the hull, codex opened on meeting).
 
-The full harness runs **1276 checks**, all passing.
+The full harness runs **1343 checks**, all passing.

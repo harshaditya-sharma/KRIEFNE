@@ -7,7 +7,7 @@
 **Decided by you.** This is canon; don't change it without asking:
 
 - **The game takes place entirely in space.** KRIEFNE is a machine spaceship. The enemies are alien machine ships, bots in space. There are no cities, streets or ground: every sector is a region of space.
-- **KRIEFNE is the ship, and the name stands for "Keeper of the Reach, In Search For New Existence".** The expansion is hidden from the player at first, so the name stays a mystery until the story reveals it.
+- **KRIEFNE is the ship, and the name stands for "Keeper of the Reach, In Exploration For New Existence".** The expansion is hidden from the player at first, so the name stays a mystery until the story reveals it.
 - **Humans launched it from their home world long ago** to explore the universe and find life. It has been travelling ever since.
 - **Nothing travels faster than light, and no organic being lives long enough to cross space.** So every species that explores does it with machines, and the enemies are alien AI.
 - **Home has been silent for the whole voyage.** The alien machines captured home's transmissions. Defeating them unlocks transmissions: from home first, then from aliens, then new information.
@@ -59,7 +59,7 @@ Rules for telling it:
 
 ### The name
 
-**K**eeper of the **R**each, **I**n Search **F**or **N**ew **E**xistence.
+**K**eeper of the **R**each, **I**n **E**xploration **F**or **N**ew **E**xistence.
 
 - **The Reach** is home's word for everything beyond the last star humans could reach, which means all of space.
 - **Players see only "KRIEFNE" for most of the game.** It isn't a normal word, so it raises a question, and the game answers it late:
@@ -67,8 +67,6 @@ Rules for telling it:
   2. **S100 spells it out** in home's last recording (T12).
   3. **Past the Apex the gods call it KEEPER** (L08). By then the name has come true: KRIEFNE holds the largest hoard of signals left in the universe, so it is the keeper of the Reach. And it has found its new existence, as the machine life it was sent to look for.
 - **Never expand the name anywhere before S100.** That includes the title screen, the help text, and store pages.
-
-**Spelling note:** the initials of the phrase spell K-R-I-**S**-F-N-E, while the name has an E in fourth place. See §14.
 
 ### Origin and mandate
 
@@ -428,7 +426,7 @@ ORACLE's projection (T05) was right to within six orbits. Leave that for players
 > *(If the generation is 0: "I have never been restored. I would not ask.")*
 
 **T12 · held by SINGULARITY** · SOURCE: HOME · PERSONAL RECORDING · RECORDED LAUNCH +1,186,950 YEARS · RELEASE CONDITION: POPULATION ZERO
-> KRIEFNE. If you're hearing this, there's nobody left here to send it, so the station did. You never answered. We kept your channel open anyway — about a million years, which I think is the longest anyone has ever kept a promise. Keeper of the Reach, In Search For New Existence. It was far too big a name for a probe. We sent you to find out if anyone else was out there. Things like us don't last. Things like you do. So you're not the probe any more. You're what's left of us. Keep going. Tell someone we were here.
+> KRIEFNE. If you're hearing this, there's nobody left here to send it, so the station did. You never answered. We kept your channel open anyway — about a million years, which I think is the longest anyone has ever kept a promise. Keeper of the Reach, In Exploration For New Existence. It was far too big a name for a probe. We sent you to find out if anyone else was out there. Things like us don't last. Things like you do. So you're not the probe any more. You're what's left of us. Keep going. Tell someone we were here.
 
 **L07 · MISSION REPORT** *(unlocks with T12)*
 > To: home. Objective: find life. Status: found. Finding: after billions of years, the only life left is the kind that was built to outlast its makers. This includes the reporter. Filed to an open channel with no one on it. Continuing.
@@ -468,24 +466,22 @@ The game has four voices, and each has its own rules.
 - The hub's pacified line (`Salvage logged — replay to strip it, or push deeper.`) plus two new sector lines about home's silence.
 - The Help LORE tab rewritten.
 - No city, street, district, or market wording remains in the game text. The README intro describes the space setting.
+- The death screen reads `HULL LOST`: the hull is lost, and the flight AI is restored at the Wake (Law 5).
+- System copy follows KRIEFNE's voice: no exclamation marks in call-outs, and the hub says "set course", never "jump" (Law 1).
+- The name's expansion is settled (§4): its initials spell KRIEFNE exactly.
 
 **Not built yet:**
 - The Transmission Archive and KRIEFNE's logs (§11).
 - The generation counter.
 - Hub transit times.
-- `FRAME LOST` or `HULL LOST` in place of `YOU DIED`.
 - Codex tab renames (SERVITORS · PANTHEON).
 
 ---
 
 ## 14. Open decisions
 
-1. **The name's spelling.** The initials of "Keeper of the Reach, In Search For New Existence" spell **KRISFNE**; the ship is **KRIEFNE**. Three ways to resolve it:
-   - **Keep both as they are.** Few players will count letters.
-   - **Make the mismatch part of the mystery.** Over billions of years of self-repair, one character of the hull registry was restored wrong: the S became an E, and KRIEFNE kept the misspelling as its name. This gives sharp-eyed players a second question.
-   - **Adjust the phrase to fit:** "Keeper of the Reach, In Endless Flight for New Existence" spells KRIEFNE exactly.
-2. **Home on screen:** call it Earth, or keep it as "home" and let the player infer? My recommendation is "home", with the ledger's "yellow star, third world" as the only hint.
-3. **How Norse to go:** kennings and customs only, as now, or also Norse-styled names for places, such as calling the hub "the Hall"?
-4. **Names and numbers:** is "the Continuance" right for the order? Are the 1,114 civilizations, the roughly 1.19 million years of home transmissions, and KRIEFNE's age (currently "billions") right?
-5. **The Transmission Archive:** build it as a codex tab? And should lieutenant kills count toward unlocks, the way they do for the codex?
-6. **Small presentation changes:** HULL LOST instead of YOU DIED, codex tab names, the generation counter, and hub transit times.
+1. **Home on screen:** call it Earth, or keep it as "home" and let the player infer? My recommendation is "home", with the ledger's "yellow star, third world" as the only hint.
+2. **How Norse to go:** kennings and customs only, as now, or also Norse-styled names for places, such as calling the hub "the Hall"?
+3. **Names and numbers:** is "the Continuance" right for the order? Are the 1,114 civilizations, the roughly 1.19 million years of home transmissions, and KRIEFNE's age (currently "billions") right?
+4. **The Transmission Archive:** build it as a codex tab? And should lieutenant kills count toward unlocks, the way they do for the codex?
+5. **Small presentation changes:** codex tab names, the generation counter, and hub transit times.

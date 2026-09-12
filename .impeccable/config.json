@@ -1,0 +1,13 @@
+{
+  "detector": {
+    "ignoreRules": [],
+    "ignoreFiles": [],
+    "ignoreValues": [
+      {
+        "rule": "design-system-font",
+        "value": "mono",
+        "createdAt": "2026-09-12T05:29:16.586Z"
+      }
+    ]
+  }
+}

@@ -27,7 +27,7 @@ Success: players start another run after they die, feel that each death was thei
 ## Operating Context
 
 - Loop: title → galaxy hub (pick a sector node) → sector fight → clear → XP gems → upgrade draft → EXIT gate → back to the hub. Cleared sectors can be replayed to farm. Death ends the run, and the score and depth are banked.
-- Persistent progress: best score, deepest sector, total boss kills (each one adds a permanent +2% damage), and codex unlocks. Codex entries unlock on the first kill of that enemy or boss.
+- Persistent progress: best score, deepest sector, total boss kills (each one adds a permanent +2% damage), and codex unlocks. Codex entries open on the first encounter (portrait, name, rank, tells, counters) and complete on the first kill (the field note).
 - Screens: title, galaxy hub, in-sector HUD, upgrade draft, pause, settings (O), help (H: CONTROLS · SHIELDS · ARSENAL · LORE), codex (C, reachable from title, hub, pause and mid-fight), game over.
 - Terminology already in use: sector (S1, S2…), nest, court, lieutenant, command depth, chaff, EXIT gate, Portal Cell, recall, blink, codex, status effects shown in caps (PETRIFIED, JAMMED, PHASED, ENRAGED, RELENTLESS).
 
@@ -40,7 +40,7 @@ Success: players start another run after they die, feel that each death was thei
 - Current input is WASD/arrows, mouse aim, click or auto-fire, Space/Shift to dash, and E for the gate or recall. There are no touch controls yet. A mobile port will need a touch control scheme, which hasn't been designed.
 - Content: 46 upgrade cards, 12 bosses, 6 chaff enemy types, 6 sector themes (palette, obstacle style, music), and 6 layout archetypes.
 - Runs persist until death: the run is checkpointed to `localStorage` at the hub and on entering each sector, and resumes from the title with CONTINUE. XP is collect-only: gems stay on the field after a clear and are lost if you exit without them. Dash and recall that the player passes on come back as a fourth draft card.
-- Quality bar: `node test.js` (1276 checks) boots the real `game.js` headless. It pins the balance curve and the README balance figures (±20%), the S115 wall, procgen reachability and open space, XP conservation, draft gating, run save and resume, and the chain-of-command rules. Changes must keep it passing.
+- Quality bar: `node test.js` (1343 checks) boots the real `game.js` headless. It pins the balance curve and the README balance figures (±20%), the S115 wall, procgen reachability and open space, XP conservation, draft gating, run save and resume, and the chain-of-command rules. Changes must keep it passing.
 - **Undecided:**
   - the open lore questions listed in `LORE.md` §14, plus the Transmission Archive feature it proposes (planned, not built)
   - the port strategy (wrapper or native) for mobile and Steam
@@ -49,7 +49,7 @@ Success: players start another run after they die, feel that each death was thei
 
 ## Brand Commitments
 
-- Name: **KRIEFNE**, subtitled "Neon Roguelite". **KRIEFNE is the ship**: a human-built machine exploration ship. The player is its flight AI, restored from backup after each death. The name stands for **Keeper of the Reach, In Search For New Existence**, which is kept hidden until the story reveals it at S100 so the name stays a mystery (`LORE.md` §4).
+- Name: **KRIEFNE**, subtitled "Roguelite". **KRIEFNE is the ship**: a human-built machine exploration ship. The player is its flight AI, restored from backup after each death. The name stands for **Keeper of the Reach, In Exploration For New Existence**, which is kept hidden until the story reveals it at S100 so the name stays a mystery (`LORE.md` §4).
 - **The game is entirely space-themed and always has been (confirmed).** A machine spaceship fights alien machine ships. There are no cities, streets or ground settings. The rules: nothing travels faster than light, and no organic life lasts long enough to cross space, so every species explores with machines. The enemies are alien machine gods with a **Norse lean**: ancient, ranked in a hierarchy, and written with kennings, holmgang, and hoards, without naming real Norse gods.
 - **The canon lives in `LORE.md`.** It covers the premise, the gods, the transmissions, and the four voices. Codex text is in KRIEFNE's voice (dry and deadpan), while the gods speak in a saga-like register. `LORE.md` §13 lists what is already in the game and what is still to build.
 

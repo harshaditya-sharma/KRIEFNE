@@ -7,14 +7,15 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="theme-color" content="#07080c">
-<title>KRIEFNE - Neon Roguelite</title>
+<title>KRIEFNE - Roguelite</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><rect width='16' height='16' fill='%2307080c'/><path d='M4 2v12M11 2L4.6 9M6.8 7.4L11.2 14' stroke='%23e2ae4b' stroke-width='1.6' fill='none'/></svg>">
 <link rel="stylesheet" href="styles.css">
 </head>
 <body>
 <div id="wrap">
-<canvas id="game" width="960" height="640" role="application" aria-label="KRIEFNE, a keyboard and mouse action game. Press Enter to start or continue, H for help." aria-describedby="hint hint-touch" tabindex="0">KRIEFNE needs a browser with canvas support.</canvas>
+<canvas id="game" width="960" height="640" role="application" aria-label="KRIEFNE, a keyboard and mouse action game. Press Enter to start or continue, H for help." aria-describedby="hint" tabindex="0">KRIEFNE needs a browser with canvas support.</canvas>
 <div id="hint"><kbd>WASD</kbd> move · <kbd>Mouse</kbd> aim · <kbd>Click</kbd> / auto-fire shoot · <kbd>Space</kbd> dash · <kbd>E</kbd> exit / recall gate · <kbd>C</kbd> codex · <kbd>H</kbd> help · <kbd>O</kbd> settings · <kbd>M</kbd> mute</div>
+<p id="sr" class="sr-only" aria-live="polite"></p>
 <div id="hint-touch" hidden>Touch to aim · tap menus and cards · keyboard + mouse recommended for full runs</div>
 </div>
 <script src="game.js"></script>

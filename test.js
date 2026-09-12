@@ -1503,6 +1503,169 @@ function suiteSave() {
 // ======================================================================
 //  runner
 // ======================================================================
+// ---------- pigment: who a hostile is ----------
+// The palette's meanings are rules, not taste: gold is KRIEFNE, red is harm,
+// hydrogen is salvage. Every pigment must stay clear of all three, and any two
+// hulls that can share the field must stay apart from each other.
+function hexLab(h) {
+ const lin = c => c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+ const n = parseInt(h.slice(1), 16), r = lin((n >> 16 & 255) / 255), g = lin((n >> 8 & 255) / 255), b = lin((n & 255) / 255);
+ const l = Math.cbrt(0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b), m = Math.cbrt(0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b), s = Math.cbrt(0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b);
+ return [0.2104542553 * l + 0.7936177850 * m - 0.0040720468 * s, 1.9779984951 * l - 2.4285922050 * m + 0.4505937099 * s, 0.0259040371 * l + 0.7827717662 * m - 0.8086757660 * s];
+}
+function dE(a, b) { const p = hexLab(a), q = hexLab(b); return Math.hypot(p[0] - q[0], p[1] - q[1], p[2] - q[2]); }
+function suitePigment() {
+ section('pigment');
+ const api = boot(), D = api.pigments, P = api.pig, K = api.tokens, B = api.bossDefs;
+ const foes = ['drone', 'mite', 'stalker', 'sniper', 'tempest', 'brute'], gods = Object.keys(B);
+ for (const k of foes.concat(gods)) ok(k + ' has a pigment', !!(D[k] && P[k]));
+ const bad = [], near = [];
+ for (const k in D) {
+  const [H, L, C] = D[k];
+  if (H >= 15 && H <= 118) bad.push(k + ' hue ' + H + ' sits in gold/red');
+  if (L < 0.58 || L > 0.74) bad.push(k + ' lightness ' + L);
+  if (C > 0.12) bad.push(k + ' chroma ' + C);
+  for (const [n, v] of [['gold', K.gold], ['red', K.red], ['redHi', K.redHi], ['hydro', K.hydro]]) { const d = dE(P[k].c, v); if (d < 0.13) near.push(k + '~' + n + ' ' + d.toFixed(3)); }
+ }
+ ok('every pigment keeps out of gold and red, and under their brightness', bad.length === 0, bad.join('; '));
+ ok('every pigment is at least ΔE 0.13 from gold, red and hydrogen', near.length === 0, near.join('; '));
+ const pairs = [];
+ for (let i = 0; i < gods.length; i++) for (let j = i + 1; j < gods.length; j++) pairs.push([gods[i], gods[j]]);
+ for (let i = 0; i < foes.length; i++) for (let j = i + 1; j < foes.length; j++) pairs.push([foes[i], foes[j]]);
+ for (const g of gods) for (const c of (B[g].chaff || [])) pairs.push([g, c]);
+ const close = pairs.map(([a, b]) => [a + '/' + b, dE(P[a].c, P[b].c)]).filter(x => x[1] < 0.09);
+ ok('any two gods, any two servitors, and each god and its own chaff stay ≥ 0.09 apart', close.length === 0, close.map(x => x[0] + ' ' + x[1].toFixed(3)).join('; '));
+ // sector tint stays a tint, and wreckage keeps its bare-metal edge
+ const tint = api.themes.map(t => [t.name, hexLab(t.pal.ground), hexLab(t.pal.metal)]);
+ ok('sector grounds stay near-black (L < 0.16, chroma < 0.04)', tint.every(([, g]) => g[0] < 0.16 && Math.hypot(g[1], g[2]) < 0.04));
+ ok('wreckage lit edges stay silver (chroma ≤ 0.015)', tint.every(([, , m]) => Math.hypot(m[1], m[2]) <= 0.015));
+}
+
+// ---------- voice and access ----------
+// KRIEFNE's voice (LORE §12) and the laws of the universe (LORE §2) are rules
+// the text can break, so the text is checked like any other rule.
+function suiteVoice() {
+ section('voice and access');
+ const src = fs.readFileSync(path.join(__dirname, 'game.js'), 'utf8');
+ const strs = src.match(/'[^'\n]*'/g) || [];
+ const shout = strs.filter(x => /[A-Za-z)]!/.test(x) && !/!=/.test(x));
+ ok('no in-game string shouts: KRIEFNE uses no exclamation marks', shout.length === 0, shout.join(' '));
+ const ftl = strs.filter(x => /\b(jump|warp|hyperspace|FTL|teleport)/i.test(x));
+ ok('no in-game string implies faster-than-light travel', ftl.length === 0, ftl.join(' '));
+ // T12 (LORE §11) will need the one exception when the Transmission Archive ships.
+ ok('the name is never expanded in game text before S100', !/Keeper of the Reach/.test(src));
+ const api = boot();
+ const s0 = api.srSummary();
+ ok('the title is described for screen readers', /KRIEFNE/.test(s0) && /Enter/.test(s0), s0);
+ api.handleKeyPress('Enter');
+ ok('the galaxy chart is described', /Galaxy chart/.test(api.srSummary()) && /sets course/.test(api.srSummary()), api.srSummary());
+ api.loadSector(0); api.forceState('playing'); api.gainXp(api.player.xpNeed + 1);
+ const s1 = api.srSummary();
+ ok('an open draft reads out every card', api.state === 'levelup' && /1: /.test(s1) && /3: /.test(s1), s1);
+ api.forceState('gameover');
+ ok('the end screen reads HULL LOST', /Hull lost/.test(api.srSummary()));
+}
+
+// ---------- death, input safety, encounters ----------
+// A lost hull must be explained, irreversible input must be deliberate, and an
+// encounter (which always ends in a kill or a lost hull) opens a codex entry.
+function waitMs(ms) { const end = Date.now() + ms; while (Date.now() < end) { } }
+function suiteSafety() {
+ section('death, input safety, encounters');
+ {
+  const api = boot(); api.startRun(); api.loadSector(9); api.forceState('playing');
+  let stamped = 0, hostile = 0;
+  for (let i = 0; i < 600 && api.state === 'playing'; i++) { api.player.invuln = 1; api.player.hp = api.player.maxhp; api.update(1 / 60);
+   for (const b of api.ebullets.concat(api.hostileRings, api.hazardList.filter(h => h.dmg > 0))) { hostile++; if (b.src && b.src.id && b.src.what) stamped++; } }
+  atLeast('the S10 nest fires on the player', hostile, 1);
+  eq('every hostile round, ring and field is stamped with its maker and blow', stamped, hostile);
+ }
+ {
+  const api = boot(); api.startRun(); api.loadSector(4); api.forceState('playing');
+  api.player.invuln = 0; api.player.dashT = 0;
+  api.hurtPlayer(1e6, false, { id: 'overlord', name: 'OVERLORD', lt: false, what: 'CHARGE' });
+  eq('lethal damage ends the run', api.state, 'gameover');
+  ok('the end screen knows what brought the hull down', api.endInfo.src && api.endInfo.src.name === 'OVERLORD' && api.endInfo.src.what === 'CHARGE');
+  ok('the killer opens its codex entry', api.codexSeen('overlord'));
+  let threw = null; try { api.render(); } catch (e) { threw = e; }
+  ok('the end screen renders with a cause and a build', !threw, threw && threw.message);
+  api.handleKeyPress('Space');
+  eq('Space (dash) never skips the end screen', api.state, 'gameover');
+  api.handleKeyPress('KeyR');
+  eq('R does nothing in the first moments of the end screen', api.state, 'gameover');
+  waitMs(620); api.handleKeyPress('KeyR');
+  ok('R restarts once the end screen has settled', api.state !== 'gameover', api.state);
+ }
+ {
+  const api = boot(); api.startRun(); api.loadSector(2); api.forceState('paused');
+  api.handleKeyPress('KeyR');
+  eq('one R in pause only arms RESTART', api.state, 'paused');
+  ok('and the run is still saved', !!api.readRun());
+  api.handleKeyPress('KeyR');
+  ok('a second R restarts', api.state !== 'paused', api.state);
+ }
+ {
+  const api = boot(); api.startRun(); api.loadSector(2); api.forceState('playing'); api.gainXp(api.player.xpNeed + 1);
+  eq('a draft is open', api.state, 'levelup');
+  api.handleClick(240, 320); api.handleRelease(240, 320);
+  eq('a click the moment a draft opens picks nothing', api.state, 'levelup');
+  waitMs(320);
+  api.handleClick(240, 320);
+  eq('a press only arms a card', api.state, 'levelup');
+  api.handleRelease(620, 320);
+  eq('releasing on a different card picks nothing', api.state, 'levelup');
+  api.handleClick(240, 320); api.handleRelease(240, 320);
+  ok('the pick landed', api.player.level >= 2 && Object.keys(api.upgradeCounts).length >= 1);
+ }
+ {
+  const api = boot(); api.startRun(); api.loadSector(4); api.forceState('playing');
+  for (let i = 0; i < 5; i++) { api.player.invuln = 1; api.update(1 / 60); }
+  ok('meeting OVERLORD opens its entry', api.codexSeen('overlord'));
+  ok('but its field note waits for the kill', !api.codexKnown('overlord'));
+  ok('encounters are saved', /overlord/.test(api.__store.kriefne_seen || ''));
+  ok('an unmet god stays closed', !api.codexSeen('singularity'));
+  const again = boot(api.__store);
+  ok('encounters survive a reload', again.codexSeen('overlord'));
+  again.forceState('settings'); again.handleKeyPress('Digit6'); again.handleKeyPress('Digit6');
+  ok('wiping records forgets encounters too', !again.codexSeen('overlord'));
+ }
+ {
+  // a card's "before → after" comes from applying it to a copy of the hull
+  const api = boot(); api.startRun(); api.loadSector(3); api.forceState('playing');
+  const snap = JSON.stringify(api.player); const bad = [];
+  for (const u of api.upgrades) { let d; try { d = api.statDiff(u); } catch (e) { bad.push(u.id + ' threw'); continue; } if (!Array.isArray(d)) bad.push(u.id + ' no list'); }
+  ok('every card previews its effect without throwing', bad.length === 0, bad.join('; '));
+  eq('previewing every card leaves the real hull untouched', JSON.stringify(api.player), snap);
+  ok('AP Rounds previews its damage step', api.statDiff(api.upgrades.find(u => u.id === 'dmg')).some(l => /^DMG ×\d\.\d\d → ×\d\.\d\d$/.test(l)));
+  api.gainXp(api.player.xpNeed + 1); let threw = null; try { api.render(); api.forceState('paused'); api.render(); api.forceState('galaxy'); api.render(); } catch (e) { threw = e; }
+  ok('draft, pause and hub draw the build without throwing', !threw, threw && threw.message);
+ }
+
+ {
+  // the nest's fall is named, and the draft can consult the codex and come back
+  const api = boot(); api.startRun(); api.loadSector(4); api.forceState('playing'); api.queue.length = 0;
+  let g = 0; while (api.enemies.length && g++ < 900) api.killEnemy(0);
+  eq('clearing the S5 nest opens the bonus draft', api.state, 'levelup');
+  ok('the draft names the god that fell and the damage banked', /OVERLORD falls\. \+2% damage banked/.test(api.srSummary()), api.srSummary());
+  let threw = null; try { api.render(); } catch (e) { threw = e; }
+  ok('the gold draft renders its header', !threw, threw && threw.message);
+  const picks = api.choices.slice();
+  api.handleKeyPress('KeyC'); eq('C opens the codex from a draft', api.state, 'codex');
+  api.handleKeyPress('Escape'); eq('and returns to the same draft', api.state, 'levelup');
+  ok('with the same cards', api.choices.length === picks.length && api.choices.every((u, i) => u === picks[i]));
+  api.handleKeyPress('KeyH'); eq('H opens help from a draft', api.state, 'help');
+  api.handleKeyPress('Escape'); eq('and returns to the draft', api.state, 'levelup');
+ }
+ {
+  // previewing Magnet Core (whose pick vacuums the field) must not collect anything
+  const api = boot(); api.startRun(); api.loadSector(3); api.forceState('playing');
+  for (let i = 0; i < 6; i++) api.gems.push({ x: 100 + i * 20, y: 100, v: 5, t: 0 });
+  const g0 = api.gems.length, xp0 = api.player.xp, lv0 = api.player.level;
+  api.player.magnet = 200; api.statDiff(api.upgrades.find(u => u.id === 'magnet'));
+  ok('previewing Magnet Core leaves the gems on the field', api.gems.length === g0 && api.player.xp === xp0 && api.player.level === lv0);
+ }
+}
+
 const SUITES = [
  ['xp', suiteXp],
  ['boot', suiteBoot],
@@ -1522,7 +1685,10 @@ const SUITES = [
  ['codex', suiteCodex],
  ['endless', suitePoolExhaustion],
  ['cascades', suiteCascades],
- ['save', suiteSave]
+ ['save', suiteSave],
+ ['pigment', suitePigment],
+ ['voice', suiteVoice],
+ ['safety', suiteSafety]
 ];
 
 // Importable so ad-hoc diagnostics can drive the same stubs without running the

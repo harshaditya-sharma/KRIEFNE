@@ -1,0 +1,1242 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-09-12T05:27:29.003Z",
+  "title": "Design System: KRIEFNE",
+  "extensions": {
+    "colorMeta": {
+      "gold": {
+        "role": "primary",
+        "displayName": "Record Gold",
+        "canonical": "#e2ae4b",
+        "oklch": "oklch(0.781 0.13 80.8)",
+        "tonalRamp": [
+          "oklch(0.15 0.13 80.8)",
+          "oklch(0.26 0.13 80.8)",
+          "oklch(0.37 0.13 80.8)",
+          "oklch(0.48 0.13 80.8)",
+          "oklch(0.6 0.13 80.8)",
+          "oklch(0.72 0.13 80.8)",
+          "oklch(0.84 0.13 80.8)",
+          "oklch(0.95 0.13 80.8)"
+        ],
+        "projectScale": [
+          "#3a2d14",
+          "#86672c",
+          "#e2ae4b",
+          "#f7d991"
+        ]
+      },
+      "gold-hi": {
+        "role": "primary",
+        "displayName": "Hot Gold",
+        "canonical": "#f7d991",
+        "oklch": "oklch(0.894 0.096 87.8)",
+        "tonalRamp": [
+          "oklch(0.15 0.096 87.8)",
+          "oklch(0.26 0.096 87.8)",
+          "oklch(0.37 0.096 87.8)",
+          "oklch(0.48 0.096 87.8)",
+          "oklch(0.6 0.096 87.8)",
+          "oklch(0.72 0.096 87.8)",
+          "oklch(0.84 0.096 87.8)",
+          "oklch(0.95 0.096 87.8)"
+        ]
+      },
+      "gold-dim": {
+        "role": "primary",
+        "displayName": "Tarnished Gold",
+        "canonical": "#86672c",
+        "oklch": "oklch(0.533 0.086 81.1)",
+        "tonalRamp": [
+          "oklch(0.15 0.086 81.1)",
+          "oklch(0.26 0.086 81.1)",
+          "oklch(0.37 0.086 81.1)",
+          "oklch(0.48 0.086 81.1)",
+          "oklch(0.6 0.086 81.1)",
+          "oklch(0.72 0.086 81.1)",
+          "oklch(0.84 0.086 81.1)",
+          "oklch(0.95 0.086 81.1)"
+        ]
+      },
+      "gold-faint": {
+        "role": "primary",
+        "displayName": "Groove Gold",
+        "canonical": "#3a2d14",
+        "oklch": "oklch(0.305 0.043 82.3)",
+        "tonalRamp": [
+          "oklch(0.15 0.043 82.3)",
+          "oklch(0.26 0.043 82.3)",
+          "oklch(0.37 0.043 82.3)",
+          "oklch(0.48 0.043 82.3)",
+          "oklch(0.6 0.043 82.3)",
+          "oklch(0.72 0.043 82.3)",
+          "oklch(0.84 0.043 82.3)",
+          "oklch(0.95 0.043 82.3)"
+        ]
+      },
+      "on-gold": {
+        "role": "primary",
+        "displayName": "Gold-Field Ink",
+        "canonical": "#3b2c10",
+        "oklch": "oklch(0.304 0.048 80.9)",
+        "tonalRamp": [
+          "oklch(0.15 0.048 80.9)",
+          "oklch(0.26 0.048 80.9)",
+          "oklch(0.37 0.048 80.9)",
+          "oklch(0.48 0.048 80.9)",
+          "oklch(0.6 0.048 80.9)",
+          "oklch(0.72 0.048 80.9)",
+          "oklch(0.84 0.048 80.9)",
+          "oklch(0.95 0.048 80.9)"
+        ]
+      },
+      "red": {
+        "role": "secondary",
+        "displayName": "Oxide Red",
+        "canonical": "#e2553c",
+        "oklch": "oklch(0.633 0.181 32.3)",
+        "tonalRamp": [
+          "oklch(0.15 0.181 32.3)",
+          "oklch(0.26 0.181 32.3)",
+          "oklch(0.37 0.181 32.3)",
+          "oklch(0.48 0.181 32.3)",
+          "oklch(0.6 0.181 32.3)",
+          "oklch(0.72 0.181 32.3)",
+          "oklch(0.84 0.181 32.3)",
+          "oklch(0.95 0.181 32.3)"
+        ],
+        "projectScale": [
+          "#7c2b1f",
+          "#e2553c",
+          "#ff8166"
+        ]
+      },
+      "red-hi": {
+        "role": "secondary",
+        "displayName": "Hot Oxide",
+        "canonical": "#ff8166",
+        "oklch": "oklch(0.741 0.159 33.4)",
+        "tonalRamp": [
+          "oklch(0.15 0.159 33.4)",
+          "oklch(0.26 0.159 33.4)",
+          "oklch(0.37 0.159 33.4)",
+          "oklch(0.48 0.159 33.4)",
+          "oklch(0.6 0.159 33.4)",
+          "oklch(0.72 0.159 33.4)",
+          "oklch(0.84 0.159 33.4)",
+          "oklch(0.95 0.159 33.4)"
+        ]
+      },
+      "red-dim": {
+        "role": "secondary",
+        "displayName": "Dried Oxide",
+        "canonical": "#7c2b1f",
+        "oklch": "oklch(0.407 0.115 31)",
+        "tonalRamp": [
+          "oklch(0.15 0.115 31)",
+          "oklch(0.26 0.115 31)",
+          "oklch(0.37 0.115 31)",
+          "oklch(0.48 0.115 31)",
+          "oklch(0.6 0.115 31)",
+          "oklch(0.72 0.115 31)",
+          "oklch(0.84 0.115 31)",
+          "oklch(0.95 0.115 31)"
+        ]
+      },
+      "hydro": {
+        "role": "tertiary",
+        "displayName": "Hydrogen Blue-White",
+        "canonical": "#bfe8f3",
+        "oklch": "oklch(0.905 0.045 215.8)",
+        "tonalRamp": [
+          "oklch(0.15 0.045 215.8)",
+          "oklch(0.26 0.045 215.8)",
+          "oklch(0.37 0.045 215.8)",
+          "oklch(0.48 0.045 215.8)",
+          "oklch(0.6 0.045 215.8)",
+          "oklch(0.72 0.045 215.8)",
+          "oklch(0.84 0.045 215.8)",
+          "oklch(0.95 0.045 215.8)"
+        ]
+      },
+      "ground": {
+        "role": "neutral",
+        "displayName": "Cold Ground",
+        "canonical": "#07080c",
+        "oklch": "oklch(0.135 0.009 272.5)",
+        "tonalRamp": [
+          "oklch(0.15 0.009 272.5)",
+          "oklch(0.26 0.009 272.5)",
+          "oklch(0.37 0.009 272.5)",
+          "oklch(0.48 0.009 272.5)",
+          "oklch(0.6 0.009 272.5)",
+          "oklch(0.72 0.009 272.5)",
+          "oklch(0.84 0.009 272.5)",
+          "oklch(0.95 0.009 272.5)"
+        ]
+      },
+      "deep": {
+        "role": "neutral",
+        "displayName": "Deep Field",
+        "canonical": "#040507",
+        "oklch": "oklch(0.114 0.007 261)",
+        "tonalRamp": [
+          "oklch(0.15 0.007 261)",
+          "oklch(0.26 0.007 261)",
+          "oklch(0.37 0.007 261)",
+          "oklch(0.48 0.007 261)",
+          "oklch(0.6 0.007 261)",
+          "oklch(0.72 0.007 261)",
+          "oklch(0.84 0.007 261)",
+          "oklch(0.95 0.007 261)"
+        ]
+      },
+      "lift": {
+        "role": "neutral",
+        "displayName": "Armour Plate",
+        "canonical": "#0e1118",
+        "oklch": "oklch(0.178 0.015 266.7)",
+        "tonalRamp": [
+          "oklch(0.15 0.015 266.7)",
+          "oklch(0.26 0.015 266.7)",
+          "oklch(0.37 0.015 266.7)",
+          "oklch(0.48 0.015 266.7)",
+          "oklch(0.6 0.015 266.7)",
+          "oklch(0.72 0.015 266.7)",
+          "oklch(0.84 0.015 266.7)",
+          "oklch(0.95 0.015 266.7)"
+        ]
+      },
+      "hull": {
+        "role": "neutral",
+        "displayName": "Hull Black",
+        "canonical": "#12151d",
+        "oklch": "oklch(0.196 0.017 268.8)",
+        "tonalRamp": [
+          "oklch(0.15 0.017 268.8)",
+          "oklch(0.26 0.017 268.8)",
+          "oklch(0.37 0.017 268.8)",
+          "oklch(0.48 0.017 268.8)",
+          "oklch(0.6 0.017 268.8)",
+          "oklch(0.72 0.017 268.8)",
+          "oklch(0.84 0.017 268.8)",
+          "oklch(0.95 0.017 268.8)"
+        ]
+      },
+      "metal": {
+        "role": "neutral",
+        "displayName": "Bare Metal",
+        "canonical": "#8b95a2",
+        "oklch": "oklch(0.666 0.022 255)",
+        "tonalRamp": [
+          "oklch(0.15 0.022 255)",
+          "oklch(0.26 0.022 255)",
+          "oklch(0.37 0.022 255)",
+          "oklch(0.48 0.022 255)",
+          "oklch(0.6 0.022 255)",
+          "oklch(0.72 0.022 255)",
+          "oklch(0.84 0.022 255)",
+          "oklch(0.95 0.022 255)"
+        ]
+      },
+      "metal-dim": {
+        "role": "neutral",
+        "displayName": "Dim Metal",
+        "canonical": "#4a525e",
+        "oklch": "oklch(0.436 0.022 258.4)",
+        "tonalRamp": [
+          "oklch(0.15 0.022 258.4)",
+          "oklch(0.26 0.022 258.4)",
+          "oklch(0.37 0.022 258.4)",
+          "oklch(0.48 0.022 258.4)",
+          "oklch(0.6 0.022 258.4)",
+          "oklch(0.72 0.022 258.4)",
+          "oklch(0.84 0.022 258.4)",
+          "oklch(0.95 0.022 258.4)"
+        ]
+      },
+      "metal-faint": {
+        "role": "neutral",
+        "displayName": "Faint Metal",
+        "canonical": "#262b34",
+        "oklch": "oklch(0.288 0.018 262.2)",
+        "tonalRamp": [
+          "oklch(0.15 0.018 262.2)",
+          "oklch(0.26 0.018 262.2)",
+          "oklch(0.37 0.018 262.2)",
+          "oklch(0.48 0.018 262.2)",
+          "oklch(0.6 0.018 262.2)",
+          "oklch(0.72 0.018 262.2)",
+          "oklch(0.84 0.018 262.2)",
+          "oklch(0.95 0.018 262.2)"
+        ]
+      },
+      "text": {
+        "role": "neutral",
+        "displayName": "Pale Steel",
+        "canonical": "#dde2e8",
+        "oklch": "oklch(0.911 0.01 252.8)",
+        "tonalRamp": [
+          "oklch(0.15 0.01 252.8)",
+          "oklch(0.26 0.01 252.8)",
+          "oklch(0.37 0.01 252.8)",
+          "oklch(0.48 0.01 252.8)",
+          "oklch(0.6 0.01 252.8)",
+          "oklch(0.72 0.01 252.8)",
+          "oklch(0.84 0.01 252.8)",
+          "oklch(0.95 0.01 252.8)"
+        ]
+      },
+      "text-dim": {
+        "role": "neutral",
+        "displayName": "Worn Steel",
+        "canonical": "#9ca5b0",
+        "oklch": "oklch(0.718 0.019 253.4)",
+        "tonalRamp": [
+          "oklch(0.15 0.019 253.4)",
+          "oklch(0.26 0.019 253.4)",
+          "oklch(0.37 0.019 253.4)",
+          "oklch(0.48 0.019 253.4)",
+          "oklch(0.6 0.019 253.4)",
+          "oklch(0.72 0.019 253.4)",
+          "oklch(0.84 0.019 253.4)",
+          "oklch(0.95 0.019 253.4)"
+        ]
+      },
+      "pigment-stalker": {
+        "role": "pigment",
+        "displayName": "Lichen (servitor: stalker)",
+        "canonical": "oklch(0.66 0.063 122)",
+        "hex": "#8b996d",
+        "tonalRamp": [
+          "oklch(0.15 0.063 122)",
+          "oklch(0.26 0.063 122)",
+          "oklch(0.37 0.063 122)",
+          "oklch(0.48 0.063 122)",
+          "oklch(0.6 0.063 122)",
+          "oklch(0.72 0.063 122)",
+          "oklch(0.84 0.063 122)",
+          "oklch(0.95 0.063 122)"
+        ],
+        "variants": {
+          "body": "#181b12",
+          "flash": "#3c432d",
+          "dim": "#424b30",
+          "c": "#8b996d",
+          "hi": "#abb791"
+        },
+        "source": "PIGMENT_DEF.stalker via mkPigment"
+      },
+      "pigment-brute": {
+        "role": "pigment",
+        "displayName": "Jade-Teal (servitor: brute)",
+        "canonical": "oklch(0.71 0.111 176)",
+        "hex": "#43b89f",
+        "tonalRamp": [
+          "oklch(0.15 0.111 176)",
+          "oklch(0.26 0.111 176)",
+          "oklch(0.37 0.111 176)",
+          "oklch(0.48 0.111 176)",
+          "oklch(0.6 0.111 176)",
+          "oklch(0.72 0.111 176)",
+          "oklch(0.84 0.111 176)",
+          "oklch(0.95 0.111 176)"
+        ],
+        "variants": {
+          "body": "#071e19",
+          "flash": "#064b3e",
+          "dim": "#065c4d",
+          "c": "#43b89f",
+          "hi": "#7ad5bf"
+        },
+        "source": "PIGMENT_DEF.brute via mkPigment"
+      },
+      "pigment-tempest": {
+        "role": "pigment",
+        "displayName": "Malachite (servitor: tempest)",
+        "canonical": "oklch(0.59 0.119 160)",
+        "hex": "#289264",
+        "tonalRamp": [
+          "oklch(0.15 0.119 160)",
+          "oklch(0.26 0.119 160)",
+          "oklch(0.37 0.119 160)",
+          "oklch(0.48 0.119 160)",
+          "oklch(0.6 0.119 160)",
+          "oklch(0.72 0.119 160)",
+          "oklch(0.84 0.119 160)",
+          "oklch(0.95 0.119 160)"
+        ],
+        "variants": {
+          "body": "#0a1e14",
+          "flash": "#144b32",
+          "dim": "#00482c",
+          "c": "#289264",
+          "hi": "#5eaf86"
+        },
+        "source": "PIGMENT_DEF.tempest via mkPigment"
+      },
+      "pigment-sniper": {
+        "role": "pigment",
+        "displayName": "Steel Blue (servitor: sniper)",
+        "canonical": "oklch(0.61 0.098 231)",
+        "hex": "#3a8db3",
+        "tonalRamp": [
+          "oklch(0.15 0.098 231)",
+          "oklch(0.26 0.098 231)",
+          "oklch(0.37 0.098 231)",
+          "oklch(0.48 0.098 231)",
+          "oklch(0.6 0.098 231)",
+          "oklch(0.72 0.098 231)",
+          "oklch(0.84 0.098 231)",
+          "oklch(0.95 0.098 231)"
+        ],
+        "variants": {
+          "body": "#0b1c24",
+          "flash": "#194559",
+          "dim": "#0a455c",
+          "c": "#3a8db3",
+          "hi": "#68abcc"
+        },
+        "source": "PIGMENT_DEF.sniper via mkPigment"
+      },
+      "pigment-drone": {
+        "role": "pigment",
+        "displayName": "Periwinkle (servitor: drone)",
+        "canonical": "oklch(0.72 0.114 265)",
+        "hex": "#81a3ec",
+        "tonalRamp": [
+          "oklch(0.15 0.114 265)",
+          "oklch(0.26 0.114 265)",
+          "oklch(0.37 0.114 265)",
+          "oklch(0.48 0.114 265)",
+          "oklch(0.6 0.114 265)",
+          "oklch(0.72 0.114 265)",
+          "oklch(0.84 0.114 265)",
+          "oklch(0.95 0.114 265)"
+        ],
+        "variants": {
+          "body": "#121928",
+          "flash": "#2e3e64",
+          "dim": "#3b4f7c",
+          "c": "#81a3ec",
+          "hi": "#a5c3ff"
+        },
+        "source": "PIGMENT_DEF.drone via mkPigment"
+      },
+      "pigment-mite": {
+        "role": "pigment",
+        "displayName": "Rose-Mauve (servitor: mite)",
+        "canonical": "oklch(0.69 0.110 344)",
+        "hex": "#cb7fac",
+        "tonalRamp": [
+          "oklch(0.15 0.11 344)",
+          "oklch(0.26 0.11 344)",
+          "oklch(0.37 0.11 344)",
+          "oklch(0.48 0.11 344)",
+          "oklch(0.6 0.11 344)",
+          "oklch(0.72 0.11 344)",
+          "oklch(0.84 0.11 344)",
+          "oklch(0.95 0.11 344)"
+        ],
+        "variants": {
+          "body": "#24141d",
+          "flash": "#583148",
+          "dim": "#683956",
+          "c": "#cb7fac",
+          "hi": "#e6a3c9"
+        },
+        "source": "PIGMENT_DEF.mite via mkPigment"
+      },
+      "pigment-basilisk": {
+        "role": "pigment",
+        "displayName": "Moss (god: basilisk)",
+        "canonical": "oklch(0.58 0.104 131)",
+        "hex": "#648742",
+        "tonalRamp": [
+          "oklch(0.15 0.104 131)",
+          "oklch(0.26 0.104 131)",
+          "oklch(0.37 0.104 131)",
+          "oklch(0.48 0.104 131)",
+          "oklch(0.6 0.104 131)",
+          "oklch(0.72 0.104 131)",
+          "oklch(0.84 0.104 131)",
+          "oklch(0.95 0.104 131)"
+        ],
+        "variants": {
+          "body": "#151c0e",
+          "flash": "#344622",
+          "dim": "#2c4116",
+          "c": "#648742",
+          "hi": "#85a46a"
+        },
+        "source": "PIGMENT_DEF.basilisk via mkPigment"
+      },
+      "pigment-nullifier": {
+        "role": "pigment",
+        "displayName": "Pale Jade (god: nullifier)",
+        "canonical": "oklch(0.74 0.116 148)",
+        "hex": "#75bf81",
+        "tonalRamp": [
+          "oklch(0.15 0.116 148)",
+          "oklch(0.26 0.116 148)",
+          "oklch(0.37 0.116 148)",
+          "oklch(0.48 0.116 148)",
+          "oklch(0.6 0.116 148)",
+          "oklch(0.72 0.116 148)",
+          "oklch(0.84 0.116 148)",
+          "oklch(0.95 0.116 148)"
+        ],
+        "variants": {
+          "body": "#0f1e11",
+          "flash": "#234a2a",
+          "dim": "#316039",
+          "c": "#75bf81",
+          "hi": "#9edda6"
+        },
+        "source": "PIGMENT_DEF.nullifier via mkPigment"
+      },
+      "pigment-leviathan": {
+        "role": "pigment",
+        "displayName": "Verdigris (god: leviathan)",
+        "canonical": "oklch(0.64 0.108 173)",
+        "hex": "#31a186",
+        "tonalRamp": [
+          "oklch(0.15 0.108 173)",
+          "oklch(0.26 0.108 173)",
+          "oklch(0.37 0.108 173)",
+          "oklch(0.48 0.108 173)",
+          "oklch(0.6 0.108 173)",
+          "oklch(0.72 0.108 173)",
+          "oklch(0.84 0.108 173)",
+          "oklch(0.95 0.108 173)"
+        ],
+        "variants": {
+          "body": "#081e18",
+          "flash": "#0e4b3c",
+          "dim": "#00503f",
+          "c": "#31a186",
+          "hi": "#68bea5"
+        },
+        "source": "PIGMENT_DEF.leviathan via mkPigment"
+      },
+      "pigment-chorus": {
+        "role": "pigment",
+        "displayName": "Sea-Glass (god: chorus)",
+        "canonical": "oklch(0.73 0.080 200)",
+        "hex": "#66b7bb",
+        "tonalRamp": [
+          "oklch(0.15 0.08 200)",
+          "oklch(0.26 0.08 200)",
+          "oklch(0.37 0.08 200)",
+          "oklch(0.48 0.08 200)",
+          "oklch(0.6 0.08 200)",
+          "oklch(0.72 0.08 200)",
+          "oklch(0.84 0.08 200)",
+          "oklch(0.95 0.08 200)"
+        ],
+        "variants": {
+          "body": "#0c1d1d",
+          "flash": "#1c474a",
+          "dim": "#265b5e",
+          "c": "#66b7bb",
+          "hi": "#92d5d9"
+        },
+        "source": "PIGMENT_DEF.chorus via mkPigment"
+      },
+      "pigment-oracle": {
+        "role": "pigment",
+        "displayName": "Slate (god: oracle)",
+        "canonical": "oklch(0.58 0.067 217)",
+        "hex": "#488494",
+        "tonalRamp": [
+          "oklch(0.15 0.067 217)",
+          "oklch(0.26 0.067 217)",
+          "oklch(0.37 0.067 217)",
+          "oklch(0.48 0.067 217)",
+          "oklch(0.6 0.067 217)",
+          "oklch(0.72 0.067 217)",
+          "oklch(0.84 0.067 217)",
+          "oklch(0.95 0.067 217)"
+        ],
+        "variants": {
+          "body": "#0f1c1f",
+          "flash": "#25454e",
+          "dim": "#19404a",
+          "c": "#488494",
+          "hi": "#6fa1af"
+        },
+        "source": "PIGMENT_DEF.oracle via mkPigment"
+      },
+      "pigment-warden": {
+        "role": "pigment",
+        "displayName": "Cerulean (god: warden)",
+        "canonical": "oklch(0.66 0.118 230)",
+        "hex": "#2d9fcc",
+        "tonalRamp": [
+          "oklch(0.15 0.118 230)",
+          "oklch(0.26 0.118 230)",
+          "oklch(0.37 0.118 230)",
+          "oklch(0.48 0.118 230)",
+          "oklch(0.6 0.118 230)",
+          "oklch(0.72 0.118 230)",
+          "oklch(0.84 0.118 230)",
+          "oklch(0.95 0.118 230)"
+        ],
+        "variants": {
+          "body": "#071c26",
+          "flash": "#06465e",
+          "dim": "#004e6a",
+          "c": "#2d9fcc",
+          "hi": "#68bde5"
+        },
+        "source": "PIGMENT_DEF.warden via mkPigment"
+      },
+      "pigment-singularity": {
+        "role": "pigment",
+        "displayName": "Ultraviolet (god: singularity)",
+        "canonical": "oklch(0.74 0.111 267)",
+        "hex": "#8ba8f1",
+        "tonalRamp": [
+          "oklch(0.15 0.111 267)",
+          "oklch(0.26 0.111 267)",
+          "oklch(0.37 0.111 267)",
+          "oklch(0.48 0.111 267)",
+          "oklch(0.6 0.111 267)",
+          "oklch(0.72 0.111 267)",
+          "oklch(0.84 0.111 267)",
+          "oklch(0.95 0.111 267)"
+        ],
+        "variants": {
+          "body": "#131928",
+          "flash": "#303e63",
+          "dim": "#40527f",
+          "c": "#8ba8f1",
+          "hi": "#afc9ff"
+        },
+        "source": "PIGMENT_DEF.singularity via mkPigment"
+      },
+      "pigment-phantom": {
+        "role": "pigment",
+        "displayName": "Indigo (god: phantom)",
+        "canonical": "oklch(0.60 0.111 272)",
+        "hex": "#697bc2",
+        "tonalRamp": [
+          "oklch(0.15 0.111 272)",
+          "oklch(0.26 0.111 272)",
+          "oklch(0.37 0.111 272)",
+          "oklch(0.48 0.111 272)",
+          "oklch(0.6 0.111 272)",
+          "oklch(0.72 0.111 272)",
+          "oklch(0.84 0.111 272)",
+          "oklch(0.95 0.111 272)"
+        ],
+        "variants": {
+          "body": "#141828",
+          "flash": "#333d63",
+          "dim": "#2f3966",
+          "c": "#697bc2",
+          "hi": "#8a9bda"
+        },
+        "source": "PIGMENT_DEF.phantom via mkPigment"
+      },
+      "pigment-archon": {
+        "role": "pigment",
+        "displayName": "Amethyst (god: archon)",
+        "canonical": "oklch(0.67 0.118 303)",
+        "hex": "#a483d1",
+        "tonalRamp": [
+          "oklch(0.15 0.118 303)",
+          "oklch(0.26 0.118 303)",
+          "oklch(0.37 0.118 303)",
+          "oklch(0.48 0.118 303)",
+          "oklch(0.6 0.118 303)",
+          "oklch(0.72 0.118 303)",
+          "oklch(0.84 0.118 303)",
+          "oklch(0.95 0.118 303)"
+        ],
+        "variants": {
+          "body": "#1c1626",
+          "flash": "#47365e",
+          "dim": "#513c6d",
+          "c": "#a483d1",
+          "hi": "#c1a5e9"
+        },
+        "source": "PIGMENT_DEF.archon via mkPigment"
+      },
+      "pigment-harbinger": {
+        "role": "pigment",
+        "displayName": "Plum (god: harbinger)",
+        "canonical": "oklch(0.58 0.111 321)",
+        "hex": "#9863a2",
+        "tonalRamp": [
+          "oklch(0.15 0.111 321)",
+          "oklch(0.26 0.111 321)",
+          "oklch(0.37 0.111 321)",
+          "oklch(0.48 0.111 321)",
+          "oklch(0.6 0.111 321)",
+          "oklch(0.72 0.111 321)",
+          "oklch(0.84 0.111 321)",
+          "oklch(0.95 0.111 321)"
+        ],
+        "variants": {
+          "body": "#201522",
+          "flash": "#503355",
+          "dim": "#4c2b52",
+          "c": "#9863a2",
+          "hi": "#b385bc"
+        },
+        "source": "PIGMENT_DEF.harbinger via mkPigment"
+      },
+      "pigment-juggernaut": {
+        "role": "pigment",
+        "displayName": "Orchid (god: juggernaut)",
+        "canonical": "oklch(0.74 0.118 336)",
+        "hex": "#da8dc7",
+        "tonalRamp": [
+          "oklch(0.15 0.118 336)",
+          "oklch(0.26 0.118 336)",
+          "oklch(0.37 0.118 336)",
+          "oklch(0.48 0.118 336)",
+          "oklch(0.6 0.118 336)",
+          "oklch(0.72 0.118 336)",
+          "oklch(0.84 0.118 336)",
+          "oklch(0.95 0.118 336)"
+        ],
+        "variants": {
+          "body": "#23131f",
+          "flash": "#57304e",
+          "dim": "#704165",
+          "c": "#da8dc7",
+          "hi": "#f5b2e4"
+        },
+        "source": "PIGMENT_DEF.juggernaut via mkPigment"
+      },
+      "pigment-overlord": {
+        "role": "pigment",
+        "displayName": "Madder (god: overlord)",
+        "canonical": "oklch(0.66 0.075 356)",
+        "hex": "#b87f94",
+        "tonalRamp": [
+          "oklch(0.15 0.075 356)",
+          "oklch(0.26 0.075 356)",
+          "oklch(0.37 0.075 356)",
+          "oklch(0.48 0.075 356)",
+          "oklch(0.6 0.075 356)",
+          "oklch(0.72 0.075 356)",
+          "oklch(0.84 0.075 356)",
+          "oklch(0.95 0.075 356)"
+        ],
+        "variants": {
+          "body": "#21151a",
+          "flash": "#533640",
+          "dim": "#5d3b47",
+          "c": "#b87f94",
+          "hi": "#d3a1b2"
+        },
+        "source": "PIGMENT_DEF.overlord via mkPigment"
+      },
+      "sector-relay-drift": {
+        "role": "sector-tint",
+        "displayName": "Relay Drift (steel, hue 245)",
+        "canonical": "oklch(0.145 0.018 245)",
+        "hex": "#050b11",
+        "tonalRamp": [
+          "oklch(0.15 0.018 245)",
+          "oklch(0.26 0.018 245)",
+          "oklch(0.37 0.018 245)",
+          "oklch(0.48 0.018 245)",
+          "oklch(0.6 0.018 245)",
+          "oklch(0.72 0.018 245)",
+          "oklch(0.84 0.018 245)",
+          "oklch(0.95 0.018 245)"
+        ],
+        "variants": {
+          "ground": "#050b11",
+          "deep": "#030509",
+          "hull": "#0f1820",
+          "faint": "#232f3a",
+          "dim": "#485765",
+          "metal": "#93999e",
+          "motif": "#2b3f51"
+        },
+        "motif": "relays",
+        "quietMotif": false,
+        "source": "THEMES[].tint via mkSectorPal"
+      },
+      "sector-archive-reef": {
+        "role": "sector-tint",
+        "displayName": "Archive Reef (teal, hue 195)",
+        "canonical": "oklch(0.145 0.018 195)",
+        "hex": "#030c0c",
+        "tonalRamp": [
+          "oklch(0.15 0.018 195)",
+          "oklch(0.26 0.018 195)",
+          "oklch(0.37 0.018 195)",
+          "oklch(0.48 0.018 195)",
+          "oklch(0.6 0.018 195)",
+          "oklch(0.72 0.018 195)",
+          "oklch(0.84 0.018 195)",
+          "oklch(0.95 0.018 195)"
+        ],
+        "variants": {
+          "ground": "#030c0c",
+          "deep": "#020606",
+          "hull": "#0c1a1a",
+          "faint": "#1e3232",
+          "dim": "#425b5a",
+          "metal": "#929a9a",
+          "motif": "#214444"
+        },
+        "motif": "shards",
+        "quietMotif": false,
+        "source": "THEMES[].tint via mkSectorPal"
+      },
+      "sector-broken-ring": {
+        "role": "sector-tint",
+        "displayName": "Broken Ring (sage, hue 140)",
+        "canonical": "oklch(0.145 0.018 140)",
+        "hex": "#060c06",
+        "tonalRamp": [
+          "oklch(0.15 0.018 140)",
+          "oklch(0.26 0.018 140)",
+          "oklch(0.37 0.018 140)",
+          "oklch(0.48 0.018 140)",
+          "oklch(0.6 0.018 140)",
+          "oklch(0.72 0.018 140)",
+          "oklch(0.84 0.018 140)",
+          "oklch(0.95 0.018 140)"
+        ],
+        "variants": {
+          "ground": "#060c06",
+          "deep": "#040603",
+          "hull": "#121911",
+          "faint": "#273125",
+          "dim": "#4d5a4a",
+          "metal": "#959a94",
+          "motif": "#32422e"
+        },
+        "motif": "ring",
+        "quietMotif": false,
+        "source": "THEMES[].tint via mkSectorPal"
+      },
+      "sector-slag-belt": {
+        "role": "sector-tint",
+        "displayName": "Slag Belt (umber, hue 50)",
+        "canonical": "oklch(0.145 0.018 50)",
+        "hex": "#100804",
+        "tonalRamp": [
+          "oklch(0.15 0.018 50)",
+          "oklch(0.26 0.018 50)",
+          "oklch(0.37 0.018 50)",
+          "oklch(0.48 0.018 50)",
+          "oklch(0.6 0.018 50)",
+          "oklch(0.72 0.018 50)",
+          "oklch(0.84 0.018 50)",
+          "oklch(0.95 0.018 50)"
+        ],
+        "variants": {
+          "ground": "#100804",
+          "deep": "#080403",
+          "hull": "#1f150f",
+          "faint": "#392a22",
+          "dim": "#635147",
+          "metal": "#9e9793",
+          "motif": "#463a34"
+        },
+        "motif": "belt",
+        "quietMotif": true,
+        "source": "THEMES[].tint via mkSectorPal"
+      },
+      "sector-hull-ossuary": {
+        "role": "sector-tint",
+        "displayName": "Hull Ossuary (ash-lilac, hue 295)",
+        "canonical": "oklch(0.145 0.018 295)",
+        "hex": "#0b0911",
+        "tonalRamp": [
+          "oklch(0.15 0.018 295)",
+          "oklch(0.26 0.018 295)",
+          "oklch(0.37 0.018 295)",
+          "oklch(0.48 0.018 295)",
+          "oklch(0.6 0.018 295)",
+          "oklch(0.72 0.018 295)",
+          "oklch(0.84 0.018 295)",
+          "oklch(0.95 0.018 295)"
+        ],
+        "variants": {
+          "ground": "#0b0911",
+          "deep": "#050408",
+          "hull": "#18151f",
+          "faint": "#2f2b3a",
+          "dim": "#565265",
+          "metal": "#98979e",
+          "motif": "#3e3950"
+        },
+        "motif": "none",
+        "quietMotif": false,
+        "source": "THEMES[].tint via mkSectorPal"
+      },
+      "sector-rose-veil": {
+        "role": "sector-tint",
+        "displayName": "Rose Veil (rose, hue 350)",
+        "canonical": "oklch(0.145 0.018 350)",
+        "hex": "#10070b",
+        "tonalRamp": [
+          "oklch(0.15 0.018 350)",
+          "oklch(0.26 0.018 350)",
+          "oklch(0.37 0.018 350)",
+          "oklch(0.48 0.018 350)",
+          "oklch(0.6 0.018 350)",
+          "oklch(0.72 0.018 350)",
+          "oklch(0.84 0.018 350)",
+          "oklch(0.95 0.018 350)"
+        ],
+        "variants": {
+          "ground": "#10070b",
+          "deep": "#080405",
+          "hull": "#1e1318",
+          "faint": "#382930",
+          "dim": "#634f58",
+          "metal": "#9d9699",
+          "motif": "#4d3440"
+        },
+        "motif": "veil",
+        "quietMotif": false,
+        "source": "THEMES[].tint via mkSectorPal"
+      }
+    },
+    "typographyMeta": {
+      "display": {
+        "displayName": "Display",
+        "purpose": "Screen titles (SETTINGS, HELP, CODEX); terminal states scale to 20px draft, 26px PAUSED, 34px HULL LOST."
+      },
+      "headline": {
+        "displayName": "Headline",
+        "purpose": "Hub sector title and codex entry name."
+      },
+      "title": {
+        "displayName": "Title",
+        "purpose": "Menu entry labels on 44px rows; 10px on rows under 40px."
+      },
+      "title-small": {
+        "displayName": "Title Small",
+        "purpose": "Tabs, settings rows, draft card names, HUD sector plate."
+      },
+      "label": {
+        "displayName": "Label",
+        "purpose": "Instrument legends beside their values, codex block labels and rank headers. The 9px floor."
+      },
+      "body": {
+        "displayName": "Body",
+        "purpose": "Intro, help and codex text in KRIEFNE's voice."
+      },
+      "caption": {
+        "displayName": "Caption",
+        "purpose": "Key hints, secondary lines, card descriptions."
+      },
+      "readout": {
+        "displayName": "Readout",
+        "purpose": "Numbers and live values, 11–13px at weight 600."
+      }
+    },
+    "tracking": {
+      "rule": "Michroma is tracked at round(px × 0.18) px via heading()/track(); Martian Mono is untracked."
+    },
+    "fonts": [
+      {
+        "family": "Michroma",
+        "file": "fonts/michroma-latin.woff2",
+        "licence": "fonts/OFL-Michroma.txt",
+        "weight": "400",
+        "display": "block"
+      },
+      {
+        "family": "Martian Mono",
+        "file": "fonts/martian-mono-latin.woff2",
+        "licence": "fonts/OFL-MartianMono.txt",
+        "weight": "100 800",
+        "stretch": "75%",
+        "display": "block"
+      }
+    ],
+    "strokes": [
+      {
+        "name": "hairline",
+        "value": "1px",
+        "purpose": "Default engraved stroke: rules, rings, ticks, hatching, inner engraving."
+      },
+      {
+        "name": "committed",
+        "value": "1.5px",
+        "purpose": "Solid committed rule, hull outlines, unlocked nodes, hovered plate."
+      },
+      {
+        "name": "heavy",
+        "value": "2px",
+        "purpose": "Enraged god outline, damaging shock ring, travelled emphasis, HP fill on chaff."
+      },
+      {
+        "name": "cut",
+        "value": "3px",
+        "purpose": "Groove meter fill, boss HP fill, siege collars."
+      },
+      {
+        "name": "knockout",
+        "value": "3px ground stroke",
+        "purpose": "inkText() behind all world text."
+      }
+    ],
+    "dashes": [
+      {
+        "name": "rule-dashed",
+        "value": "[4,4]",
+        "purpose": "Uncommitted menu rule, OFF toggle."
+      },
+      {
+        "name": "plate-dashed",
+        "value": "[5,4]",
+        "purpose": "Codex portrait plate, returning-core draft strip, bulwark ring."
+      },
+      {
+        "name": "trail-ahead",
+        "value": "[5,5]",
+        "purpose": "Untravelled legs of the hub trail."
+      },
+      {
+        "name": "locked",
+        "value": "[3,3]",
+        "purpose": "Locked hub nodes and locked HUD slots."
+      },
+      {
+        "name": "arming",
+        "value": "[7,6]",
+        "purpose": "Hazard before it goes live."
+      },
+      {
+        "name": "reentry",
+        "value": "[6,5]",
+        "purpose": "Boss re-entry telegraph."
+      }
+    ],
+    "scrims": [
+      {
+        "name": "menu-scrim",
+        "value": "rgba(7,8,12,0.84) over the sector at 0.3",
+        "purpose": "Settings, help and codex (drawWorldMini)."
+      },
+      {
+        "name": "overlay-scrim",
+        "value": "rgba(7,8,12,0.9)",
+        "purpose": "Pause, draft and game over over the live frame."
+      }
+    ],
+    "shadows": [],
+    "motion": [
+      {
+        "name": "nest-inversion",
+        "value": "350ms linear fade to gold",
+        "purpose": "Nest bonus draft; instant under reduced motion."
+      },
+      {
+        "name": "pulsar-fix",
+        "value": "900ms",
+        "purpose": "Ticked gold lines converge on the ship on sector entry; skipped under reduced motion."
+      },
+      {
+        "name": "invuln-blink",
+        "value": "80ms period",
+        "purpose": "Ship at 0.45 alpha while invulnerable."
+      },
+      {
+        "name": "hull-critical-pulse",
+        "value": "0.55 + 0.3·sin(t/180ms)",
+        "purpose": "Red inset double rule at ≤30% hull; fixed at 0.8 under reduced motion."
+      },
+      {
+        "name": "title-sheen",
+        "value": "0.25 rad/s",
+        "purpose": "Single gold sheen line over the title disc; off under reduced motion."
+      },
+      {
+        "name": "reduced-motion",
+        "value": "prefers-reduced-motion: reduce (REDUCED)",
+        "purpose": "Freezes portal spin, gem bob, shield and enraged tick rotation, hub pulse, exit-arrow bob and title sheen."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "short",
+        "value": "max-height: 560px"
+      },
+      {
+        "name": "narrow",
+        "value": "max-width: 520px"
+      },
+      {
+        "name": "coarse",
+        "value": "pointer: coarse"
+      }
+    ],
+    "canvas": {
+      "logical": "960x640",
+      "aspect": "3:2",
+      "hud": "56px",
+      "rim": "24px",
+      "deviceDensity": "static layers repainted at devicePixelRatio"
+    }
+  },
+  "components": [
+    {
+      "name": "Committed Entry",
+      "kind": "button",
+      "refersTo": "entry-committed",
+      "description": "The one committed or primary choice in a set: solid gold rule, filled diamond, gold engraved label.",
+      "html": "<button class=\"ds-entry ds-entry-on\"><span class=\"ds-entry-mark\"></span><span class=\"ds-entry-label\">CONTINUE S07</span><span class=\"ds-entry-key\">[Enter]</span></button>",
+      "css": ".ds-entry{position:relative;display:flex;align-items:center;gap:14px;width:400px;height:44px;padding:0 0 5px 0;background:none;border:0;cursor:pointer;color:#dde2e8;font:13px Michroma, 'Martian Mono', sans-serif;letter-spacing:2px;text-transform:uppercase}.ds-entry::after{content:\"\";position:absolute;left:0;right:0;bottom:5px;border-bottom:1px dashed #86672c}.ds-entry-mark{width:6px;height:6px;margin-left:5px;transform:rotate(45deg);border:1px solid #86672c}.ds-entry-label{flex:1;text-align:left}.ds-entry-key{font:400 11px 'Martian Mono', ui-monospace, Menlo, Consolas, monospace;letter-spacing:0;color:#9ca5b0}.ds-entry-on{color:#e2ae4b}.ds-entry-on::after{border-bottom:1.5px solid #e2ae4b}.ds-entry-on .ds-entry-mark{background:#e2ae4b;border-color:#e2ae4b}.ds-entry:hover,.ds-entry:focus-visible{color:#e2ae4b;outline:none}.ds-entry:hover::after,.ds-entry:focus-visible::after{border-bottom:1.5px solid #e2ae4b}.ds-entry:hover .ds-entry-mark,.ds-entry:focus-visible .ds-entry-mark{background:#e2ae4b;border-color:#e2ae4b}"
+    },
+    {
+      "name": "Entry",
+      "kind": "button",
+      "refersTo": "entry",
+      "description": "Any other choice: dashed tarnished-gold rule and hollow marker until hovered.",
+      "html": "<button class=\"ds-entry2\"><span class=\"ds-entry2-mark\"></span><span class=\"ds-entry2-label\">SETTINGS</span><span class=\"ds-entry2-key\">[O]</span></button>",
+      "css": ".ds-entry2{position:relative;display:flex;align-items:center;gap:14px;width:300px;height:44px;padding:0 0 5px 0;background:none;border:0;cursor:pointer;color:#dde2e8;font:13px Michroma, 'Martian Mono', sans-serif;letter-spacing:2px}.ds-entry2::after{content:\"\";position:absolute;left:0;right:0;bottom:5px;border-bottom:1px dashed #86672c}.ds-entry2-mark{width:6px;height:6px;margin-left:5px;transform:rotate(45deg);border:1px solid #86672c}.ds-entry2-label{flex:1;text-align:left}.ds-entry2-key{font:400 11px 'Martian Mono', ui-monospace, Menlo, Consolas, monospace;letter-spacing:0;color:#9ca5b0}.ds-entry2:hover,.ds-entry2:focus-visible{color:#e2ae4b;outline:none}.ds-entry2:hover::after,.ds-entry2:focus-visible::after{border-bottom:1.5px solid #e2ae4b}.ds-entry2:hover .ds-entry2-mark,.ds-entry2:focus-visible .ds-entry2-mark{background:#e2ae4b;border-color:#e2ae4b}"
+    },
+    {
+      "name": "Danger Entry",
+      "kind": "button",
+      "refersTo": "entry-danger",
+      "description": "Destructive confirmation only (abandon run, reset records): label, rule and marker in oxide red.",
+      "html": "<button class=\"ds-entry3\"><span class=\"ds-entry3-mark\"></span><span class=\"ds-entry3-label\">ABANDON SAVED RUN?</span><span class=\"ds-entry3-key\">[N]</span></button>",
+      "css": ".ds-entry3{position:relative;display:flex;align-items:center;gap:14px;width:400px;height:44px;padding:0 0 5px 0;background:none;border:0;cursor:pointer;color:#e2553c;font:13px Michroma, 'Martian Mono', sans-serif;letter-spacing:2px}.ds-entry3::after{content:\"\";position:absolute;left:0;right:0;bottom:5px;border-bottom:1px dashed #e2553c}.ds-entry3-mark{width:6px;height:6px;margin-left:5px;transform:rotate(45deg);border:1px solid #e2553c}.ds-entry3-label{flex:1;text-align:left}.ds-entry3-key{font:400 11px 'Martian Mono', ui-monospace, Menlo, Consolas, monospace;letter-spacing:0;color:#9ca5b0}.ds-entry3:hover::after,.ds-entry3:focus-visible::after{border-bottom:1.5px solid #e2553c}.ds-entry3:hover .ds-entry3-mark,.ds-entry3:focus-visible .ds-entry3-mark{background:#e2553c}.ds-entry3:focus-visible{outline:none}"
+    },
+    {
+      "name": "Tabs",
+      "kind": "nav",
+      "refersTo": "tab-active",
+      "description": "Help and codex tabs: engraved label over an end-ticked rule; active is solid gold, others dashed.",
+      "html": "<nav class=\"ds-tabs\"><a class=\"ds-tab ds-tab-on\" href=\"#\"><i>1</i>BESTIARY</a><a class=\"ds-tab\" href=\"#\"><i>2</i>BOSSES</a></nav>",
+      "css": ".ds-tabs{display:flex;gap:16px;background:#07080c;padding:8px}.ds-tab{position:relative;display:block;width:160px;padding:8px 0 10px;text-align:center;text-decoration:none;color:#dde2e8;font:11px Michroma, 'Martian Mono', sans-serif;letter-spacing:2px;border-bottom:1px dashed #86672c}.ds-tab i{position:absolute;left:4px;font:normal 400 10px 'Martian Mono', ui-monospace, Menlo, Consolas, monospace;letter-spacing:0;color:#9ca5b0}.ds-tab-on{color:#e2ae4b;border-bottom:1.5px solid #e2ae4b}.ds-tab:hover,.ds-tab:focus-visible{color:#e2ae4b;outline:none}"
+    },
+    {
+      "name": "Groove Meter",
+      "kind": "custom",
+      "refersTo": "hud-strip",
+      "description": "HUD instrument: legend, hairline track with a 3px filled cut and graduation ticks, value beside the groove.",
+      "html": "<div class=\"ds-hud\"><span class=\"ds-hud-leg\">HULL</span><span class=\"ds-groove\"><span class=\"ds-groove-cut\" style=\"width:72%\"></span></span><span class=\"ds-hud-val\">72/100</span></div>",
+      "css": ".ds-hud{display:flex;align-items:center;gap:12px;height:56px;padding:0 14px;background:#07080c;border-bottom:1px solid #4a525e}.ds-hud-leg{width:40px;font:9px Michroma, 'Martian Mono', sans-serif;letter-spacing:2px;color:#9ca5b0}.ds-groove{position:relative;width:150px;height:9px;background:linear-gradient(#4a525e,#4a525e) center/100% 1px no-repeat,repeating-linear-gradient(90deg,#4a525e 0 1px,transparent 1px 15px) center/100% 6px no-repeat;border-left:1px solid #8b95a2;border-right:1px solid #8b95a2}.ds-groove-cut{position:absolute;left:0;top:3px;height:3px;background:#e2ae4b;transition:width .2s}.ds-hud-val{font:600 13px 'Martian Mono', ui-monospace, Menlo, Consolas, monospace;color:#dde2e8}.ds-hud:hover .ds-groove-cut{background:#f7d991}"
+    },
+    {
+      "name": "Draft Card",
+      "kind": "card",
+      "refersTo": "draft-card",
+      "description": "Corner-ticked plate with rarity rim ticks; becomes a solid full frame on hover.",
+      "html": "<button class=\"ds-card\"><span class=\"ds-card-ticks\"><b></b></span><span class=\"ds-card-key\">[2]</span><svg width=\"46\" height=\"46\" viewBox=\"-23 -23 46 46\"><circle r=\"23\" fill=\"none\" stroke=\"#86672c\"/><g stroke=\"#e2ae4b\" stroke-width=\"1.75\" stroke-linecap=\"round\"><line x1=\"-12\" y1=\"-7\" x2=\"12\" y2=\"-7\"/><line x1=\"-12\" y1=\"0\" x2=\"12\" y2=\"0\"/><line x1=\"-12\" y1=\"7\" x2=\"12\" y2=\"7\"/></g></svg><span class=\"ds-card-name\">OVERCLOCK BARREL</span><span class=\"ds-card-desc\">+20% base fire rate</span></button>",
+      "css": ".ds-card{position:relative;display:flex;flex-direction:column;align-items:center;gap:10px;width:220px;height:204px;padding:34px 16px 16px;background:#07080c;border:0;cursor:pointer;color:#dde2e8;--c:#e2ae4b;background-image:linear-gradient(var(--c),var(--c)),linear-gradient(var(--c),var(--c)),linear-gradient(var(--c),var(--c)),linear-gradient(var(--c),var(--c)),linear-gradient(var(--c),var(--c)),linear-gradient(var(--c),var(--c)),linear-gradient(var(--c),var(--c)),linear-gradient(var(--c),var(--c));background-repeat:no-repeat;background-size:12px 1px,1px 12px,12px 1px,1px 12px,12px 1px,1px 12px,12px 1px,1px 12px;background-position:0 0,0 0,100% 0,100% 0,0 100%,0 100%,100% 100%,100% 100%}.ds-card-ticks{position:absolute;top:-4px;left:50%;display:flex;gap:6px;transform:translateX(-50%)}.ds-card-ticks b{width:1.5px;height:8px;background:#e2ae4b}.ds-card-key{position:absolute;left:12px;top:12px;font:400 11px 'Martian Mono', ui-monospace, Menlo, Consolas, monospace;color:#9ca5b0}.ds-card-name{font:11px Michroma, 'Martian Mono', sans-serif;letter-spacing:2px}.ds-card-desc{font:400 11px 'Martian Mono', ui-monospace, Menlo, Consolas, monospace;color:#9ca5b0;text-align:center}.ds-card:hover,.ds-card:focus-visible{outline:1.5px solid #e2ae4b;outline-offset:-1px}"
+    },
+    {
+      "name": "Nest Draft Card",
+      "kind": "card",
+      "refersTo": "draft-card-nest",
+      "description": "The one inversion: black engraving on the gold field, only on a nest's bonus draft.",
+      "html": "<div class=\"ds-nest\"><button class=\"ds-nest-card\"><span class=\"ds-nest-ticks\"><b></b></span><span class=\"ds-nest-key\">[1]</span><svg width=\"46\" height=\"46\" viewBox=\"-23 -23 46 46\"><circle r=\"23\" fill=\"none\" stroke=\"#07080c\"/><circle r=\"10\" fill=\"none\" stroke=\"#07080c\" stroke-width=\"1.75\"/><circle r=\"3\" fill=\"#07080c\"/></svg><span class=\"ds-nest-name\">AP ROUNDS</span><span class=\"ds-nest-desc\">+30% base damage</span></button></div>",
+      "css": ".ds-nest{padding:24px;background:#e2ae4b repeating-radial-gradient(circle at 50% 120%,transparent 0 3px,rgba(7,8,12,.12) 3px 4px)}.ds-nest-card{position:relative;display:flex;flex-direction:column;align-items:center;gap:10px;width:220px;height:204px;padding:34px 16px 16px;background:transparent;border:1px solid transparent;cursor:pointer;color:#07080c}.ds-nest-ticks{position:absolute;top:-4px;left:50%;display:flex;gap:6px;transform:translateX(-50%)}.ds-nest-ticks b{width:1.5px;height:8px;background:#07080c}.ds-nest-key{position:absolute;left:12px;top:12px;font:400 11px 'Martian Mono', ui-monospace, Menlo, Consolas, monospace;color:#3b2c10}.ds-nest-name{font:11px Michroma, 'Martian Mono', sans-serif;letter-spacing:2px}.ds-nest-desc{font:400 11px 'Martian Mono', ui-monospace, Menlo, Consolas, monospace;color:#3b2c10;text-align:center}.ds-nest-card:hover,.ds-nest-card:focus-visible{border:1.5px solid #07080c;outline:none}"
+    },
+    {
+      "name": "Codex Plate",
+      "kind": "card",
+      "refersTo": "codex-plate",
+      "description": "Corner-ticked tarnished-gold plate: portrait in a dashed inset plate, name with a pigment underline, TELL / COUNTER / FIELD NOTE blocks.",
+      "html": "<article class=\"ds-codex\"><div class=\"ds-codex-portrait\"><svg width=\"100\" height=\"100\" viewBox=\"-50 -50 100 100\"><polygon points=\"0,-34 29,-17 29,17 0,34 -29,17 -29,-17\" fill=\"#071c26\" stroke=\"#2d9fcc\" stroke-width=\"1.5\"/><polygon points=\"0,-18 16,-9 16,9 0,18 -16,9 -16,-9\" fill=\"none\" stroke=\"#004e6a\"/><circle r=\"4\" fill=\"#2d9fcc\"/><circle r=\"44\" fill=\"none\" stroke=\"#2d9fcc\"/><circle r=\"47.5\" fill=\"none\" stroke=\"#2d9fcc\"/></svg></div><div><h3 class=\"ds-codex-name\">WARDEN</h3><p class=\"ds-codex-meta\">CAPTAIN  ·  Siege fortress  ·  Retreats once or twice  ·  first seen S10</p></div><dl class=\"ds-codex-blocks\"><dt class=\"ds-tell\">TELL</dt><dd>Slow. Spirals, guards, seismic slams, twin staggered waves.</dd><dt class=\"ds-counter\">COUNTER</dt><dd>Stay off the rings. When it RETREATS, chase — damage stops its healing.</dd><dt class=\"ds-note\">FIELD NOTE</dt><dd class=\"ds-note-text\">Bridge-Warden. Lane authority, built to stand at the one crossing between two dead empires.</dd></dl></article>",
+      "css": ".ds-codex{display:grid;grid-template-columns:134px 1fr;gap:16px;width:628px;padding:14px 18px 18px;background:#07080c;color:#dde2e8;--c:#86672c;background-image:linear-gradient(var(--c),var(--c)),linear-gradient(var(--c),var(--c)),linear-gradient(var(--c),var(--c)),linear-gradient(var(--c),var(--c)),linear-gradient(var(--c),var(--c)),linear-gradient(var(--c),var(--c)),linear-gradient(var(--c),var(--c)),linear-gradient(var(--c),var(--c));background-repeat:no-repeat;background-size:12px 1px,1px 12px,12px 1px,1px 12px,12px 1px,1px 12px,12px 1px,1px 12px;background-position:0 0,0 0,100% 0,100% 0,0 100%,0 100%,100% 100%,100% 100%}.ds-codex-portrait{display:grid;place-items:center;width:134px;height:134px;border:1px dashed #4a525e}.ds-codex-name{margin:18px 0 8px;font:400 18px Michroma, 'Martian Mono', sans-serif;letter-spacing:3px;padding-bottom:6px;background:linear-gradient(#2d9fcc,#2d9fcc) 0 100%/56px 2px no-repeat}.ds-codex-meta{margin:0;font:400 11px 'Martian Mono', ui-monospace, Menlo, Consolas, monospace;color:#9ca5b0}.ds-codex-blocks{grid-column:1/-1;margin:0}.ds-codex-blocks dt{margin-top:11px;font:9px Michroma, 'Martian Mono', sans-serif;letter-spacing:2px}.ds-codex-blocks dd{margin:4px 0 0;font:400 12px/15px 'Martian Mono', ui-monospace, Menlo, Consolas, monospace}.ds-tell{color:#e2553c}.ds-counter{color:#e2ae4b}.ds-note{color:#8b95a2}.ds-note-text{color:#9ca5b0}.ds-codex:hover .ds-codex-portrait,.ds-codex:focus-within .ds-codex-portrait{border-color:#8b95a2}"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Etched Record",
+    "overview": "KRIEFNE is drawn as the engraved cover of the record the ship carries: hairline diagrams, tick marks, binary counts and instructions for strangers. Every visible surface (title, galaxy hub, playfield, HUD, draft, pause, settings, help, codex, game over) is drawn in code on a single 960×640 canvas in `game.js`. The page around it (`index.html`, `styles.css`) only carries the same dark, a 1px bare-metal frame, a key-hint line and the two self-hosted faces.\n\nEvery mark is a monoline stroke. Light is shown by line density and hatching: the build has no `shadowBlur`, no gradients and no blur. Colour is a vocabulary with one meaning per colour. Gold is KRIEFNE, red is harm, pigment is who a hostile is, hydrogen is salvage, and bare metal is wreckage and neutral text. State is shown by the shape of a line (solid or dashed, single or double, ringed or ticked) before it is ever shown by hue.\n\nThe system turns down the genre default of neon lines glowing on black. That covers grid floors, cyan and magenta neon, glow, bloom, blur halos, glass panels, rounded tiles, gradient chrome, a box around every menu item, and NASA-punk costume.",
+    "keyCharacteristics": [
+      "One canvas, fixed 960×640 logical units, scaled to fit at 3:2 and repainted at device density so hairlines stay sharp.",
+      "Cold near-black ground, faintly tinted per sector by its star's hue.",
+      "Monoline strokes at 1 to 1.5px, with 2 to 3px reserved for meters, heavy rounds and enraged outlines.",
+      "Two faces cut by the same stylus: Michroma for names and titles, Martian Mono for numbers and KRIEFNE's voice.",
+      "Solid means committed. Dashed means possible, pending, arming or locked.",
+      "One inversion in the whole game: the nest's bonus draft, black engraving on a gold field."
+    ],
+    "rules": [
+      {
+        "name": "The One Meaning Rule",
+        "body": "Every colour means one thing. If a new element needs a colour, first decide whose it is: KRIEFNE's (gold), harm (red), a hostile's identity (its pigment), salvage (hydrogen) or wreckage and neutral (metal). There is no decorative colour.",
+        "section": "colors"
+      },
+      {
+        "name": "The Gold Is Home Rule",
+        "body": "Gold never appears on a hostile. Not on its hull, its rank, its label or its tracker.",
+        "section": "colors"
+      },
+      {
+        "name": "The Red Is Harm Rule",
+        "body": "Red marks what is about to hurt you or is hurting you. A hostile at rest is never red. It turns red only for the moment it commits, then goes back to its pigment.",
+        "section": "colors"
+      },
+      {
+        "name": "The Pigment Is Identity Rule",
+        "body": "A new pigment must keep its hue outside 15–118 (gold's and red's bands), its lightness within 0.58–0.74 and its chroma at or below 0.12. It must sit at least ΔE 0.13 (OKLab) from gold, red, red-hi and hydrogen. It must also sit at least 0.09 from every other god, every other servitor, and each god's own chaff. The `pigment` suite in `test.js` enforces all of it.",
+        "section": "colors"
+      },
+      {
+        "name": "The Enraged Ticks Rule",
+        "body": "An enraged god (below 30% HP) does not turn red. It moves to its `hi` variant, its outline thickens to 2px, and its outermost rank ring gains 24 alternating ticks of 5 and 8px in `hi`.",
+        "section": "colors"
+      },
+      {
+        "name": "The Unmet Stays Bare Rule",
+        "body": "A god you have never met shows no pigment on the hub or in the codex. Hub nest rings stay bare metal, codex entries read `? ? ? ? ?` with no pigment marker, and the portrait is a flat grey silhouette. Meeting a god opens its pigment, portrait, rank, tells and counters; the kill adds the field note.",
+        "section": "colors"
+      },
+      {
+        "name": "The Silver Edge Rule",
+        "body": "The lit edges of wreckage stay bare silver in every sector (chroma ≤ 0.015, tested), so no hull ever passes for a hostile.",
+        "section": "colors"
+      },
+      {
+        "name": "The Tint Not Colour Rule",
+        "body": "Sector tint stays under 0.04 chroma and grounds stay below L 0.16 (tested). It is a tint you notice over a run, never a colour you read.",
+        "section": "colors"
+      },
+      {
+        "name": "The Two Styli Rule",
+        "body": "Names, titles and labels go in Michroma through `heading()`. Numbers, sentences and KRIEFNE's voice go in Martian Mono through `mono()`. Never set a sentence in Michroma, and never set a screen title in Martian Mono.",
+        "section": "typography"
+      },
+      {
+        "name": "The Knockout Rule",
+        "body": "Text drawn over the playfield always goes through `inkText()`, which adds a 3px knockout stroke in Cold Ground behind the fill. That keeps it legible over wreckage without a panel or a glow.",
+        "section": "typography"
+      },
+      {
+        "name": "The Line Density Rule",
+        "body": "Light is shown by more lines, never by blur. To make something read hotter, add a ring, a tick or a hatch, or step it to its `hi` variant. Never add `shadowBlur`, a gradient or a filter.",
+        "section": "elevation"
+      }
+    ],
+    "dos": [
+      "Do decide whose an element is before choosing its colour: gold for KRIEFNE, red for harm, pigment for a hostile's identity, hydrogen for salvage, metal for wreckage and neutral text.",
+      "Do derive every new pigment or sector colour in OKLCH through `mkPigment` or `mkSectorPal`, and keep `node test.js` green.",
+      "Do show state with line form: solid for committed, dashed for pending, rings for rank, rim ticks for rarity, a double rule for heavy, ticks for enraged.",
+      "Do keep strokes monoline at 1 to 1.5px, and save 2 to 3px for meter fills, heavy rounds and enraged outlines.",
+      "Do set world text through `inkText()` and screen text through `heading()` or `mono()`.",
+      "Do render codex portraits through the real draw code at the registered scale.",
+      "Do gate every looping or decorative motion on `REDUCED`."
+    ],
+    "donts": [
+      "Don't put gold on a hostile, or red on a hostile that is not committing.",
+      "Don't show a god's pigment on the hub or in the codex before it has been met.",
+      "Don't tint wreckage lit edges. They stay bare silver.",
+      "Don't add glow, bloom, blur halos, `shadowBlur`, gradients, glass panels or gradient chrome.",
+      "Don't use neon cyan or magenta, a grid floor, or NASA-punk costume.",
+      "Don't round corners. Circles are fine, rounded rectangles are not.",
+      "Don't box menu entries. An entry is a label on a rule, and plates are for figures and cards.",
+      "Don't invert any screen except the nest's bonus draft.",
+      "Don't set type below 9px Michroma or 10px Martian Mono."
+    ]
+  }
+}
