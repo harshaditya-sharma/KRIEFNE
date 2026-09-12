@@ -125,7 +125,7 @@ function fightNest(api, sector, opts) {
    if (!r) { r = { heal: 0, last: b.hp, recoveries: 0, offT: 0, mode: b.mode, maxhp: b.maxhp }; track.set(b.uid, r); }
    if (b.hp > r.last) r.heal += b.hp - r.last;
    r.last = b.hp;
-   const off = (b.mode === 'phase' || b.mode === 'retreat');
+   const off = b.mode === 'recover';
    if (off) { r.offT += DT; recoverFrames++; }
    if (b.mode !== r.mode) { if (off) r.recoveries++; r.mode = b.mode; }
   }
@@ -242,11 +242,60 @@ function suiteBossRecovery() {
   seedRandom(api, 4242 + sector);
   const r = fightNest(api, sector, { maxSeconds: 120 });
   const label = 'S' + (sector + 1);
-  // 12% is the designed lifetime cap (2 recoveries x 6%); a boss that uses both
-  // recoveries fully lands exactly on it, so allow float noise, not more.
-  atMost(label + ' boss never heals more than 12% of max HP all fight', r.maxHealFrac, 0.12 + 1e-9);
-  atMost(label + ' boss enters recovery at most twice', r.maxRecoveries, 2);
+  // the lifetime cap is one pool per threshold the kit arms (spec §3.6); a
+  // boss that uses every recovery fully lands exactly on it, so allow float noise
+  const kit = api.bossKits[api.bossKindsFor(sector)[0]], R = kit.recover, cap = R ? R.at.length * (R.pool != null ? R.pool : 0.08) : 0;
+  atMost(label + ' boss never heals past its recovery pools', r.maxHealFrac, cap + 1e-9);
+  atMost(label + ' boss recovers at most once per armed threshold', r.maxRecoveries, R ? R.at.length : 0);
   atMost(label + ' boss spends <25% of the fight unengageable', r.offFrac, 0.25);
+ }
+ // RELENTLESS at twice each band's target fight length (spec §3.6, §6)
+ {
+  const a = boot();
+  eq('S5-S10 RELENTLESS stays at 180s', a.relentlessFor(10), 180);
+  eq('S15-S20 RELENTLESS at 160s', a.relentlessFor(15), 160);
+  eq('S25-S45 RELENTLESS at 210s', a.relentlessFor(45), 210);
+  eq('S50-S95 RELENTLESS at 300s', a.relentlessFor(50), 300);
+  eq('S100 RELENTLESS at 420s', a.relentlessFor(100), 420);
+  eq('a returned god uses its rung\'s band', a.relentlessFor(115), 160);
+ }
+ // PHANTOM's Ghost Form, the reference recovery: its counter works
+ const ghost = (hpAt, t0) => {
+  const a = boot(); seedRandom(a, 1515);
+  a.startRun(); a.loadSector(14); a.forceState('playing'); a.queue.length = 0;
+  const b = bossesIn(a)[0]; a.player.autoFire = false;
+  for (const e of a.enemies.slice()) if (e !== b) a.enemies.splice(a.enemies.indexOf(e), 1);
+  b.fightT = t0; b.hp = b.hpSeen = b.maxhp * hpAt;
+  seconds(a, 0.1, () => { immortal(a); a.mouse.down = false; });
+  return { a, b };
+ };
+ {
+  const { b } = ghost(0.5, 5);
+  ok('no recovery in the opening 12s, however wounded', b.mode !== 'recover' && !b.phased);
+ }
+ {
+  const { a, b } = ghost(0.54, 20);
+  ok('PHANTOM at 55% goes to Ghost Form', b.mode === 'recover' && b.phased && a.bossLabel(b) === 'GHOST FORM');
+  ok('it raises escorts to break it', (b.spawned || []).length >= 2);
+  atMost('its pool is 8% of max HP', b.healPool / b.maxhp, 0.08 + 1e-9);
+  const hp0 = b.hp; seconds(a, 1, () => { immortal(a); a.mouse.down = false; });
+  ok('it mends while the escorts live', b.hp > hp0);
+  for (const u of b.spawned.slice()) { const i = a.enemies.findIndex(e => e.uid === u); if (i >= 0) a.killEnemy(i); }
+  seconds(a, 0.1, () => { immortal(a); a.mouse.down = false; });
+  ok('killing the escorts breaks it', b.mode === 'hunt' && !b.phased);
+  b.hp = b.maxhp * 0.2; seconds(a, 2, () => { immortal(a); a.mouse.down = false; });
+  ok('Ghost Form comes once only', b.mode !== 'recover');
+ }
+ {
+  const { a, b } = ghost(0.54, 20);
+  ok('a second Ghost Form began', b.mode === 'recover');
+  b.fightT = b.relentlessT + 0.1; seconds(a, 0.1, () => { immortal(a); a.mouse.down = false; });
+  ok('RELENTLESS ends a recovery in progress and bars every later one', b.hardEnrage && b.mode === 'hunt' && b.recLeft.length === 0 && b.healPool === 0);
+ }
+ {
+  const a = boot(); a.startRun(); a.loadSector(29);
+  const s = a.mkSummoned('phantom', 500, 500, 29, 1);
+  eq('a summoned PHANTOM never recovers', s.recLeft.length, 0);
  }
  return null;
 }
@@ -898,9 +947,9 @@ function suiteBossRoster() {
   const b = bossesIn(a)[0];
   b.forcedAttack = 'slam'; seconds(a, 8, () => immortal(a));
   eq('a forced attack loops that attack past its slot', b.atk, 'slam');
-  b.forcedAttack = null; b.forcedPhase = 3; seconds(a, 0.2, () => immortal(a));
-  eq('a forced phase is honoured', b.ph, 3);
-  b.forcedPhase = 9; seconds(a, 0.2, () => immortal(a));
+  b.forcedAttack = null; b.forcedPhase = 3; seconds(a, 2, () => immortal(a));
+  eq('a forced phase is honoured, one beat per phase', b.ph, 3);
+  b.forcedPhase = 9; seconds(a, 1, () => immortal(a));
   eq('and clamped to the god\'s own phase count', b.ph, 3);
   a.__sandbox.window.devAiFreeze = true; const pt = b.phaseT;
   seconds(a, 1, () => immortal(a));
@@ -969,7 +1018,7 @@ function suiteHierarchy() {
  range('each further link multiplies by 0.45 again', s2.maxhp / s1.maxhp, 0.449, 0.451);
  range('a summoned god hits at 85%', s1.dmg / lead.dmg, 0.8, 0.9);
  range('and is drawn at 85% size', s1.r / lead.r, 0.849, 0.851);
- ok('summoned gods never recover and never phase', !s1.recovKind && s1.phAt.length === 0);
+ ok('summoned gods never recover and never phase', s1.recLeft.length === 0 && s1.phAt.length === 0);
  ok('summoned gods are flagged, leads are not', s1.summoned && s1.depth === 1 && !lead.summoned);
 
  // -- live: the chain actually holds in play ------------------------------------
@@ -994,14 +1043,14 @@ function suiteHierarchy() {
  }
  {
   const { a, ld } = nest(40);
-  ld.hp = ld.maxhp * 0.49; tick(a, 0.5);
+  ld.hp = ld.maxhp * 0.49; tick(a, 1.5); // its Phase II beat plays first
   deepEq('S40 ORACLE at 50% calls two WYVERNs together', summoned(a).map(e => e.kind), ['wyvern', 'wyvern']);
  }
  {
   const { a, ld } = nest(50);
   ld.hp = ld.maxhp * 0.74; tick(a, 0.5);
   deepEq('S50 ARCHON at 75% calls SENTINEL', summoned(a).map(e => e.kind), ['sentinel']);
-  ld.hp = ld.maxhp * 0.24; tick(a, 0.5);
+  ld.hp = ld.maxhp * 0.24; tick(a, 2.5); // Phase II and III beats play first
   deepEq('and again at 25%', summoned(a).map(e => e.kind), ['sentinel', 'sentinel']);
   const [x, y] = summoned(a);
   x.hp = x.maxhp * 0.4; tick(a, 1.5);
@@ -1015,7 +1064,7 @@ function suiteHierarchy() {
  }
  {
   const { a, ld } = nest(100);
-  ld.hp = ld.maxhp * 0.49; tick(a, 0.5);
+  ld.hp = ld.maxhp * 0.49; tick(a, 1.5);
   deepEq('S100 at 50% convenes CHORUS, NULLIFIER and ECLIPSE at once', summoned(a).map(e => e.kind).sort(), ['chorus', 'eclipse', 'nullifier']);
  }
  {
@@ -1434,10 +1483,10 @@ function suiteCascades() {
  // NULLIFIER jamming locks recall as well as dash, and breaks a blink in progress.
  {
   const api = fresh(1), p = api.player; give(api, 'pcell');
-  api.doPortalKey(); p.x += 200; p.jamT = 5;
+  api.doPortalKey(); p.x += 200; p.status.jam = 5;
   api.doPortalKey();
   ok('jammed ship cannot start a blink', !p.channel);
-  p.jamT = 0; api.doPortalKey();
+  p.status.jam = 0; api.doPortalKey();
   ok('blink starts once the jam lifts', !!p.channel);
   api.hazards.push({ x: p.x, y: p.y, r: 96, t: 0, life: 4, dmg: 0, tick: 0, jam: true });
   tryStep(api);
@@ -2579,54 +2628,43 @@ function suiteBullets() {
   ok('a round into a declared hitPart damages the boss', m.boss.hp < hp0 && m.api.bullets.indexOf(b) < 0);
  }
 
- // --- engine hooks. The game resolves them as globals, typeof-guarded, so a
- // test can install one on the sandbox and the shipping loop picks it up.
+ // --- engine hooks. The boss engine defines them now (hitBossPart, bossDeflect,
+ // bulletField, bulletErased), so the contract is exercised through the real
+ // primitives rather than stand-ins.
  {
-  // parts, with and without hitBossPart
-  const partRun = (hook) => {
+  // parts: a blocking part spends the round and the body takes nothing
+  const partRun = (block) => {
    const m = bulletRoom('warden', 9);
-   if (hook) m.api.__sandbox.hitBossPart = hook;
-   const part = { x: m.cx + 120, y: m.cy + 60, r: 12, hp: 50 };
+   const part = { x: m.cx + 120, y: m.cy + 60, r: 12, hp: 50, block };
    const b = mkRound({ x: m.cx, y: m.cy + 60, dmg: 10, life: 0.8 }); m.api.bullets.push(b);
    const hp0 = m.boss.hp, seen = { part, b, alive: [] };
    for (let f = 0; f < 40; f++) { m.boss.x = m.cx + 200; m.boss.y = m.cy + 60; m.boss.parts = [part]; roomStep(m); seen.alive.push(m.api.bullets.indexOf(b) >= 0); }
    seen.dmg = hp0 - m.boss.hp; return seen;
   };
-  const calls = [];
-  const a = partRun((e, part, b, hx, hy) => { calls.push({ e, part, b, hx, hy }); part.hp -= b.dmg; return true; });
-  ok('hitBossPart is called once, with (boss, part, round, hx, hy)', calls.length === 1 && calls[0].part === a.part && calls[0].b === a.b && calls[0].e.kind === 'warden' && Math.abs(calls[0].hx - (a.part.x - a.part.r - 3.5)) < 1);
-  ok('hitBossPart returning true spends the round, and the body takes nothing', a.dmg === 0 && a.alive[a.alive.length - 1] === false && a.part.hp === 40);
-  let n2 = 0;
-  const c = partRun(() => { n2++; return false; });
-  ok('hitBossPart returning false lets the round fly on to the body, never re-hitting that part', n2 === 1 && c.dmg > 0);
-  const d = partRun(null);
-  // the part's near face is ~104px out, the body's ~160px: 10.7px a frame puts
-  // the part hit at frame 9 and a body hit no earlier than frame 14
-  ok('without hitBossPart a part hit counts as a body hit', d.dmg === 10 && d.alive.indexOf(false) >= 8 && d.alive.indexOf(false) <= 10, 'dmg ' + d.dmg + ' spent at frame ' + d.alive.indexOf(false));
-
-  // bossDeflect: no damage, round left alive for the engine
+  const a = partRun(true);
+  ok('hitBossPart: a blocking part takes the round once, and the body takes nothing', a.dmg === 0 && a.alive[a.alive.length - 1] === false && a.part.hp === 40, 'part hp ' + a.part.hp + ' body ' + a.dmg);
+  ok('the part hit lands where the round meets the part', a.alive.indexOf(false) >= 8 && a.alive.indexOf(false) <= 10);
+  const c = partRun(false);
+  ok('a part with block:false lets the round fly on to the body, never re-hitting that part', c.part.hp === 40 && c.dmg > 0);
+  // bossDeflect: a mirror arc kills the ship's round and returns an enemy round, no damage
   const m = bulletRoom('warden', 9);
-  let dn = 0; m.api.__sandbox.bossDeflect = (e, b, hx, hy) => { dn++; b.vx = -b.vx; b.vy = -b.vy; return true; };
   const b = mkRound({ x: m.cx, y: m.cy, dmg: 10 }); m.api.bullets.push(b);
-  const hp0 = m.boss.hp; let aliveAfter = false;
-  for (let f = 0; f < 12; f++) { m.boss.x = m.cx + 120; m.boss.y = m.cy; roomStep(m); if (dn === 1 && !aliveAfter) aliveAfter = m.api.bullets.indexOf(b) >= 0; }
-  ok('bossDeflect returning true: no damage, and the round is not removed', dn >= 1 && m.boss.hp === hp0 && aliveAfter && b.vx < 0);
-  m.api.__sandbox.bossDeflect = (e, bb) => { bb.dead = true; return true; };
-  const bk = mkRound({ x: m.cx, y: m.cy, dmg: 10 }); m.api.bullets.push(bk);
-  for (let f = 0; f < 12; f++) { m.boss.x = m.cx + 120; m.boss.y = m.cy; roomStep(m); }
-  ok('a deflected round the engine marks dead is removed', m.api.bullets.indexOf(bk) < 0 && m.boss.hp === hp0);
-
-  // bulletField bends before movement; bulletErased deletes
-  const m3 = bulletRoom('warden', 9); m3.boss.x = m3.cx - 600; m3.boss.y = m3.cy;
-  let fn = 0; m3.api.__sandbox.bulletField = (bb, dt) => { fn++; bb.vy += 600 * dt; };
-  const bf = mkRound({ x: m3.cx, y: m3.cy - 200, life: 0.5 }); m3.api.bullets.push(bf);
-  roomStep(m3);
-  ok('bulletField(b,dt) bends the round before it moves', fn === 1 && bf.vy > 0 && bf.y > m3.cy - 200);
-  delete m3.api.__sandbox.bulletField;
-  m3.api.__sandbox.bulletErased = bb => bb.x > m3.cx + 40;
-  const be = mkRound({ x: m3.cx, y: m3.cy + 200, life: 0.5 }); m3.api.bullets.push(be);
-  let gone = -1; for (let f = 0; f < 10 && gone < 0; f++) { roomStep(m3); if (m3.api.bullets.indexOf(be) < 0) gone = f; }
-  ok('bulletErased(b) true deletes the round the frame it enters the zone', gone >= 0 && be.x > m3.cx + 40 && be.x < m3.cx + 40 + 640 * DT + 1);
+  const hp0 = m.boss.hp; let back = 0;
+  for (let f = 0; f < 12; f++) { m.boss.x = m.cx + 120; m.boss.y = m.cy; m.boss.mirror = m.boss.mirror || { arcs: [{ a: Math.PI, half: 1 }], cap: 6 }; m.api.update(DT); back = Math.max(back, m.api.ebullets.length); if (m.api.state !== 'playing') m.api.forceState('playing'); }
+  ok('bossDeflect: a round into the mirror arc does no damage and is removed', m.boss.hp === hp0 && m.api.bullets.indexOf(b) < 0);
+  atLeast('and comes back as an enemy round', back, 1);
+  // bulletField: a lensing god turns the round away before it moves
+  const m3 = bulletRoom('warden', 9); m3.boss.x = m3.cx + 200; m3.boss.y = m3.cy + 30; m3.boss.lens = { r: 400, k: 8 };
+  const bf = mkRound({ x: m3.cx, y: m3.cy, life: 0.5 }); m3.api.bullets.push(bf);
+  for (let f = 0; f < 8; f++) { m3.boss.x = m3.cx + 200; m3.boss.y = m3.cy + 30; roomStep(m3); }
+  ok('bulletField: a lens bends a round away from the god', bf.vy < -20, 'vy ' + bf.vy.toFixed(1));
+  // bulletErased: an armed erase zone deletes the round the frame it enters
+  const m4 = bulletRoom('warden', 9); m4.boss.x = m4.cx + 600; m4.boss.y = m4.cy + 300;
+  m4.api.eraseZone(m4.boss, m4.cx + 100, m4.cy + 200, 60, { warn: 0.5, life: 5 });
+  for (let f = 0; f < 32; f++) roomStep(m4);
+  const be = mkRound({ x: m4.cx, y: m4.cy + 200, life: 0.5 }); m4.api.bullets.push(be);
+  let gone = -1; for (let f = 0; f < 20 && gone < 0; f++) { roomStep(m4); if (m4.api.bullets.indexOf(be) < 0) gone = f; }
+  ok('bulletErased: a round is deleted the frame it enters the zone', gone >= 0 && be.x > m4.cx + 40 && be.x < m4.cx + 40 + 640 * DT + 1, 'x ' + be.x.toFixed(1));
  }
  return null;
 }
