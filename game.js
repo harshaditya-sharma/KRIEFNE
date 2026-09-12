@@ -178,8 +178,11 @@ function mkSectorPal(H){ const nearRed=Math.abs(((H-32)%360+540)%360-180)<=20;
 // Two monoline voices cut by the same stylus: wide engraver's capitals for
 // names and titles, a narrow tabular face for numbers and KRIEFNE's voice.
 const FONT_D="Michroma, 'Martian Mono', sans-serif", FONT_M="'Martian Mono', ui-monospace, Menlo, Consolas, monospace";
-function fD(px){ return px+'px '+FONT_D; }
-function fM(px,w){ return (w||400)+' '+px+'px '+FONT_M; }
+// Large-text bumps every canvas size up one step (9px HUD labels read at 11px)
+// so players who need bigger than the HUD minimum get it from one setting.
+function SZ(px){ try{ return (settings&&settings.largeText)?px+2:px; }catch(e){ return px; } }
+function fD(px){ return SZ(px)+'px '+FONT_D; }
+function fM(px,w){ return (w||400)+' '+SZ(px)+'px '+FONT_M; }
 function track(px){ try{ if(ctx.letterSpacing!==undefined) ctx.letterSpacing=px+'px'; }catch(e){} }
 const REDUCED=(()=>{ try{ return !!(window.matchMedia&&window.matchMedia('(prefers-reduced-motion: reduce)').matches); }catch(e){ return false; } })();
 // Hold the first frames until the bundled faces are ready, so nothing flashes
@@ -275,7 +278,7 @@ function segCircleT(x1,y1,x2,y2,cx,cy,r){
 }
 
 // ---------- settings ----------
-let settings = { shake:!REDUCED, particles:!REDUCED, music:true, autofire:true, showSeed:false, musicVol:0.8, sfxVol:0.6, dmgNums:!REDUCED };
+let settings = { shake:!REDUCED, particles:!REDUCED, music:true, autofire:true, showSeed:false, musicVol:0.8, sfxVol:0.6, dmgNums:!REDUCED, largeText:false };
 try{ const s=JSON.parse(lsGet('cfg')||'null'); if(s&&typeof s==='object') settings=Object.assign(settings,s); }catch(e){}
 function saveCfg(){ try{ lsSet('cfg',JSON.stringify(settings)); }catch(e){} }
 
@@ -1201,6 +1204,62 @@ function continueRun(){
 let titleConfirm=false, titleConfirmT=0; // NEW RUN over a saved run asks twice
 let endInfo={src:null,newBest:false,at:0}; // what ended the last hull, for the end screen
 let restartArm=0; // pause ABANDON asks twice, like NEW RUN
+let exitArm=0; // EXIT with XP on the field asks twice, like NEW RUN
+// ---------- S1 coach: three contextual callouts, each once ----------
+// No first-run onboarding: the title intro is the only teaching prose, and
+// touch stays a disclaimer (see #hint-touch). In S1 three moments get one
+// quiet line each — move/aim at the start, what the first unlock did, and
+// the gate/exit once the sector clears. Each is dismissed by Enter or by
+// doing the thing it names, then never shown again (kriefne_coach).
+let coachSeenMap={};
+try{ const cc=JSON.parse(lsGet('coach')||'{}'); if(cc&&typeof cc==='object') coachSeenMap=cc; }catch(e){}
+function coachSeen(id){ return !!coachSeenMap[id]; }
+function markCoach(id){ if(!id||coachSeenMap[id]) return; coachSeenMap[id]=true; try{ lsSet('coach',JSON.stringify(coachSeenMap)); }catch(e){} }
+function coachIsCoarse(){ try{ return !!(window.matchMedia&&window.matchMedia('(pointer:coarse)').matches); }catch(e){ return false; } }
+function coachStep(){
+ try{
+  if(!player||state!=='playing'||arenaIdx!==0) return null;
+  if(!coachSeenMap.move&&!player.dashUnlocked&&!player.recallUnlocked&&!portal) return 'move';
+  if(!coachSeenMap.dash&&(player.dashUnlocked||player.recallUnlocked)&&!portal) return 'dash';
+  if(!coachSeenMap.gate&&portal) return 'gate';
+ }catch(e){}
+ return null;
+}
+function coachLines(step){
+ if(step==='move'){
+  if(coachIsCoarse()) return ['TOUCH TO AIM · TAP MENUS — KEYBOARD + MOUSE FOR FULL RUNS'];
+  return ['WASD MOVE · MOUSE AIM — CLEAR THE SECTOR'];
+ }
+ if(step==='dash'){
+  const d=player&&player.dashUnlocked, g=player&&player.recallUnlocked;
+  if(d&&g) return ['DASH + GATE READY — SPACE DASHES · E SETS GATE'];
+  if(d) return ['DASH READY — SPACE (I-FRAMES)'];
+  return ['GATE READY — E SETS GATE · E AGAIN BLINKS'];
+ }
+ if(step==='gate') return ['EXIT TAKES YOU OUT — GRAB XP FIRST · [E] TO LEAVE'];
+ return [];
+}
+function dismissCoach(){ const s=coachStep(); if(s){ markCoach(s); SFX.click(); return true; } return false; }
+function updateCoach(){
+ try{
+  if(!player||state!=='playing') return;
+  if(arenaIdx!==0) return;
+  if((player.dashUnlocked||player.recallUnlocked||portal)&&!coachSeenMap.move&&coachStep()!=='move') markCoach('move');
+  if(portal&&!coachSeenMap.dash&&coachStep()!=='dash'&&(player.dashUnlocked||player.recallUnlocked)) markCoach('dash');
+ }catch(e){}
+}
+function drawCoach(){
+ const step=coachStep(); if(!step) return;
+ const lines=coachLines(step); if(!lines.length) return;
+ const cy=H-34;
+ ctx.font=fM(12,600); let tw=0;
+ for(const t of lines){ let w=t.length*7; try{ w=ctx.measureText(t).width; }catch(e){} tw=Math.max(tw,w); }
+ tw=Math.min(tw,W-32);
+ ctx.fillStyle=K.ground; ctx.fillRect(W/2-tw/2-16,cy-14,tw+32,20*lines.length+2);
+ lines.forEach((t,i)=>mono(t,W/2,cy+i*18,12,K.text,'center',600));
+ line(W/2-tw/2-16,cy+(lines.length-1)*18+6,W/2+tw/2+16,cy+(lines.length-1)*18+6,K.goldDim,1);
+ mono('[Enter] dismiss',W/2,cy+(lines.length-1)*18+22,11,K.textDim,'center');
+}
 // Arrow selection rides alongside the number/letter shortcuts: every menu
 // answers both. Indices reset when the menu opens.
 let titleSel=0, pauseSel=0, settingsSel=5, draftSel=0, endSel=0;
@@ -1215,7 +1274,7 @@ function loadArena(i){
  // larger worlds deeper down the trail
  const wz=sectorWorld(s); WW=wz.w; HH=wz.h;
  PX0=WALL; PY0=HUD_H+WALL; PX1=WW-WALL; PY1=HH-WALL;
- bullets=[]; ebullets=[]; gems=[]; rings=[]; hazards=[]; strikes=[]; beams=[]; portal=null; spawnQueue=[]; spawnT=1.4; sectorCleared=false;
+ bullets=[]; ebullets=[]; gems=[]; rings=[]; hazards=[]; strikes=[]; beams=[]; portal=null; spawnQueue=[]; spawnT=1.4; sectorCleared=false; exitArm=0;
  nestLtLeft=boss?ltBudgetFor(s+1):0;
   player.x=(PX0+PX1)/2; player.y=(PY0+PY1)/2; player.fireCd=0; player.dashT=0; player.invuln=1; player.shieldT=0; player.shieldReady=false; player.surgeT=0; player.recall=null; player.recallCd=0; player.channel=null;
   // round-refresh shields re-arm every arena; barrier pool + stasis persist until spent
@@ -1858,7 +1917,7 @@ function killEnemy(j){
  }
 }
 // clearing a sector returns to the galaxy hub with the next sector unlocked
-function nextArena(){ if(state!=='playing') return; SFX.portal(); arenasCleared=Math.max(arenasCleared,arenaIdx+1); clearedMax=Math.max(clearedMax,arenaIdx); galaxySel=arenaIdx+1; setMusicCfg(TITLE_MUS); state='galaxy'; saveRun(); }
+function nextArena(){ if(state!=='playing') return; SFX.portal(); exitArm=0; try{ if(arenaIdx===0){ markCoach('move'); markCoach('dash'); markCoach('gate'); } }catch(e){} arenasCleared=Math.max(arenasCleared,arenaIdx+1); clearedMax=Math.max(clearedMax,arenaIdx); galaxySel=arenaIdx+1; setMusicCfg(TITLE_MUS); state='galaxy'; saveRun(); }
 function loadSector(i){ loadArena(i); galaxySel=i; state='playing'; autoPaused=false; saveRun(); }
 function galaxyConfirm(){ if(galaxySel<=clearedMax+1){ SFX.click(); loadSector(galaxySel); } else SFX.brk(); }
 // node layout shared by draw + click hit-testing: 9-node scrolling window.
@@ -1875,14 +1934,34 @@ function galNodes(){
  return out;
 }
 // E key / recall-gate click: EXIT ring has priority; recall is a charged item with
-// cast channel, max range and cooldown. E while channeling cancels it.
+// cast channel, max range and cooldown. E never stops a blink — Space does, so
+// start (E: drop gate / channel blink / exit) and stop (Space: cancel blink)
+// are never the same key.
 function nearExit(){ return portal&&player&&Math.hypot(player.x-portal.x,player.y-portal.y)<player.r+portal.r+34; }
+function fieldXpAtRisk(){ let s=0; for(const g of gems) s+=g.v; return Math.round(s*(player?player.xpBonus:1)); }
+function exitArmed(){ return exitArm>performance.now()&&portal&&gems.length>0; }
+// EXIT with XP on the field is irreversible (loadArena clears the field), so it
+// asks twice like every other destructive confirm: the first E arms for ARM_MS
+// with a red label naming the XP at risk, the second E inside the window exits.
+function tryExitPortal(){
+ if(!portal||!player||state!=='playing') return false;
+ if(!gems.length){ exitArm=0; nextArena(); return true; }
+ const now=performance.now();
+ if(exitArm>now){ exitArm=0; nextArena(); return true; }
+ exitArm=now+ARM_MS; SFX.click();
+ addFloater(player.x,player.y-24,'LOSE '+fieldXpAtRisk()+' XP? [E] AGAIN',K.red);
+ return false;
+}
+function cancelBlink(){
+ const p=player; if(!p||!p.channel) return false;
+ p.channel=null; addFloater(p.x,p.y-24,'BLINK OFF',K.textDim); SFX.click(); return true;
+}
 function doPortalKey(){
  const p=player; if(!p||state!=='playing') return;
- if(nearExit()){ nextArena(); return; }
+ if(nearExit()){ tryExitPortal(); return; }
  if(!p.recallUnlocked){ if(p.lockMsgCd<=0){ p.lockMsgCd=1; addFloater(p.x,p.y-24,'RECALL LOCKED: Portal Cell',K.textDim); } return; }
  if(p.jamT>0){ if(p.lockMsgCd<=0){ p.lockMsgCd=1; addFloater(p.x,p.y-24,'SYSTEMS JAMMED',K.red); } return; }
- if(p.channel){ p.channel=null; addFloater(p.x,p.y-24,'BLINK OFF',K.textDim); SFX.click(); return; }
+ if(p.channel){ if(p.lockMsgCd<=0){ p.lockMsgCd=1; addFloater(p.x,p.y-24,'BLINK: [Space] TO CANCEL',K.textDim); } return; }
  if(!p.recall){
   if(p.charges>0){ p.charges--; p.recall={x:p.x,y:p.y}; addFloater(p.x,p.y-24,'GATE SET ('+p.charges+' left)',K.gold); SFX.upgrade(); spawnBurst(p.x,p.y,8,K.gold,140,0.4,2.5); }
   else if(p.lockMsgCd<=0){ p.lockMsgCd=1; addFloater(p.x,p.y-24,'NO CHARGES: Portal Cell',K.textDim); }
@@ -2281,9 +2360,15 @@ function update(dt){
     q={x,y}; }
    portal={x:(q||arena.port).x,y:(q||arena.port).y,r:20,t:0}; SFX.portal();
   }
-  if(portal){ portal.t+=dt; if(dist2(p.x,p.y,portal.x,portal.y)<(p.r+portal.r)*(p.r+portal.r)) nextArena(); }
-  updateFx(dt);
-  if(shake>0) shake=Math.max(0,shake-dt*22);
+   if(portal){ portal.t+=dt; if(dist2(p.x,p.y,portal.x,portal.y)<(p.r+portal.r)*(p.r+portal.r)){
+    // Walking into the ring with XP on the field only arms the exit — it never
+    // exits by touch. The second confirming E inside the window is what leaves.
+    if(gems.length>0){ const now=performance.now(); if(exitArm<=now){ exitArm=now+ARM_MS; addFloater(p.x,p.y-24,'LOSE '+fieldXpAtRisk()+' XP? [E] AGAIN',K.red); SFX.click(); } }
+    else { exitArm=0; nextArena(); }
+   } }
+   try{ updateCoach(); }catch(e){}
+   updateFx(dt);
+   if(shake>0) shake=Math.max(0,shake-dt*22);
  } else {
   updateFx(dt);
  }
@@ -2329,12 +2414,14 @@ function handleKeyPress(code){
    return;
   }
  if(state==='codex'){
-  if(code==='Digit1'||code==='Digit2'){ codexTab=CODEX_TABS[code==='Digit1'?0:1]; codexSel=0; SFX.click(); }
-  else if(code==='ArrowLeft'||code==='ArrowRight'){ codexTab=codexTab==='bosses'?'bestiary':'bosses'; codexSel=0; SFX.click(); }
-  else if(code==='ArrowDown'||code==='ArrowUp'){ codexStep(code==='ArrowDown'?1:-1); SFX.click(); }
-  else if(code==='Escape'||code==='KeyC'||code==='Enter') closeCodex();
-  return;
- }
+   if(code==='Digit1'||code==='Digit2'){ codexTab=CODEX_TABS[code==='Digit1'?0:1]; codexSel=0; codexPage=0; SFX.click(); }
+   else if(code==='ArrowLeft'||code==='ArrowRight'){ codexTab=codexTab==='bosses'?'bestiary':'bosses'; codexSel=0; codexPage=0; SFX.click(); }
+   else if(code==='ArrowDown'||code==='ArrowUp'){ codexStep(code==='ArrowDown'?1:-1); codexPage=0; SFX.click(); }
+   else if(code==='PageDown'||code==='Space'){ if(codexPagerRect){ codexPage++; SFX.click(); } }
+   else if(code==='PageUp'||code==='Backspace'){ if(codexPage>0){ codexPage--; SFX.click(); } }
+   else if(code==='Escape'||code==='KeyC'||code==='Enter') closeCodex();
+   return;
+  }
    // Space is dash: a player mashing it as the hull goes must still see the end screen
    if(state==='gameover'){
     if(code==='ArrowDown'||code==='ArrowUp'){ endSel=(endSel+(code==='ArrowDown'?1:1))%2; SFX.click(); return; }
@@ -2342,16 +2429,18 @@ function handleKeyPress(code){
     if(code==='KeyR'&&endReady()){ SFX.click(); startRun(); return; }
     if(code==='Escape'){ state='title'; titleSel=0; ensureTitleMusic(); } return; }
    if(state==='settings'){ settingsKey(code); return; }
- if(state==='help'){
-  const dig=['Digit1','Digit2','Digit3','Digit4'].indexOf(code);
-  if(dig>=0){ helpTab=HELP_TABS[dig]; SFX.click(); }
-  else if(code==='ArrowRight'||code==='ArrowLeft'){
-   let i=HELP_TABS.indexOf(helpTab);
-   i=(i+(code==='ArrowRight'?1:HELP_TABS.length-1))%HELP_TABS.length;
-   helpTab=HELP_TABS[i]; SFX.click();
-  }
-  else if(code==='Escape'||code==='KeyH'||code==='Enter') closeHelp();
-  return; }
+  if(state==='help'){
+   const dig=['Digit1','Digit2','Digit3','Digit4'].indexOf(code);
+   if(dig>=0){ helpTab=HELP_TABS[dig]; helpPage=0; SFX.click(); }
+   else if(code==='ArrowRight'||code==='ArrowLeft'){
+    let i=HELP_TABS.indexOf(helpTab);
+    i=(i+(code==='ArrowRight'?1:HELP_TABS.length-1))%HELP_TABS.length;
+    helpTab=HELP_TABS[i]; helpPage=0; SFX.click();
+   }
+   else if(code==='ArrowDown'||code==='PageDown'){ if(helpPagerRect){ helpPage++; SFX.click(); } }
+   else if(code==='ArrowUp'||code==='PageUp'){ if(helpPage>0){ helpPage--; SFX.click(); } }
+   else if(code==='Escape'||code==='KeyH'||code==='Enter') closeHelp();
+   return; }
    if(state==='levelup'){
     if(code==='KeyC'){ openCodex('levelup'); return; }
     if(code==='KeyH'){ openHelp('levelup'); return; }
@@ -2367,16 +2456,19 @@ function handleKeyPress(code){
    if(code==='KeyH'||code==='F1'){ openHelp('galaxy'); return; }
    if(code==='KeyC'){ openCodex('galaxy'); return; }
    return; }
-  if(state==='playing'){
-   if(code==='Escape'||code==='KeyP'){ toPaused(false); SFX.click(); return; }
-  if(code==='KeyT'){ player.autoFire=!player.autoFire; addFloater(player.x,player.y-24,player.autoFire?'AUTO ON':'AUTO OFF',K.gold); return; }
-  if(code==='KeyH'||code==='F1'){ openHelp('paused'); state='help'; helpFrom='playing-paused'; return; }
-  if(code==='KeyC'){ openCodex('playing-paused'); return; } // look up what just hit you
-  if(code==='KeyO'){ openSettings('paused'); settingsFrom='playing-paused'; return; }
-  if(code==='Space'||code==='ShiftLeft'||code==='ShiftRight'){ tryDash(); return; }
-  if(code==='KeyE'){ doPortalKey(); return; }
-  return;
- }
+   if(state==='playing'){
+    if(code==='Escape'||code==='KeyP'){ toPaused(false); SFX.click(); return; }
+   if(code==='KeyT'){ player.autoFire=!player.autoFire; addFloater(player.x,player.y-24,player.autoFire?'AUTO ON':'AUTO OFF',K.gold); return; }
+   if(code==='KeyH'||code==='F1'){ openHelp('paused'); state='help'; helpFrom='playing-paused'; return; }
+   if(code==='KeyC'){ openCodex('playing-paused'); return; } // look up what just hit you
+   if(code==='KeyO'){ openSettings('paused'); settingsFrom='playing-paused'; return; }
+   if(code==='Enter'){ try{ if(dismissCoach()) return; }catch(e){} return; }
+    // Space stops a blink; E starts one. They are never the same key, so a
+    // gate/blink/exit press can never be read as a cancel.
+    if(code==='Space'||code==='ShiftLeft'||code==='ShiftRight'){ if(player&&player.channel){ cancelBlink(); return; } tryDash(); return; }
+    if(code==='KeyE'){ doPortalKey(); return; }
+   return;
+  }
   if(state==='paused'){
    pauseSel=clamp(pauseSel,0,5);
    if(code==='ArrowDown'||code==='ArrowUp'){ pauseSel=(pauseSel+(code==='ArrowDown'?1:5))%6; SFX.click(); return; }
@@ -2416,13 +2508,13 @@ function tryDash(){
  p.dashT=0.16; p.dashCd=p.dashCdMax; p.invuln=Math.max(p.invuln,0.25);
  SFX.dash(); spawnBurst(p.x,p.y,7,K.goldDim,160,0.4,2.5);
 }
-function openSettings(from){ settingsFrom=from; prevPause=(state==='playing'||state==='paused')?state:null; state='settings'; settingsSel=clamp(settingsSel,0,8); if(from!=='title') setMusicCfg(PAUSE_MUS); SFX.click(); }
+function openSettings(from){ settingsFrom=from; prevPause=(state==='playing'||state==='paused')?state:null; state='settings'; settingsSel=clamp(settingsSel,0,9); if(from!=='title') setMusicCfg(PAUSE_MUS); SFX.click(); }
 let prevPause=null;
 function settingsKey(code){
   if(code==='Escape'||code==='KeyO'){ SFX.click(); const ap=autoPaused; if(settingsFrom==='playing') toPlaying(); else if(settingsFrom==='title'||settingsFrom==='galaxy') state=settingsFrom; else toPaused(ap);
    if(state==='title'||state==='galaxy') setMusicCfg(TITLE_MUS); else if(state==='playing'&&arena) setMusicCfg(arena.theme); else setMusicCfg(PAUSE_MUS); return; }
-  settingsSel=clamp(settingsSel,0,8);
-  if(code==='ArrowDown'||code==='ArrowUp'){ settingsSel=(settingsSel+(code==='ArrowDown'?1:8))%9; SFX.click(); return; }
+  settingsSel=clamp(settingsSel,0,9);
+  if(code==='ArrowDown'||code==='ArrowUp'){ settingsSel=(settingsSel+(code==='ArrowDown'?1:9))%10; SFX.click(); return; }
   // Volume rows step both ways: left turns it down, right turns it up. Every
   // other row treats all four as a press.
   if(settingsSel===6||settingsSel===7){
@@ -2430,19 +2522,22 @@ function settingsKey(code){
    if(code==='ArrowLeft'){ settingsSel=settingsSel; settings[key]=Math.round((settings[key]-0.1)*10)/10; if(settings[key]<0) settings[key]=0; saveCfg(); applyVol(); SFX.click(); return; }
    if(code==='ArrowRight'){ settingsSel=settingsSel; settings[key]=Math.round((settings[key]+0.1)*10)/10; if(settings[key]>1) settings[key]=1; saveCfg(); applyVol(); SFX.click(); return; }
   }
-  if(code==='Enter'||code==='Space'||code==='ArrowLeft'||code==='ArrowRight'){ code='Digit'+(settingsSel+1); }
+  if(code==='Enter'||code==='Space'||code==='ArrowLeft'||code==='ArrowRight'){ code=settingsSel===9?'Digit0':'Digit'+(settingsSel+1); }
   if(code==='Digit1'){ settingsSel=0; settings.shake=!settings.shake; saveCfg(); }
   if(code==='Digit2'){ settingsSel=1; settings.particles=!settings.particles; saveCfg(); }
    if(code==='Digit3'){ settingsSel=2; settings.music=!settings.music; saveCfg(); applyVol(); if(settings.music){ if(settingsFrom==='title'||settingsFrom==='galaxy') setMusicCfg(TITLE_MUS); else if(state==='playing'&&arena) setMusicCfg(arena.theme); else setMusicCfg(PAUSE_MUS); } }
   if(code==='Digit4'){ settingsSel=3; settings.autofire=!settings.autofire; saveCfg(); if(player) player.autoFire=settings.autofire; }
   if(code==='Digit5'){ settingsSel=4; settings.showSeed=!settings.showSeed; saveCfg(); }
-   if(code==='Digit6'){ settingsSel=5; if(wipeArmT>performance.now()){ wipeArmT=0; best=0; depth=0; bosses=0; saveMeta(); codexKills={}; saveCodex(); codexSeenMap={}; try{ lsDel('seen'); }catch(e){} } else wipeArmT=performance.now()+ARM_MS; }
+   if(code==='Digit6'){ settingsSel=5; if(wipeArmT>performance.now()){ wipeArmT=0; best=0; depth=0; bosses=0; saveMeta(); codexKills={}; saveCodex(); codexSeenMap={}; try{ lsDel('seen'); }catch(e){} coachSeenMap={}; try{ lsDel('coach'); }catch(e){} } else wipeArmT=performance.now()+ARM_MS; }
   if(code==='Digit7'){ settingsSel=6; settings.musicVol=Math.min(1,Math.round((settings.musicVol+0.1)*10)/10); saveCfg(); applyVol(); }
   if(code==='Digit8'){ settingsSel=7; settings.sfxVol=Math.min(1,Math.round((settings.sfxVol+0.1)*10)/10); saveCfg(); applyVol(); }
   if(code==='Digit9'){ settingsSel=8; settings.dmgNums=!settings.dmgNums; saveCfg(); }
+  if(code==='Digit0'){ settingsSel=9; settings.largeText=!settings.largeText; saveCfg(); }
  SFX.click();
 }
 let helpTab='controls'; // controls | shields | arsenal | lore
+let helpPage=0; // help body pager: which overflow page is shown
+let helpPagerRect=null; // clickable MORE rect while help overflows, else null
 let codexPreview=false; // suppresses HP bars and combat labels in codex portraits
 let codexSilhouette=false; // locked entries draw their real shape as a flat shadow
 const HELP_TABS=['controls','shields','arsenal','lore'];
@@ -2459,8 +2554,11 @@ function helpTabRects(){
 // ---------- codex screen ----------
 // Its own screen, reachable from the title, the galaxy hub and pause (key C).
 let codexFrom='title', codexTab='bosses', codexSel=0;
+let codexPage=0; // codex detail pager: which overflow page is shown
+let codexPagerRect=null; // clickable MORE rect while the detail overflows
+let codexIdxPagerRect=null; // clickable index ▲▼ rect while the index overflows
 const CODEX_TABS=['bestiary','bosses'];
-function openCodex(from){ codexFrom=from; codexSel=0; state='codex'; if(from==='paused'||from==='playing-paused') setMusicCfg(PAUSE_MUS); SFX.click(); }
+function openCodex(from){ codexFrom=from; codexSel=0; codexPage=0; codexPagerRect=null; codexIdxPagerRect=null; state='codex'; if(from==='paused'||from==='playing-paused') setMusicCfg(PAUSE_MUS); SFX.click(); }
 function closeCodex(){ SFX.click(); if(codexFrom==='paused'||codexFrom==='playing-paused') toPaused(autoPaused); else if(codexFrom==='galaxy') state='galaxy'; else if(codexFrom==='levelup') state='levelup'; else state='title'; }
 function codexTabRects(){
  let w = 200; const g = 12;
@@ -2607,12 +2705,12 @@ controls:[
 'MOVE: WASD / Arrows — your nose follows movement, guns track the mouse.',
 'FIRE: hold click, or leave AUTO-FIRE on (T) and just fly.',
 'DASH: locked until Ion Thrusters — then Space / Shift (i-frames).',
-'EXIT: walk into the ring or press E. Clearing a sector funds ~1 upgrade.',
+'EXIT: walk into the ring or press E. With XP on the field, E again confirms — the field is lost.',
 'GALAXY: START drops you on the hub — pick a lit sector, clear it, pick the next.',
 'SECTORS: an opening pack loads in; reinforcements stream from off-screen.',
 'RECALL: Portal Cell cards grant charges (max 5).',
 '  E drops a gate (1 charge). E again channels a blink (520px, cooldown).',
-'  Overdrive cuts cooldown, Transit cuts channel time. E cancels.',
+'  Overdrive cuts cooldown, Transit cuts channel time. Space cancels the blink.',
 'PICK: 1 / 2 / 3 or click a card. PAUSE: Esc / P. MUTE: M. SETTINGS: O. CODEX: C.',
 'STATUS: PETRIFIED roots you; JAMMED locks dash + recall. Neither stops your guns.',
 'TIP: first draft offers dash + recall — take one, then build damage.'],
@@ -2659,13 +2757,13 @@ lore:[
 '',
 'Lose your ship and the Wake restores you. Each god slain: +2% damage, for good.']
 };
-function openHelp(from){ helpFrom=from; helpTab='controls'; state='help'; if(from==='paused'||from==='playing-paused') setMusicCfg(PAUSE_MUS); SFX.click(); }
+function openHelp(from){ helpFrom=from; helpTab='controls'; helpPage=0; helpPagerRect=null; state='help'; if(from==='paused'||from==='playing-paused') setMusicCfg(PAUSE_MUS); SFX.click(); }
 function closeHelp(){ SFX.click(); if(helpFrom==='levelup'){ state='levelup'; } else if(helpFrom==='paused'){ toPaused(autoPaused); } else if(helpFrom==='playing-paused'){ toPaused(autoPaused); } else if(helpFrom==='galaxy'){ state='galaxy'; } else { state='title'; } }
 function inBtn(x,y,b){ return x>b.x&&x<b.x+b.w&&y>b.y&&y<b.y+b.h; }
 // Starting over while a run is saved throws that run away, so it takes a
 // second press: the first only arms the button for one shared window.
 function titleNewRun(){ const sv=readRun(); if(sv&&(!titleConfirm||titleConfirmT<=performance.now())){ titleConfirm=true; titleConfirmT=performance.now()+ARM_MS; return; } titleConfirm=false; titleConfirmT=0; startRun(); }
-function quitToTitle(){ state='title'; autoPaused=false; titleConfirm=false; titleConfirmT=0; titleSel=0; pauseSel=0; parts=[]; floaters=[]; clearInputs(); ensureTitleMusic(); SFX.click(); }
+function quitToTitle(){ state='title'; autoPaused=false; titleConfirm=false; titleConfirmT=0; exitArm=0; titleSel=0; pauseSel=0; parts=[]; floaters=[]; clearInputs(); ensureTitleMusic(); SFX.click(); }
 const BTN={ titleContinue:{x:64,y:346,w:400,h:44}, titleStart:{x:64,y:398,w:400,h:44}, titleSet:{x:64,y:462,w:126,h:34}, titleCodex:{x:201,y:462,w:126,h:34}, titleHelp:{x:338,y:462,w:126,h:34},
  pauseResume:{x:330,y:290,w:300,h:42}, pauseSet:{x:330,y:338,w:300,h:42}, pauseHelp:{x:330,y:386,w:300,h:42}, pauseCodex:{x:330,y:434,w:300,h:42}, pauseRestart:{x:330,y:482,w:300,h:42}, pauseQuit:{x:330,y:530,w:300,h:42},
  galCodex:{x:W-236,y:60,w:180,h:34},
@@ -2729,11 +2827,13 @@ function handleClick(x,y){
    else if(inBtn(x,y,BTN.titleHelp)){ titleSel=saved?4:3; openHelp('title'); }
    return;
   }
- if(state==='codex'){
-  const tr=codexTabRects();
-  for(let i=0;i<tr.length;i++){ if(inBtn(x,y,tr[i])){ codexTab=CODEX_TABS[i]; codexSel=0; SFX.click(); return; } }
-  for(const r of codexRects()){ if(!r.row.hdr&&inBtn(x,y,r)){ codexSel=r.row.i; SFX.click(); return; } }
-  if(inBtn(x,y,BTN.back)) closeCodex();
+  if(state==='codex'){
+   if(codexPagerRect&&inBtn(x,y,codexPagerRect)){ codexPage++; SFX.click(); return; }
+   if(codexIdxPagerRect&&inBtn(x,y,codexIdxPagerRect)){ codexIdxPage(codexIdxPagerRect.dir||1); SFX.click(); return; }
+   const tr=codexTabRects();
+   for(let i=0;i<tr.length;i++){ if(inBtn(x,y,tr[i])){ codexTab=CODEX_TABS[i]; codexSel=0; codexPage=0; SFX.click(); return; } }
+   for(const r of codexRects()){ if(!r.row.hdr&&inBtn(x,y,r)){ if(codexSel!==r.row.i) codexPage=0; codexSel=r.row.i; SFX.click(); return; } }
+   if(inBtn(x,y,BTN.back)) closeCodex();
   return;
  }
  if(state==='settings'){
@@ -2741,13 +2841,14 @@ function handleClick(x,y){
   for(let i=0;i<rows.length;i++){ if(x>rows[i].x&&x<rows[i].x+rows[i].w&&y>rows[i].y&&y<rows[i].y+rows[i].h){
    // Volume rows: the left half turns down, the right half turns up.
    if(i===6||i===7){ settingsSel=i; settingsKey(x<rows[i].x+rows[i].w/2?'ArrowLeft':'ArrowRight'); return; }
-   settingsKey('Digit'+(i+1)); return; } }
+   settingsKey(i===9?'Digit0':'Digit'+(i+1)); return; } }
   if(inBtn(x,y,BTN.back)){ settingsKey('Escape'); }
   return;
  }
-  if(state==='help'){ const tr=helpTabRects();
-   for(let i=0;i<tr.length;i++){ if(inBtn(x,y,tr[i])){ helpTab=HELP_TABS[i]; SFX.click(); return; } }
-   if(inBtn(x,y,BTN.back)) closeHelp(); return; }
+   if(state==='help'){ const tr=helpTabRects();
+    if(helpPagerRect&&inBtn(x,y,helpPagerRect)){ helpPage++; SFX.click(); return; }
+    for(let i=0;i<tr.length;i++){ if(inBtn(x,y,tr[i])){ helpTab=HELP_TABS[i]; helpPage=0; SFX.click(); return; } }
+    if(inBtn(x,y,BTN.back)) closeHelp(); return; }
    if(state==='gameover'){
     if(inBtn(x,y,BTN.endRestart)){ endSel=0; if(endReady()){ SFX.click(); startRun(); } }
     else if(inBtn(x,y,BTN.endTitle)){ endSel=1; state='title'; titleSel=0; ensureTitleMusic(); }
@@ -2774,19 +2875,19 @@ function handleClick(x,y){
   }
   if(state==='playing'){
    const wx=x+cam.x, wy=y+cam.y; // clicks arrive in screen space; the world is camera-offset
-   if(portal&&dist2(wx,wy,portal.x,portal.y)<50*50){ nextArena(); return; }
+   if(portal&&dist2(wx,wy,portal.x,portal.y)<50*50){ tryExitPortal(); return; }
    const rc=player.recall;
    if(rc&&dist2(wx,wy,rc.x,rc.y)<40*40){ doPortalKey(); }
   }
 }
 function rowRects(){
  if(H < 560){
-  // Short landscape: two columns so all nine rows stay on-screen.
+  // Short landscape: two columns so all ten rows stay on-screen.
   const w2 = Math.max(200, Math.min(360, Math.floor((W - 48) / 2)));
   const x0 = Math.round((W - (w2 * 2 + 16)) / 2);
   const y0 = 96, pitch = 26, h = 24;
   const a = [];
-  for(let i=0;i<9;i++){ const col = i < 5 ? 0 : 1, row = i < 5 ? i : i - 5;
+  for(let i=0;i<10;i++){ const col = i < 5 ? 0 : 1, row = i < 5 ? i : i - 5;
    a.push({x:x0+col*(w2+16),y:y0+row*pitch,w:w2,h}); }
   return a;
  }
@@ -2794,7 +2895,8 @@ function rowRects(){
  const x = Math.round((W - w) / 2);
  const shift = Math.min(0, H - 640);
  const a = [];
- for(let i=0;i<9;i++) a.push({x,y:176+i*42+shift,w,h:38});
+ // Ten rows at a tighter pitch so the list still ends above BACK.
+ for(let i=0;i<10;i++) a.push({x,y:168+i*38+shift,w,h:34});
  return a;
 }
 
@@ -2815,11 +2917,13 @@ function hovered(b){ return mouse.x>b.x&&mouse.x<b.x+b.w&&mouse.y>b.y&&mouse.y<b
 // Display lettering: engraver's wide capitals, tracked.
 function heading(t,x,y,px,col,align){ ctx.textAlign=align||'left'; ctx.font=fD(px); ctx.fillStyle=col||K.gold; track(Math.round(px*0.18)); ctx.fillText(t,x,y); track(0); }
 function mono(t,x,y,px,col,align,w){ ctx.textAlign=align||'left'; ctx.font=fM(px,w); ctx.fillStyle=col||K.text; ctx.fillText(t,x,y); }
-// Engraved menu entry. `on` is the committed or primary choice: solid gold rule
-// and a filled marker. Everything else is a dashed rule until hovered.
+// Engraved menu entry. `on` is the keyboard-selected choice: a 3px focus ring
+// plus the solid rule and filled marker, so position never rests on text
+// colour alone. Hover alone gets the solid rule without the ring.
 function entry(b,label,key,on,tone){
  const hot=on||hovered(b), danger=tone==='danger';
  const col=danger?K.red:(hot?K.gold:K.goldDim), cy=b.y+b.h/2-2;
+ if(on){ ctx.save(); ctx.strokeStyle=danger?K.red:K.gold; ctx.lineWidth=3; ctx.strokeRect(b.x-4.5,b.y-4.5,b.w+9,b.h+9); ctx.restore(); }
  heading(label,b.x+22,cy+5,b.h>=40?13:10,danger?K.red:(hot?K.gold:K.text));
  if(key) mono(key,b.x+b.w,cy+4,11,K.textDim,'right');
  rule(b.x,b.y+b.h-5,b.w,col,hot);
@@ -3019,6 +3123,7 @@ function render(){
  drawHUD();
  drawExitGuide();
  drawBossGuide();
+ if(state==='playing'){ try{ drawCoach(); }catch(e){} }
  if(state==='levelup') drawLevelUp();
  if(state==='paused') drawPaused();
  if(state==='gameover') drawEnd();
@@ -3063,7 +3168,8 @@ function drawWorld(th){
   tickedLine(0,-r-14,0,-r-120,K.goldDim,1,18,3);
   ctx.strokeStyle=K.gold; ctx.lineWidth=1.5; ctx.beginPath(); ctx.moveTo(-7,-r-112); ctx.lineTo(0,-r-124); ctx.lineTo(7,-r-112); ctx.stroke();
   ctx.restore();
-  ctx.textAlign='center'; inkText('EXIT [E]',portal.x,portal.y+r+26,K.gold,fD(10));
+  if(exitArmed()){ ctx.textAlign='center'; inkText('LOSE '+fieldXpAtRisk()+' XP? [E] AGAIN',portal.x,portal.y+r+26,K.red,fD(10)); }
+  else ctx.textAlign='center', inkText(gems.length?('EXIT [E] · '+fieldXpAtRisk()+' XP AT RISK'):'EXIT [E]',portal.x,portal.y+r+26,K.gold,fD(10));
  }
  const rc=player&&player.recall;
  if(rc&&state!=='gameover'){
@@ -3480,14 +3586,23 @@ function hudShieldTags(p){
  let by=HUD_H+22;
  if(state==='playing'&&(p.jamT>0||p.rootT>0)){ heading(p.jamT>0?'JAMMED':'PETRIFIED',W/2,by,12,K.red,'center'); by+=22; }
  if(portal&&state==='playing'){
-  const lines = gems.length
-   ? (W < 620 ? ['SECTOR CLEAR — COLLECT YOUR XP','ANYTHING LEFT IS LOST AT THE EXIT [E]'] : ['SECTOR CLEAR — COLLECT YOUR XP; ANYTHING LEFT IS LOST AT THE EXIT [E]'])
-   : ['SECTOR CLEAR — ENTER THE EXIT [E]'];
+  const armed=exitArmed();
+  const atRisk=fieldXpAtRisk();
+  let lines, ink, ul;
+  if(!gems.length){ lines=['SECTOR CLEAR — ENTER THE EXIT [E]']; ink=K.gold; ul=K.goldDim; }
+  else if(!armed){
+   lines=(W<620?['SECTOR CLEAR — COLLECT YOUR XP',atRisk+' XP ON FIELD — LOST AT EXIT [E]']:['SECTOR CLEAR — COLLECT YOUR XP · '+atRisk+' XP LOST AT EXIT [E]']);
+   ink=K.gold; ul=K.goldDim;
+  } else {
+   lines=(W<620?['LOSE '+atRisk+' XP? — [E] AGAIN TO EXIT','[E] AGAIN — '+atRisk+' XP IS LOST']:['LOSE '+atRisk+' XP? — [E] AGAIN · '+atRisk+' XP IS LOST']);
+   ink=K.red; ul=K.red;
+  }
   ctx.font=fM(12,600); let tw=lines.reduce((m,t)=>{ let w=t.length*7; try{ w=ctx.measureText(t).width; }catch(e){} return Math.max(m,w); },0);
   tw=Math.min(tw,W-32);
   ctx.fillStyle=K.ground; ctx.fillRect(W/2-tw/2-16,by-14,tw+32,20*lines.length-4);
-  lines.forEach((t,i)=>mono(t,W/2,by+i*18,12,K.gold,'center',600));
-  line(W/2-tw/2-16,by+(lines.length-1)*18+6,W/2+tw/2+16,by+(lines.length-1)*18+6,K.goldDim,1);
+  lines.forEach((t,i)=>mono(t,W/2,by+i*18,12,ink,'center',600));
+  line(W/2-tw/2-16,by+(lines.length-1)*18+6,W/2+tw/2+16,by+(lines.length-1)*18+6,ul,1);
+  if(armed) drainBar(W/2-tw/2-16,W/2+tw/2+16,by+(lines.length-1)*18+10,confirmFrac(exitArm));
  }
  // hull critical: an inset double rule in red around the field
  if(p.hp<=p.maxhp*0.3&&state==='playing'){ const a=REDUCED?0.8:0.55+0.3*Math.sin(performance.now()/180);
@@ -3545,8 +3660,8 @@ function drawTitle(){
  const tCy = Math.min(330, H * 0.52);
  drawRecord(discX, tCy, tR);
   const m = W < 600 ? 16 : 64;
-  // Short landscape windows cannot hold the full record cover: wordmark,
-  // entries and records stay, the intro paragraphs yield.
+  // Short windows keep the record cover's teaching prose: the intro stays
+  // mounted and the tip line is the first thing cut (it never appears here).
    if(H < 560){
     const wH = W < 420 ? 30 : 40;
     drawWordmark(m, 30, wH);
@@ -3563,6 +3678,13 @@ function drawTitle(){
     entry(BTN.titleCodex,'CODEX',null,saved?titleSel===3:titleSel===2);
     entry(BTN.titleHelp,'HELP',null,saved?titleSel===4:titleSel===3);
     const pr=codexProgress();
+    const introWrapS=Math.max(24,Math.min(56,Math.floor((Math.min(W-32,470)-m)/6.6)));
+    const introS=wrapLines('Fight down an endless galaxy trail — clear each sector, draft an upgrade, push on. Every 5th sector is a boss NEST. Boss kills bank +2% damage forever.',introWrapS);
+    const introTopS=BTN.titleHelp.y+BTN.titleHelp.h+18;
+    const introMaxS=Math.max(1,Math.floor((H-60-introTopS)/18));
+    introS.slice(0,introMaxS).forEach((l,i)=>mono(l,m+2,introTopS+i*18,12,K.text));
+    if(introS.length<=introMaxS&&introTopS+introS.length*18+8<=H-60)
+     mono('46 stackable upgrades · 12 bosses in a chain of command',m+2,introTopS+introS.length*18+8,11,K.textDim);
     mono('[↑↓] select · [O] settings  ·  [C] codex '+pr.n+'/'+pr.tot+'  ·  [H] help',m+2,H-40,11,K.textDim);
    if(best>0||depth>0) mono('BEST '+best+'   ·   DEPTH S'+depth,m+2,H-20,12,K.gold,'left',600);
    else mono('No records yet — the Wake remembers.',m+2,H-20,12,K.textDim,'left');
@@ -3591,7 +3713,10 @@ function drawTitle(){
   entry(BTN.titleCodex,'CODEX',null,saved?titleSel===3:titleSel===2);
   entry(BTN.titleHelp,'HELP',null,saved?titleSel===4:titleSel===3);
   mono('[↑↓] select · [O] settings  ·  [C] codex '+pr.n+'/'+pr.tot+'  ·  [H] help',m+2,516+shift,11,K.textDim);
- wrapLines('Sniper lasers are telegraphed — break the line. Brute rings: stay out of the band.',Math.max(24,Math.min(58,Math.floor((W-m*2)/6.6)))).forEach((l,i)=>mono(l,m+2,548+i*16+shift,11,K.textDim));
+ // The tip yields first: it is drawn only when it clears the records line.
+ const tipLines=wrapLines('Sniper lasers are telegraphed — break the line. Brute rings: stay out of the band.',Math.max(24,Math.min(58,Math.floor((W-m*2)/6.6))));
+ const recY=592+shift;
+ if(548+shift+tipLines.length*16+8<=recY) tipLines.forEach((l,i)=>mono(l,m+2,548+i*16+shift,11,K.textDim));
  const recTxt=(best>0||depth>0)?('BEST '+best+'   ·   DEPTH S'+depth):'No records yet — the Wake remembers.';
  mono(recTxt,m+2,592+shift,12,(best>0||depth>0)?K.gold:K.textDim,'left',600);
  // The sound hint is transient: once audio unlocks it goes away. Its slot is
@@ -3652,17 +3777,18 @@ function drawGalaxy(){
 // ---------- settings ----------
 // One list of settings rows, drawn by the screen and read by the live region.
 function settingsRows(armed,armLeft){
-  return [['1','SCREEN SHAKE',settings.shake?'ON':'OFF',settings.shake],['2','PARTICLES',settings.particles?'FULL':'LOW',settings.particles],['3','MUSIC',settings.music?'ON':'OFF',settings.music],['4','AUTO-FIRE DEFAULT',settings.autofire?'ON':'OFF',settings.autofire],['5','SHOW SECTOR SEED',settings.showSeed?'ON':'OFF',settings.showSeed],['6',armed?'WIPE RECORDS?':'WIPE RECORDS',armed?('[6] AGAIN · '+armLeft+'S'):'BEST · DEPTH · BOSSES · CODEX',false,'danger'],['7','MUSIC VOLUME',Math.round(settings.musicVol*100)+'%',null],['8','SFX VOLUME',Math.round(settings.sfxVol*100)+'%',null],['9','DAMAGE NUMBERS',settings.dmgNums?'ON':'OFF',settings.dmgNums]];
+  return [['1','SCREEN SHAKE',settings.shake?'ON':'OFF',settings.shake],['2','PARTICLES',settings.particles?'FULL':'LOW',settings.particles],['3','MUSIC',settings.music?'ON':'OFF',settings.music],['4','AUTO-FIRE DEFAULT',settings.autofire?'ON':'OFF',settings.autofire],['5','SHOW SECTOR SEED',settings.showSeed?'ON':'OFF',settings.showSeed],['6',armed?'WIPE RECORDS?':'WIPE RECORDS',armed?('[6] AGAIN · '+armLeft+'S'):'BEST · DEPTH · BOSSES · CODEX',false,'danger'],['7','MUSIC VOLUME',Math.round(settings.musicVol*100)+'%',null],['8','SFX VOLUME',Math.round(settings.sfxVol*100)+'%',null],['9','DAMAGE NUMBERS',settings.dmgNums?'ON':'OFF',settings.dmgNums],['0','LARGE TEXT',settings.largeText?'ON':'OFF',settings.largeText]];
 }
 function drawSettings(){
  const short = H < 560;
  heading('SETTINGS',W/2,short?58:132,short?18:22,K.gold,'center');
- mono('[1–9 / ↑↓ + Enter / ←→ volume / click] change · [O / Esc] back',W/2,short?78:156,11,K.textDim,'center');
+ mono('[0–9 / ↑↓ + Enter / ←→ volume / click] change · [O / Esc] back',W/2,short?78:156,11,K.textDim,'center');
  const armed=wipeArmT>performance.now();
  const armLeft=armed?Math.max(1,Math.ceil((wipeArmT-performance.now())/1000)):0;
  const rows=settingsRows(armed,armLeft);
  const rr=rowRects();
  rows.forEach((r,i)=>{ const b=rr[i], cy=b.y+b.h/2+2, hot=hovered(b)||settingsSel===i, danger=r[4]==='danger';
+  if(settingsSel===i){ ctx.save(); ctx.strokeStyle=danger?K.red:K.gold; ctx.lineWidth=3; ctx.strokeRect(b.x-4.5,b.y-4.5,b.w+9,b.h+9); ctx.restore(); }
   mono('['+r[0]+']',b.x,cy,11,K.textDim,'left');
   const label=r[1], value=r[2], labelX=b.x+42, rightEdge=b.x+b.w, gap=16;
   ctx.font=fD(11); track(Math.round(11*0.18)); let lw=label.length*9; try{ lw=ctx.measureText(label).width; }catch(e){} track(0);
@@ -3703,7 +3829,32 @@ function drawHelp(){
   const wrapN = Math.max(24, Math.floor(hw/6.6));
   let hy=196+Math.min(0,Math.max(-40,H-640));
   if(H < 560) hy = 170;
-  L.forEach((l)=>{ wrapLines(l,wrapN).forEach((w)=>{ if(hy<BTN.back.y-14) mono(w,hx,hy,12,K.text); hy+=20; }); hy+=3; });
+  // Flatten the tab to wrapped rows first so short viewports page the body
+  // instead of silently dropping every line past the BACK button.
+  const rows=[];
+  L.forEach((l)=>{ const ws=wrapLines(l,wrapN); if(!ws.length) rows.push(null); else ws.forEach((w)=>rows.push(w)); });
+  const textRows=rows.filter((r)=>r!==null);
+  const bottom=BTN.back.y-14;
+  const pagerH=20;
+  let cap=Math.max(1,Math.floor((bottom-(textRows.length>0?0:0)-hy)/20));
+  helpPagerRect=null;
+  if(textRows.length<=cap){
+   let y=hy;
+   rows.forEach((r)=>{ if(r===null){ y+=3; return; } mono(r,hx,y,12,K.text); y+=20; });
+  } else {
+   // Reserve one row for the pager so the last body line never sits under it.
+   cap=Math.max(1,Math.floor((bottom-hy-pagerH)/20));
+   const total=Math.max(1,Math.ceil(textRows.length/cap));
+   helpPage=Math.max(0,Math.min(helpPage,total-1));
+   const slice=textRows.slice(helpPage*cap,(helpPage+1)*cap);
+   let y=hy;
+   slice.forEach((r)=>{ mono(r,hx,y,12,K.text); y+=20; });
+   const py2=BTN.back.y-30;
+   const up=helpPage>0?'▲ ':'';
+   const label='▼ MORE '+(helpPage+1)+'/'+total+' [↓]';
+   mono(up+label,W/2,py2,11,K.goldDim,'center');
+   helpPagerRect={x:Math.round(W/2-hw/2),y:py2-16,w:hw,h:22};
+  }
   entry(BTN.back,'BACK','[Esc]',false);
 }
 // ---------- codex ----------
@@ -3775,7 +3926,63 @@ function commandLine(kind){
  const subs=BOSSES_BY_TIER[t-1]||[];
  const down=subs.length?'Commands '+plural(TIER_NAMES[t-1])+': '+subs.map(k=>codexSeen(k)?BOSSDEF[k].name:'???').join(', ')
   :'Commands only chaff';
- return up+'  ·  '+down;
+  return up+'  ·  '+down;
+}
+// Visible index rows on short viewports: the window follows the selection so
+// arrow keys page the index instead of walking off-screen with no signal.
+function codexIdxSpan(){
+ try{
+  const rects=codexRects();
+  if(!rects.length) return 3;
+  const bottom=BTN.back.y-14;
+  const y0=rects[0].y;
+  const pitch=rects.length>1?(rects[1].y-rects[0].y):20;
+  return Math.max(1,Math.floor((bottom-y0-20)/Math.max(1,pitch)));
+ }catch(e){ return 3; }
+}
+function codexIdxPage(dir){
+ const order=codexRows().filter(r=>!r.hdr).map(r=>r.i);
+ let k=order.indexOf(codexSel); if(k<0) k=0;
+ const step=Math.max(1,codexIdxSpan());
+ codexSel=order[Math.max(0,Math.min(order.length-1,k+dir*step))];
+ codexPage=0;
+}
+// Paginate codex detail blocks (TELL / COUNTER / FIELD NOTE) into pages that
+// fit the plate. Labels stick to their first line: a page never strands a
+// label without text, and a block split across pages repeats its label.
+function codexDetailPages(blocks,avail){
+ const PAGER=18;
+ const totalH=blocks.reduce((a,b)=>a+17+b.lines.length*15+11,0);
+ if(totalH<=avail) return {pages:[blocks],paged:false};
+ const budget=Math.max(32,avail-PAGER);
+ const pages=[];
+ let cur=[],used=0,bi=0,li=0,first=true;
+ while(bi<blocks.length){
+  const b=blocks[bi];
+  const need=17+15+11;
+  if(cur.length===0&&used===0&&budget<need){
+   // Plate too short for even one full block: still show the label, one
+   // line and the pager rather than an empty plate.
+   pages.push([{label:b.label,col:b.col,italic:b.italic,lines:b.lines.slice(0,1),more:b.lines.length>1}]);
+   if(b.lines.length>1) pages.push([{label:b.label,col:b.col,italic:b.italic,lines:b.lines.slice(1),more:false}]);
+   bi++; continue;
+  }
+  if(li===0){
+   if(used+17+15>budget&&cur.length){ pages.push(cur); cur=[]; used=0; first=true; continue; }
+   used+=17;
+  }
+  const room=Math.max(1,Math.floor((budget-used-11)/15));
+  const take=b.lines.slice(li,li+room);
+  const done=li+take.length>=b.lines.length;
+  cur.push({label:li===0?b.label:null,col:b.col,italic:b.italic,lines:take,more:!done,gap:done});
+  used+=take.length*15+(done?11:0);
+  if(done){ bi++; li=0; }
+  else { li+=take.length; pages.push(cur); cur=[]; used=0; }
+  first=false;
+ }
+ if(cur.length) pages.push(cur);
+ if(!pages.length) pages.push(blocks.slice(0,1));
+ return {pages,paged:true};
 }
 function drawCodexScreen(){
  const L=codexList();
@@ -3788,17 +3995,46 @@ function drawCodexScreen(){
  ['BESTIARY','BOSSES'].forEach((lab,i)=>{ const r=tr[i], on=codexTab===CODEX_TABS[i], hot=on||hovered(r);
   heading(lab,r.x+r.w/2,r.y+19,11,hot?K.gold:K.text,'center'); mono(String(i+1),r.x+4,r.y+19,10,K.textDim);
   rule(r.x,r.y+r.h,r.w,on?K.gold:K.goldDim,on); });
- // index column: rank headers + entries (bosses), or a flat list (bestiary)
- for(const r of codexRects()){
-  if(r.row.hdr){ const n=TIER_NAMES.indexOf(r.row.hdr); binTicks(r.x+2,r.y+14,n,5,K.metal); heading(r.row.hdr,r.x+36,r.y+13,9,K.textDim); continue; }
-  const it=r.row.entry, on=r.row.i===codexSel, known=codexSeen(codexId(it)), killed=codexKnown(codexId(it));
-  const nm=known?(it.name||BOSSDEF[it.id].name):'? ? ? ? ?';
-  // filled pigment: defeated · hollow: met, not yet defeated
-  if(on){ diamond(r.x+8,r.y+9,3.5,K.gold); line(r.x+18,r.y+r.h,r.x+r.w,r.y+r.h,K.gold,1); }
-  else if(known&&PIG[codexId(it)]) diamond(r.x+8,r.y+9,2.5,PIG[codexId(it)].c,!killed);
-  mono(nm,r.x+(codexTab==='bosses'?22:18),r.y+13,12,on?K.gold:(known?K.text:K.textDim),'left',on?600:400);
-  if(codexTab==='bosses') mono('S'+BOSSDEF[it.id].debut,r.x+r.w,r.y+13,11,on?K.gold:K.textDim,'right');
- }
+  // index column: rank headers + entries (bosses), or a flat list (bestiary).
+  // Short viewports window the list around the selection with ▲▼ signals so
+  // arrows page the index instead of walking entries off-screen unseen.
+  codexIdxPagerRect=null;
+  {
+   const rects=codexRects();
+   const idxBottom=BTN.back.y-14;
+   const pitch=rects.length>1?(rects[1].y-rects[0].y):20;
+   let cap=Math.max(1,Math.floor((idxBottom-(rects.length?rects[0].y:168))/Math.max(1,pitch)));
+   let toDraw=rects, yOff=0, showUp=false, showDown=false;
+   if(rects.length>cap){
+    cap=Math.max(1,Math.floor((idxBottom-(rects.length?rects[0].y:168)-20)/Math.max(1,pitch)));
+    cap=Math.max(1,cap);
+    let selPos=rects.findIndex(r=>!r.hdr&&r.row.i===codexSel);
+    if(selPos<0) selPos=0;
+    let start=Math.max(0,Math.min(selPos-Math.floor(cap/2),rects.length-cap));
+    const end=Math.min(rects.length,start+cap);
+    showUp=start>0; showDown=end<rects.length;
+    toDraw=rects.slice(start,end);
+    yOff=rects[start].y-(rects.length?rects[0].y:168);
+   }
+   const y0=rects.length?rects[0].y:168;
+   if(showUp) mono('▲',rects[0].x+8,y0-6,11,K.goldDim);
+   toDraw.forEach((r)=>{
+    const ry=r.y-yOff;
+    if(r.row.hdr){ const n=TIER_NAMES.indexOf(r.row.hdr); binTicks(r.x+2,ry+14,n,5,K.metal); heading(r.row.hdr,r.x+36,ry+13,9,K.textDim); return; }
+    const it=r.row.entry, on=r.row.i===codexSel, known=codexSeen(codexId(it)), killed=codexKnown(codexId(it));
+    const nm=known?(it.name||BOSSDEF[it.id].name):'? ? ? ? ?';
+    // filled pigment: defeated · hollow: met, not yet defeated
+    if(on){ diamond(r.x+8,ry+9,3.5,K.gold); line(r.x+18,ry+r.h,r.x+r.w,ry+r.h,K.gold,1); }
+    else if(known&&PIG[codexId(it)]) diamond(r.x+8,ry+9,2.5,PIG[codexId(it)].c,!killed);
+    mono(nm,r.x+(codexTab==='bosses'?22:18),ry+13,12,on?K.gold:(known?K.text:K.textDim),'left',on?600:400);
+    if(codexTab==='bosses') mono('S'+BOSSDEF[it.id].debut,r.x+r.w,ry+13,11,on?K.gold:K.textDim,'right');
+   });
+   if(showDown){
+    const dy=y0+toDraw.length*pitch+4;
+    mono('▼ MORE [↑↓]',rects[0].x+8,Math.min(dy,idxBottom),11,K.goldDim);
+    codexIdxPagerRect={x:rects[0].x,y:Math.min(dy,idxBottom)-16,w:rects[0].w,h:22,dir:1};
+   }
+  }
  const entryE=L[codexSel];
  if(!entryE){ entry(BTN.back,'BACK','[Esc]',false); return; }
  const known=codexSeen(codexId(entryE)), killed=codexKnown(codexId(entryE)), boss=codexTab==='bosses';
@@ -3818,41 +4054,72 @@ function drawCodexScreen(){
  drawCodexSprite(entryE,px+14+portrait/2,py+14+portrait/2,!known);
  const wrapRole = Math.max(20, Math.min(60, Math.floor((pw-portrait-48)/6)));
  const wrapBody = Math.max(20, Math.min(84, Math.floor((pw-36)/6)));
- if(!known){
-  heading('? ? ? ? ?',tx,py+44,18,K.textDim);
-  mono(boss?'Unidentified  ·  first met around S'+BOSSDEF[entryE.id].debut:'Unidentified hostile',tx,py+68,12,K.textDim);
-  mono('Not yet met.',px+18,py+178,13,K.text);
-   mono('Meet one to open its rank, tells and counters. Kill it to recover the field note.',px+18,py+200,12,K.textDim);
+  if(!known){
+   heading('? ? ? ? ?',tx,py+44,18,K.textDim);
+   mono(boss?'Unidentified  ·  first met around S'+BOSSDEF[entryE.id].debut:'Unidentified hostile',tx,py+68,12,K.textDim);
+   // The locked hint is two short lines; on a plate too short for both, the
+   // second line becomes a pager signal instead of a silent drop.
+   const hint2='Meet one to open its rank, tells and counters. Kill it to recover the field note.';
+   const hintLines=wrapLines(hint2,wrapBody);
+   mono('Not yet met.',px+18,py+178,13,K.text);
+   const hintRoom=Math.max(0,Math.floor((py+ph-10-(py+178+17))/15));
+   codexPagerRect=null;
+   if(hintLines.length<=Math.max(1,hintRoom)){
+    hintLines.forEach((l,i)=>mono(l,px+18,py+178+17+i*15,12,K.textDim));
+   } else {
+    hintLines.slice(0,Math.max(1,hintRoom)).forEach((l,i)=>mono(l,px+18,py+178+17+i*15,12,K.textDim));
+    mono('▼ MORE [PgDn]',px+pw-14,py+ph-14,11,K.goldDim,'right');
+    codexPagerRect={x:px,y:py+ph-32,w:pw,h:22};
+    codexPage=0;
+   }
+   entry(BTN.back,'BACK','[Esc]',false);
+   return;
+  }
+  const name=entryE.name||BOSSDEF[entryE.id].name, pg=PIG[codexId(entryE)];
+  heading(name,tx,py+42,18,K.text);
+  if(pg) line(tx,py+51,tx+56,py+51,pg.c,2); // its pigment, as seen in the field
+  const rank=boss?TIER_NAMES[BOSSDEF[entryE.id].tier]+'  ·  ':'';
+  wrapLines(rank+entryE.role+'  ·  '+entryE.threat+(boss?'  ·  first seen S'+BOSSDEF[entryE.id].debut:''),wrapRole).forEach((l,i)=>mono(l,tx,py+66+i*15,11,K.textDim));
+  if(boss) wrapLines(commandLine(entryE.id),wrapRole).forEach((l,i)=>mono(l,tx,py+100+i*15,11,K.textDim));
+  // Detail blocks page inside the plate: overflow shows ▼ MORE [PgDn] and
+  // PgDn/Space advances, so TELL / COUNTER / FIELD NOTE are never cut muted.
+  codexPagerRect=null;
+  {
+   const topY=(py+170>py+ph-58)?(py+ph-58):(py+170);
+   const blocks=[
+    {label:'TELL',col:K.red,italic:false,lines:wrapLines(entryE.tell,wrapBody)},
+    {label:'COUNTER',col:K.gold,italic:false,lines:wrapLines(entryE.counter,wrapBody)},
+    {label:'FIELD NOTE',col:K.metal,italic:true,lines:wrapLines(killed?entryE.lore:'Kill it to recover the field note.',wrapBody)},
+   ];
+   const avail=Math.max(40,(py+ph-8)-topY);
+   const built=codexDetailPages(blocks,avail);
+   const total=built.pages.length;
+   codexPage=Math.max(0,Math.min(codexPage,total-1));
+   const page=built.pages[codexPage];
+   let y=topY;
+   page.forEach((blk)=>{
+    if(blk.label){ heading(blk.label,px+18,y,9,blk.col); y+=17; }
+    blk.lines.forEach((l)=>{
+     ctx.font=fM(12); ctx.fillStyle=blk.italic?K.textDim:K.text; ctx.textAlign='left'; ctx.fillText(l,px+18,y);
+     y+=15;
+    });
+    if(blk.gap) y+=11;
+   });
+   if(built.paged){
+    const up=codexPage>0?'▲ ':'';
+    mono(up+'▼ MORE '+(codexPage+1)+'/'+total+' [PgDn]',px+pw-14,py+ph-14,11,K.goldDim,'right');
+    codexPagerRect={x:px,y:py+ph-32,w:pw,h:22};
+   }
+  }
   entry(BTN.back,'BACK','[Esc]',false);
-  return;
  }
- const name=entryE.name||BOSSDEF[entryE.id].name, pg=PIG[codexId(entryE)];
- heading(name,tx,py+42,18,K.text);
- if(pg) line(tx,py+51,tx+56,py+51,pg.c,2); // its pigment, as seen in the field
- const rank=boss?TIER_NAMES[BOSSDEF[entryE.id].tier]+'  ·  ':'';
- wrapLines(rank+entryE.role+'  ·  '+entryE.threat+(boss?'  ·  first seen S'+BOSSDEF[entryE.id].debut:''),wrapRole).forEach((l,i)=>mono(l,tx,py+66+i*15,11,K.textDim));
- if(boss) wrapLines(commandLine(entryE.id),wrapRole).forEach((l,i)=>mono(l,tx,py+100+i*15,11,K.textDim));
- let y=py+170;
- const block=(label,text,col,italic)=>{
-  if(y+32>py+ph-8) return;
-  heading(label,px+18,y,9,col);
-  const lines=wrapLines(text,wrapBody);
-  const room=Math.max(0,Math.floor((py+ph-10-(y+17))/15));
-  lines.slice(0,Math.max(1,room)).forEach((l,i)=>{ ctx.font=fM(12); ctx.fillStyle=italic?K.textDim:K.text; ctx.textAlign='left'; ctx.fillText(l,px+18,y+17+i*15); });
-  y+=17+Math.min(lines.length,Math.max(1,room))*15+11;
- };
- block('TELL',entryE.tell,K.red);
- block('COUNTER',entryE.counter,K.gold);
- if(killed) block('FIELD NOTE',entryE.lore,K.metal,true);
-  else block('FIELD NOTE','Kill it to recover the field note.',K.metal,true);
- entry(BTN.back,'BACK','[Esc]',false);
-}
 // Arrow navigation walks entries in the order they are LISTED (rank order for
 // bosses), skipping headers.
 function codexStep(dir){
  const order=codexRows().filter(r=>!r.hdr).map(r=>r.i);
  let k=order.indexOf(codexSel); if(k<0) k=0;
  codexSel=order[(k+dir+order.length)%order.length];
+ codexPage=0;
 }
 // ---------- refit icons ----------
 // One engraving hand for all 46: monoline gold strokes on the dark ground,
@@ -4024,8 +4291,9 @@ function draftRect(i){
  return levelChoices[i]===levelBack?{x:Math.round((W-460)/2),y:Math.round(H/2+126),w:460,h:62}:{x:130+i*240,y:220,w:220,h:204};
 }
 function drawBackOffer(u,i,ink){
- const r=draftRect(i), dn=(typeof u.dyn==='function')?u.dyn(player):null, hot=hovered(r);
+ const r=draftRect(i), dn=(typeof u.dyn==='function')?u.dyn(player):null, sel=draftSel===i, hot=hovered(r)||sel;
  ctx.strokeStyle=ink.main; ctx.lineWidth=hot?1.5:1; if(!hot) ctx.setLineDash([5,4]); ctx.strokeRect(r.x+0.5,r.y+0.5,r.w,r.h); ctx.setLineDash([]);
+ if(sel){ ctx.save(); ctx.strokeStyle=ink.main; ctx.lineWidth=3; ctx.strokeRect(r.x-4.5,r.y-4.5,r.w+9,r.h+9); ctx.restore(); }
  drawIcon(u.id,r.x+36,r.y+r.h/2,13);
  heading(((dn&&dn.name)||u.name).toUpperCase(),r.x+66,r.y+27,11,ink.text);
  mono((dn&&dn.desc)||u.desc,r.x+66,r.y+46,11,ink.dim);
@@ -4066,8 +4334,9 @@ function drawLevelUp(){
    mono(keysLine,W/2,KY,12,ink.dim,'center'); }
   levelChoices.forEach((u,i)=>{
    if(u===levelBack){ drawBackOffer(u,i,ink); return; }
-   const r=draftRect(i), hot=hovered(r)||draftSel===i, dn=(typeof u.dyn==='function')?u.dyn(player):null;
+   const r=draftRect(i), sel=draftSel===i, hot=hovered(r)||sel, dn=(typeof u.dyn==='function')?u.dyn(player):null;
   plate(r.x,r.y,r.w,r.h,ink.main,hot);
+  if(sel){ ctx.save(); ctx.strokeStyle=ink.main; ctx.lineWidth=3; ctx.strokeRect(r.x-4.5,r.y-4.5,r.w+9,r.h+9); ctx.restore(); }
   // rarity as rim ticks: one, two or three cuts along the top edge
   const n=u.r===2?3:(u.r===1?2:1); for(let k=0;k<n;k++){ const tx=r.x+r.w/2+(k-(n-1)/2)*8; line(tx,r.y-4,tx,r.y+4,ink.main,1.5); }
   if(r.h < 170){
@@ -4288,10 +4557,54 @@ function drawEnd(){
 // A screen reader cannot see the canvas. A polite live region in the page
 // reads out what each screen is and what it offers, when that changes: the
 // same words the canvas draws, never a second script to keep in sync.
-let srEl=null, srLast='', srT=0;
+// The draft is additionally mirrored as offscreen DOM buttons so a screen
+// reader can choose a card directly; the canvas and the live narration stay.
+let srEl=null, srLast='', srT=0, draftSrEl=null, draftSrSig='';
 // the canvas is described by whichever hint line is actually showing
 try{ if(window.matchMedia&&window.matchMedia('(pointer:coarse)').matches&&canvas.setAttribute) canvas.setAttribute('aria-describedby','hint-touch'); }catch(e){}
 try{ srEl=document.getElementById?document.getElementById('sr'):null; }catch(e){}
+try{ draftSrEl=document.getElementById?document.getElementById('draft-sr'):null; }catch(e){ draftSrEl=null; }
+function draftCardText(u,i){
+ try{
+  const dn=(typeof u.dyn==='function')?u.dyn(player):null;
+  let s=((dn&&dn.name)||u.name)+'. '+((dn&&dn.desc)||u.desc);
+  try{ const df=statDiff(u); if(df&&df.length) s+=' Changes: '+df.join('; ')+'.'; }catch(e){}
+  if(u===levelBack) s+=', offered again';
+  return (i+1)+': '+s;
+ }catch(e){ try{ return (i+1)+': '+((u&&(u.name||u.id))||'upgrade'); }catch(_){ return (i+1)+': upgrade'; } }
+}
+function syncDraftSr(){
+ try{
+  if(!draftSrEl||!draftSrEl.appendChild) return;
+  if(state!=='levelup'||!levelChoices||!levelChoices.length){
+   if(draftSrSig!==''){ draftSrSig=''; try{ while(draftSrEl.firstChild) draftSrEl.removeChild(draftSrEl.firstChild); }catch(e){ try{ draftSrEl.innerHTML=''; }catch(_){} } }
+   return;
+  }
+  const sig=levelChoices.map((u,i)=>draftCardText(u,i)).join('|');
+  if(sig!==draftSrSig){
+   draftSrSig=sig;
+   try{ while(draftSrEl.firstChild) draftSrEl.removeChild(draftSrEl.firstChild); }catch(e){ try{ draftSrEl.innerHTML=''; }catch(_){} }
+   levelChoices.forEach((u,i)=>{
+    let b=null;
+    try{ b=document.createElement('button'); }catch(e){ return; }
+    if(!b) return;
+    try{
+     b.type='button';
+     b.textContent='Pick '+draftCardText(u,i);
+     try{ b.setAttribute('data-draft',String(i)); }catch(e){}
+     try{ if(u&&u.id) b.setAttribute('data-card',String(u.id)); }catch(e){}
+     b.addEventListener('click',()=>{ try{ draftSel=i; pickUpgrade(levelChoices[i]); }catch(e){} });
+     b.addEventListener('focus',()=>{ try{ if(draftSel!==i){ draftSel=i; if(SFX&&SFX.click) SFX.click(); } }catch(e){} });
+     draftSrEl.appendChild(b);
+    }catch(e){}
+   });
+  }
+  try{
+   const kids=draftSrEl.children||[];
+   for(let k=0;k<kids.length;k++){ try{ if(k===draftSel) kids[k].setAttribute('aria-current','true'); else kids[k].removeAttribute('aria-current'); }catch(e){} }
+  }catch(e){}
+ }catch(e){}
+}
 function srSummary(){
  const keys=' Settings O, codex C, help H.';
   if(state==='title'){ const sv=readRun();
@@ -4300,11 +4613,15 @@ function srSummary(){
  if(state==='galaxy'){ const th=THEMES[galaxySel%THEMES.length];
   return 'Galaxy chart. Sector '+(galaxySel+1)+', '+th.name+(isBossSector(galaxySel)?', boss nest':'')+'. '+galaxyLore(galaxySel,th.name)+' Arrows select, Enter sets course, Escape returns to title.'; }
  if(state==='playing'){ if(!player) return '';
+  let coach=''; try{ const cs=coachStep(); if(cs) coach=' Coach: '+coachLines(cs).join(' ')+' Enter dismisses.'; }catch(e){}
   const where='Sector '+(arenaIdx+1)+', '+(arena&&arena.theme?arena.theme.name:'')+'.';
-  if(portal) return where+' Sector clear.'+(gems.length?' Salvage left on the field is lost at the exit.':'')+' Exit with E.';
+  if(portal){ if(!gems.length) return where+' Sector clear. Exit with E.'+coach;
+   const atRisk=fieldXpAtRisk();
+   if(exitArmed()) return where+' Sector clear. Lose '+atRisk+' XP? Press E again to confirm — '+atRisk+' XP is lost.'+coach;
+   return where+' Sector clear. '+atRisk+' XP on the field is lost at the exit. Exit with E.'+coach; }
   const low=player.hp<=player.maxhp*0.3?' Hull critical.':'';
   const nestNames=()=>bossKindsFor(arenaIdx).map(k=>(BOSSDEF[k]&&BOSSDEF[k].name)||k).join(' and ');
-  return where+(isBossSector(arenaIdx)?' Boss nest: '+nestNames()+'.':' Hostiles inbound.')+low; }
+  return where+(isBossSector(arenaIdx)?' Boss nest: '+nestNames()+'.':' Hostiles inbound.')+low+coach; }
  if(state==='levelup'){
   const head=(nestDraftAt>0&&nestTally.kinds.length?BOSSDEF[nestTally.kinds[0]].name+(nestTally.kinds.length>1?"'s court falls.":' falls.')+(nestTally.banked?' +'+nestTally.banked+'% damage banked.':''):(nestDraftAt>0?'Nest cleared.':'Level '+(player?player.level:'')+'.'))+' Choose an upgrade; C opens the codex, H help. ';
   const cards=levelChoices.map((u,i)=>{ const dn=(typeof u.dyn==='function')?u.dyn(player):null; let s=(i+1)+': '+((dn&&dn.name)||u.name)+', '+((dn&&dn.desc)||u.desc); try{ const df=statDiff(u); if(df&&df.length) s+=' Changes: '+df.join('; ')+'.'; }catch(e){} if(u===levelBack) s+=', offered again'; return s+'.'; }).join(' ');
@@ -4325,13 +4642,13 @@ function srSummary(){
   return 'Hull lost.'+(sr?' Brought down by '+sr.name+', '+sr.what+'.'+(ent?' Tell: '+ent.tell+' Counter: '+ent.counter:''):'')+(endInfo.newBest?' New best.':'')+' Score '+scoreCalc()+'. Reached sector '+(arenaIdx+1)+'. '+nextGodLine()+' R retries, Escape returns to title.'; }
  return '';
 }
-function srTick(now){ if(!srEl||now-srT<250) return; srT=now; let t=''; try{ t=srSummary(); }catch(e){} if(t&&t!==srLast){ srLast=t; srEl.textContent=t; } }
+function srTick(now){ try{ syncDraftSr(); }catch(e){} if(!srEl||now-srT<250) return; srT=now; let t=''; try{ t=srSummary(); }catch(e){} if(t&&t!==srLast){ srLast=t; srEl.textContent=t; } }
 
 // ---------- main loop ----------
 let last=performance.now(), acc=0; const STEP=1000/60;
 function frame(now){ requestAnimationFrame(frame); let dt=now-last; last=now; if(dt>250) dt=250; acc+=dt; let n=0; while(acc>=STEP&&n<5){ update(STEP/1000); acc-=STEP; n++; } if(n===5) acc=0; render(); srTick(now); }
 arena={seed:1337, obs:[], theme:THEMES[0], spawns:[], port:{x:800,y:500}, validated:true, ratio:1};
-  try{ window.__kriefne={ startRun, continueRun, saveRun, readRun, loadArena, loadSector, killEnemy, nextArena, gainXp, pickUpgrade, hurtPlayer, doPortalKey, tryDash, update, render, focusWatch, xpNeedFor, openHelp, handleKeyPress, handleClick,
+  try{ window.__kriefne={ startRun, continueRun, saveRun, readRun, loadArena, loadSector, killEnemy, nextArena, gainXp, pickUpgrade, hurtPlayer, doPortalKey, tryExitPortal, cancelBlink, fieldXpAtRisk, exitArmed, tryDash, update, render, focusWatch, xpNeedFor, openHelp, handleKeyPress, handleClick,
    spawnEnemy, steer, hostiles, collectGems, isBossSector, bossKindsFor, compFor, sectorName, sectorWorld, galNodes, reflectBullet, bulletBlocked,
    forceState(s){ state=s; }, get upgrades(){ return UPGRADES; }, get helpTab(){ return helpTab; },
    get bossdefs(){ return BOSSDEF; }, get hazards(){ return hazards; }, get signatureNests(){ return SIGNATURE_NESTS; },
@@ -4340,10 +4657,15 @@ arena={seed:1337, obs:[], theme:THEMES[0], spawns:[], port:{x:800,y:500}, valida
    drawIcon, get ctx(){ return ctx; },
    get pigments(){ return PIGMENT_DEF; }, get pig(){ return PIG; }, get tokens(){ return K; }, get bossDefs(){ return BOSSDEF; }, get themes(){ return THEMES; },
    srSummary,
+   syncDraftSr, draftCardText,
    get helpTabs(){ return HELP_TABS; }, get codexFoes(){ return CODEX_FOES; }, get codexBosses(){ return CODEX_BOSSES; },
-   setHelpTab(t){ helpTab=t; },
-   openCodex, closeCodex, codexKnown, codexSeen, handleRelease, statDiff, get endInfo(){ return endInfo; }, get restartArm(){ return restartArm; }, codexProgress, commandLine,
-   get codexTab(){ return codexTab; }, setCodexTab(t){ codexTab=t; codexSel=0; }, get codexSel(){ return codexSel; },
+    setHelpTab(t){ helpTab=t; helpPage=0; helpPagerRect=null; },
+    openCodex, closeCodex, codexKnown, codexSeen, handleRelease, statDiff, get endInfo(){ return endInfo; }, get restartArm(){ return restartArm; }, get exitArm(){ return exitArm; }, codexProgress, commandLine,
+    get codexTab(){ return codexTab; }, setCodexTab(t){ codexTab=t; codexSel=0; codexPage=0; codexPagerRect=null; }, get codexSel(){ return codexSel; },
+    get helpPage(){ return helpPage; }, get codexPage(){ return codexPage; },
+    get helpPager(){ return helpPagerRect; }, get codexPager(){ return codexPagerRect; }, get codexIdxPager(){ return codexIdxPagerRect; },
+    codexStep, codexIdxPage, codexIdxSpan, codexDetailPages,
+    setViewport(w,h){ W=Math.max(280,Math.round(w)); H=Math.max(200,Math.round(h)); helpPage=0; helpPagerRect=null; codexPage=0; codexPagerRect=null; codexIdxPagerRect=null; try{ layoutButtons(); }catch(e){} },
   pool(){ return UPGRADES.filter(u=>(!u.req||u.req(player))&&(!u.max||(upgradeCounts[u.id]||0)<u.max)).map(u=>u.id); },
   get autoPaused(){ return autoPaused; }, get queue(){ return spawnQueue; }, get cam(){ return cam; },
   get pendingLevels(){ return pendingLevels; }, get pendingNest(){ return pendingNest; }, get pity(){ return pity; }, get runSeed(){ return runSeed; }, get upgradeCounts(){ return upgradeCounts; },
@@ -4353,7 +4675,8 @@ arena={seed:1337, obs:[], theme:THEMES[0], spawns:[], port:{x:800,y:500}, valida
    get ebullets(){ return ebullets; }, get hostileRings(){ return rings.filter(g=>g.dmg>0&&!g.own); }, get hazardList(){ return hazards; },
    get state(){return state;}, get player(){return player;}, get enemies(){return enemies;}, get gems(){return gems;}, get settings(){return settings;}, get arena(){return arena;}, get portal(){return portal;}, get choices(){return levelChoices;}, keys, mouse, touch, fitCanvas,
    get viewScale(){ return viewScale; }, get devicePx(){ return devicePx; },
-   get vw(){ return W; }, get vh(){ return H; }, get btn(){ return BTN; }, draftLayout, draftRect, rowRects, helpTabRects, codexTabRects, codexRects, layoutButtons }; }catch(e){}
+    get vw(){ return W; }, get vh(){ return H; }, get btn(){ return BTN; }, draftLayout, draftRect, rowRects, helpTabRects, codexTabRects, codexRects, layoutButtons,
+    coachStep, coachLines, dismissCoach, coachSeen, markCoach, drawCoach, updateCoach }; }catch(e){}
 fitCanvas();
 requestAnimationFrame(frame);
 })();
