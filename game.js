@@ -538,7 +538,19 @@ function galaxyLore(s,thName){
 // species unlocks where it always has, then holds a fixed share; the split is
 // largest-remainder, so the counts always sum to the total.
 const COMP_W={ drone:[0,8], stalker:[0,4], mite:[1,3], tempest:[1,2.6], sniper:[2,2.6], brute:[3,1.8] }; // [first sector idx, share]
-function compTotal(s){ const w=sectorWorld(s); return Math.round(Math.min(12+2.2*(s+1),w.w*w.h/18000)); }
+function compTotal(s){ const w=sectorWorld(s); const n=s+1;
+ // Roster size follows the gun, not a straight line (fitted by the fight sim).
+ // The alive floor feeds as fast as the ship kills, so a clear lasts
+ // roster/kill-rate: size the roster as band-mid-seconds times the fitted
+ // seconds-per-kill g, where g is flat 0.72 while guns are thin, climbs steeply
+ // past S12 while the hose comes online, then gently once it is mowing.
+ // S3 is capped at 37: with thin guns, tempest kiting already taxes every kill
+ // there. Past S31 the world area binds instead (deep pacing comes from packs,
+ // caps and foe HP, below). compXpScale divides XP per foe by this size, so
+ // picks/sector stay ~1.15.
+ const g=0.72+Math.min(Math.max(0,n-12),9)*0.092+Math.max(0,n-21)*0.045, mid=n<=9?60:(n<=49?87.5:115);
+ let t=mid*g; if(n===3) t=Math.min(t,33);
+ return Math.round(Math.min(t,w.w*w.h/18000)); }
 function compFor(s){
  const tot=compTotal(s), out={}, rem=[];
  let wsum=0, used=0;
@@ -568,16 +580,37 @@ function compXpScale(s){
 // weak to keep up is paced by the cap instead and simply takes longer.
 //   win     seconds over which the queue is released (tune: fight sim, §10)
 //   pack    hostiles per release; every = win / releases
+//   floor   minimum alive count the director hurries the stream to hold: there
+//           is always something to shoot, never a quiet trickle of one foe per
+//           ~5s. Always below the alive cap (and so below CAP.enemies); the
+//           opening wave stays `initial`-small and fills to the floor fast.
+// Wave 3: packs got bigger (1-7 -> 2-10) because a one-foe release is wasted
+// time, and the floor was added because deep sectors felt empty while long.
 const WAVE_WIN=[56,84,110]; // S1-S9, S11-S49, S51+ (the spec §7 bands)
 const _wavePlans={};
 function wavePlan(s){
  if(_wavePlans[s]) return _wavePlans[s];
  const n=s+1, tot=compTotal(s);
- const initial=Math.min(tot,4+Math.min(8,(s/6)|0));
- const pack=Math.min(7,1+(((s+3)/10)|0));
- const win=n<=9?WAVE_WIN[0]:(n<=49?WAVE_WIN[1]:WAVE_WIN[2]);
- const every=win/Math.max(1,Math.ceil((tot-initial)/pack));
- return (_wavePlans[s]={ initial, pack, every, cap:10+Math.min(24,(s/3)|0), win });
+  const initial=Math.min(tot,4+Math.min(8,(s/6)|0));
+  const pack=s<45?Math.min(10,4+(((s)/12)|0)):7;
+  const win=n<=9?WAVE_WIN[0]:(n<=49?WAVE_WIN[1]:WAVE_WIN[2]);
+  const every=win/Math.max(1,Math.ceil((tot-initial)/pack));
+  const cap=s<45?10+Math.min(24,(s/3)|0):20;
+  // Deep concurrency is capped at 20, not 34: with the floor hurrying the
+  // stream, 30+ concurrent hostiles all sit inside the hose's 700px auto-range
+  // and die with zero travel between packs, which no HP number can pace without
+  // walling slower builds (the sim's Balanced needs every minute it gets at
+  // S61). Deep packs stay 7: smaller clumps mean more flights per kill,
+  // which taxes the lawnmower's travel while a slower ship stays kill-limited
+  // and barely notices. Density push: the opening wave is +2 where it fits
+  // under the shape cap (early quiet is the opening drying out), the early
+  // floor is +1 (S1 4, S31 9) so the worst quiet (S31) gains margin; deep
+  // stays at the fitted 7/20/7 because the S46 Balanced build is already at
+  // its patience limit and more concurrency walls it while only speeding
+  // the hose. The floor never falls with depth (early 3+(s/6) reaches 6 by
+  // S20 and deep holds 7: 3,3,6,7,7,7).
+  const floor=s<45?Math.min(cap-2,3+((s/6)|0)):7;
+ return (_wavePlans[s]={ initial, pack, every, cap, floor, win });
 }
 function sectorWorld(s){ return { w:Math.min(2400,1200+s*130), h:Math.min(1600,880+s*85) }; }
 // r: rarity 0 common (w10) / 1 uncommon (w5) / 2 rare (w2, RARE tag + jingle); drawn as 1/2/3 rim ticks
@@ -1104,32 +1137,50 @@ function genArenaValidated(baseSeed, idx, spawnTypes){
  const patR=mulberry32((baseSeed^0x51ab3f)>>>0), deck=LAYOUTS.slice();
  for(let k=deck.length-1;k>0;k--){ const m=(patR()*(k+1))|0; const t=deck[k]; deck[k]=deck[m]; deck[m]=t; }
  const layoutKind=isBossSector(idx)?'arena':deck[idx%deck.length];
- for(let att=0; att<40; att++){
-  const s=(baseSeed+att*100003+idx*7919)>>>0;
-  const R=mulberry32(s);
-  const obs=[];
-  // Boss nests keep a clearer centre for the duel. Scaled to the map: a flat
-  // 300px clearing swallowed most of an early 1200x880 sector.
-  const clearR=isBossSector(idx)?Math.min(300,Math.min(PX1-PX0,PY1-PY0)*0.30):210;
-  const clearOfSpawn=(x,y,r)=>Math.hypot(x-px,y-py)<clearR+r;
-  const overlaps=(x,y,pad)=>obs.some(b=>{ if(b.kind==='rect') return x>b.x-pad&&x<b.x+b.w+pad&&y>b.y-pad&&y<b.y+b.h+pad; const dx=x-b.x,dy=y-b.y; return dx*dx+dy*dy<(b.r+pad)*(b.r+pad); });
-  const inBounds=(x,y,m)=>x-m>=PX0&&y-m>=PY0&&x+m<=PX1&&y+m<=PY1;
-  const C={px,py,clearR,clearOfSpawn,inBounds,sizeJ:Math.min(1.3,0.85+idx*0.05)};
-  buildLayout(layoutKind,R,obs,C,idx);
-  // candidate spawns + portal: opening spawns spread across quadrants (round-robin)
-  // so no sector opens with every pack in one corner; each spawn's wall margin
-  // fits what actually spawns there (bosses need a 34px gap, brutes 22, rest 14).
-  const R2=mulberry32((s^0x9e3779b9)>>>0);
-  const midX=(PX0+PX1)/2, midY=(PY0+PY1)/2;
-  const marginFor=(ty)=>ty.indexOf('boss:')===0?34:(ty==='brute'?22:14);
-  const spawns=spawnTypes.map((ty,k)=>{ const q=k%4;
-   return freeSpotIn(R2,obs,px,py,240,marginFor(ty),(q===0||q===2)?PX0:midX,(q===0||q===2)?midX:PX1,q<2?PY0:midY,q<2?midY:PY1); });
-  const bIdx=[]; spawnTypes.forEach((ty,k)=>{ if(ty.indexOf('boss:')===0) bIdx.push(k); });
-  if(bIdx.length){ const ring=bossRingSpots(R2,obs,bIdx.length,110); bIdx.forEach((k,n)=>{ spawns[k]=ring[n]; }); }
-  const port=freeSpot(R2,obs,px,py,300,24);
-  const chk=bfsCheck(px,py,spawns.concat([port]),obs);
-  if(chk.ok&&chk.ratio>=0.55&&chk.openFrac>=0.45) return {seed:s, obs, theme, layout:layoutKind, spawns, port, validated:true, ratio:chk.ratio, openFrac:chk.openFrac};
- }
+  // Up to 40 obstacle layouts; every seed that validated before keeps its
+  // exact map (the first pass is byte-for-byte the old placement). Denser
+  // rosters (wave 3) place many more spawn spots than the old flatline roster,
+  // and most of those spots are never used: at runtime only the opening pack
+  // materializes on map spots while reinforcements stream in off-screen, yet
+  // validation demanded every queued foe reachable too. Seeds that would fall
+  // back are therefore rescued with a second pass that places only what the
+  // round actually materializes (the opening pack + portal), on fresh seeds.
+  const placeAll=(types,seedOff,spawnTries)=>{
+   for(let att=0; att<40; att++){
+    const s=(baseSeed+att*100003+idx*7919+seedOff)>>>0;
+    const R=mulberry32(s);
+    const obs=[];
+    // Boss nests keep a clearer centre for the duel. Scaled to the map: a flat
+    // 300px clearing swallowed most of an early 1200x880 sector.
+    const clearR=isBossSector(idx)?Math.min(300,Math.min(PX1-PX0,PY1-PY0)*0.30):210;
+    const clearOfSpawn=(x,y,r)=>Math.hypot(x-px,y-py)<clearR+r;
+    const overlaps=(x,y,pad)=>obs.some(b=>{ if(b.kind==='rect') return x>b.x-pad&&x<b.x+b.w+pad&&y>b.y-pad&&y<b.y+b.h+pad; const dx=x-b.x,dy=y-b.y; return dx*dx+dy*dy<(b.r+pad)*(b.r+pad); });
+    const inBounds=(x,y,m)=>x-m>=PX0&&y-m>=PY0&&x+m<=PX1&&y+m<=PY1;
+    const C={px,py,clearR,clearOfSpawn,inBounds,sizeJ:Math.min(1.3,0.85+idx*0.05)};
+    buildLayout(layoutKind,R,obs,C,idx);
+    // candidate spawns + portal: opening spawns spread across quadrants (round-robin)
+    // so no sector opens with every pack in one corner; each spawn's wall margin
+    // fits what actually spawns there (bosses need a 34px gap, brutes 22, rest 14).
+    const midX=(PX0+PX1)/2, midY=(PY0+PY1)/2;
+    const marginFor=(ty)=>ty.indexOf('boss:')===0?34:(ty==='brute'?22:14);
+    for(let sp=0; sp<spawnTries; sp++){
+     const R2=mulberry32((s+sp*4243^0x9e3779b9)>>>0);
+     const spawns=types.map((ty,k)=>{ const q=k%4;
+      return freeSpotIn(R2,obs,px,py,240,marginFor(ty),(q===0||q===2)?PX0:midX,(q===0||q===2)?midX:PX1,q<2?PY0:midY,q<2?midY:PY1); });
+     const bIdx=[]; types.forEach((ty,k)=>{ if(ty.indexOf('boss:')===0) bIdx.push(k); });
+     if(bIdx.length){ const ring=bossRingSpots(R2,obs,bIdx.length,110); bIdx.forEach((k,n)=>{ spawns[k]=ring[n]; }); }
+     const port=freeSpot(R2,obs,px,py,300,24);
+     const chk=bfsCheck(px,py,spawns.concat([port]),obs);
+     if(chk.ok&&chk.ratio>=0.55&&chk.openFrac>=0.45) return {seed:s, obs, theme, layout:layoutKind, spawns, port, validated:true, ratio:chk.ratio, openFrac:chk.openFrac};
+    }
+   }
+   return null;
+  };
+  const full=placeAll(spawnTypes,0,1);
+  if(full) return full;
+  const need=isBossSector(idx)?spawnTypes.length:Math.min(spawnTypes.length,wavePlan(idx).initial);
+  const rescued=placeAll(spawnTypes.slice(0,need),7919,6);
+  if(rescued) return rescued;
  // fallback: open field (always playable)
  return {seed:baseSeed>>>0, obs:[], theme, layout:'open-fallback', spawns:spawnTypes.map((_,i)=>({x:PX0+80+(i%4)*((PX1-PX0-160)/3),y:PY0+70})), port:{x:PX1-90,y:PY1-90}, validated:true, ratio:1, openFrac:1};
 }
@@ -1170,11 +1221,13 @@ const EBASE={ drone:{hp:24,sp:130,dmg:8,r:10,xp:3}, stalker:{hp:40,sp:110,dmg:12
 // by the fight simulator (test.js --only fightsim). eHpScale itself is the boss
 // engine's and stays put. S1-S9 are left alone (the early sectors are already
 // paced by a thin gun); from S9 a linear lift of `ramp` per sector, steepening
-// by `late` from S60, up to +`cap`: x1.44 at S46, x1.96 at S71, x2.86 at S99. A
-// multi-barrel build is still paced by the stream, not by the HP; the lift is
-// what keeps a mixed build from strolling through deep sectors, and it stops
-// short of walling one through the S31-S61 stretch (the sim's Balanced build).
-const FOE_HP={ ramp:0.012, from:8, late:0.02, lateFrom:59, cap:2.2 };
+// by `late` from S60, up to +`cap`. Wave 3 raised both the counts (the alive
+// floor feeds as fast as the ship kills, so a clear lasts roster/kill-rate)
+// and this lift (deep foes must survive a hose for a beat, not melt on
+// contact): x2.7 at S46, x4.6 at S61, x5.5 at S99 (capped). A multi-barrel build is
+// still paced by the stream, not by the HP; the lift is what keeps a mixed
+// build from strolling through deep sectors.
+const FOE_HP={ ramp:0.035, from:8, late:0.09, lateFrom:40, cap:4.5 };
 function eHpScaleFoe(a){ const f=FOE_HP; return eHpScale(a)*(1+Math.min(f.cap,f.ramp*Math.max(0,a-f.from)+f.late*Math.max(0,a-f.lateFrom))); }
 let uidC=1;
 function mkEnemy(type,x,y,a){
@@ -5237,7 +5290,7 @@ function playerShoot(){
   const p=player;
   let tx, ty;
   if(mouse.down){ tx=wmx(); ty=wmy(); }
- else if(p.autoFire){ let bd=700*700, be=null; for(const e of enemies){ const d=dist2(p.x,p.y,e.x,e.y); if(d<bd){ bd=d; be=e; } } if(!be) return; tx=be.x; ty=be.y; }
+  else if(p.autoFire){ let bd=700*700, be=null; for(const e of enemies){ const d=dist2(p.x,p.y,e.x,e.y); if(d<bd){ bd=d; be=e; } } if(!be) return; tx=be.x; ty=be.y; }
  else return;
  const base=Math.atan2(ty-p.y,tx-p.x); p.aim=base;
   const n=p.shots, spread=(n-1)*0.14*(1+0.35*(p.minigun||0));
@@ -5808,13 +5861,20 @@ function update(dt){
     if(p.salvage>0&&p.hp<p.maxhp) p.hp=Math.min(p.maxhp,p.hp+p.salvage);
     gainXp(g.v); if(state!=='playing') break; }
   }
-  // wave director: reinforcements stream in from off-screen as the round progresses.
-  // One pack per release, all from one far point (wavePlan: pack size, cadence,
-  // alive cap). A release held by the cap goes out the moment there is room.
-  if(spawnQueue.length>0&&!(__dev&&__dev.spawnsOff)){ // DevX lab only: spawns off
-   spawnT-=dt;
-   const wp=wavePlan(arenaIdx);
-   if(spawnT<=0&&enemies.length<wp.cap){
+   // wave director: reinforcements stream in from off-screen as the round progresses.
+   // One pack per release, all from one far point (wavePlan: pack size, cadence,
+   // alive cap). A release held by the cap goes out the moment there is room.
+   // The alive floor hurries the stream instead of waiting out the cadence: while
+   // fewer than `floor` hostiles are alive the next pack is at most ~1s out
+   // (1.6s deep, where the hose would otherwise mow a hurried stream with zero
+   // travel between packs), so the sector is never quiet outside the opening
+   // seconds but the lawnmower still flies for every kill.
+   if(spawnQueue.length>0&&!(__dev&&__dev.spawnsOff)){ // DevX lab only: spawns off
+    spawnT-=dt;
+    const wp=wavePlan(arenaIdx);
+    const hurryLim=arenaIdx<=45?1.0:1.6;
+    if(enemies.length<wp.floor&&enemies.length<wp.cap&&spawnT>hurryLim) spawnT=hurryLim;
+    if(spawnT<=0&&enemies.length<wp.cap){
     spawnT=wp.every;
     const q=spawnEdgePos(700,1000); q.pack=true;
     let n=wp.pack;
@@ -8115,7 +8175,7 @@ let last=performance.now(), acc=0; const STEP=1000/60;
 function frame(now){ requestAnimationFrame(frame); let dt=now-last; last=now; if(dt>250) dt=250; acc+=dt*(__dev?__dev.ts:1); let n=0; while(acc>=STEP&&n<5){ update(STEP/1000); acc-=STEP; n++; } if(n===5) acc=0; render(); srTick(now); }
 arena={seed:1337, obs:[], theme:THEMES[0], spawns:[], port:{x:800,y:500}, validated:true, ratio:1};
   try{ window.__kriefne={ startRun, continueRun, saveRun, readRun, loadArena, loadSector, killEnemy, nextArena, gainXp, pickUpgrade, hurtPlayer, doPortalKey, tryExitPortal, cancelBlink, fieldXpAtRisk, exitArmed, tryDash, update, render, focusWatch, xpNeedFor, openHelp, handleKeyPress, handleClick,
-   spawnEnemy, steer, hostiles, collectGems, isBossSector, bossKindsFor, compFor, sectorName, sectorWorld, galNodes, reflectBullet, bulletBlocked,
+   spawnEnemy, steer, hostiles, collectGems, isBossSector, bossKindsFor, compFor, compTotal, wavePlan, sectorName, sectorWorld, galNodes, reflectBullet, bulletBlocked,
    forceState(s){ state=s; }, get upgrades(){ return UPGRADES; }, get helpTab(){ return helpTab; },
    get bossdefs(){ return BOSSDEF; }, get hazards(){ return hazards; },
    get tierNames(){ return TIER_NAMES; }, get bossesByTier(){ return BOSSES_BY_TIER; }, get nestSummonLeft(){ return nestSummonLeft; },
