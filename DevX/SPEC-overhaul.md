@@ -900,7 +900,7 @@ This is the only status doc. `WAVE3_HANDOFF.md` was folded in here and deleted o
   - Boss TTKs at S15+ are 10–35 s, 3–10× short of §6. That's wave 3's HP fit.
 - **Engine (from E1):**
   - The pigment-distance rule now only compares gods that can share a field (within 3 rungs). Revisit when thralls mix kinds.
-  - The analytic balance checks from S50 on are report-only.
+  - ~~The analytic balance checks from S50 on are report-only.~~ They were retired in Step 1; the fight simulator is the only balance model now.
   - LORE.md, README, PRODUCT.md and DESIGN.md are not yet updated for 20 gods.
   - Placeholder silhouettes haven't been checked in a browser.
 - **Engine (from E2):**
@@ -913,3 +913,6 @@ This is the only status doc. `WAVE3_HANDOFF.md` was folded in here and deleted o
   - The wake is dense red during a Coil; disc drawing is engine code.
   - Recovery numbers are first guesses: plate HP 1.2%, pod HP 5%, heals 2.2–3%/s.
   - `bossThink` gained `e.atkT`, and a `turnTo` helper was added.
+- **From Step 1:**
+  - The past-S100 wall checks were retired with no replacement: a wall exists, it lands in the S110–S130 band, it stays a wall, and S105 is clearable. So was "difficulty climbs toward S100". **Step 4 must add these to `fightsim`**, covering S105–S130, when `FIGHTSIM_STRICT` flips.
+  - README lines ~267–295 and ~347 still cite `--only balance`; that's for the Step 5 docs.
