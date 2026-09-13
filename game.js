@@ -3113,35 +3113,199 @@ BOSS_KITS.leviathan={
 // ===== END BOSS: LEVIATHAN =====
 
 // ===== BOSS: HYDRA =====
-// Placeholder kit (wave 2 builds the full one, spec §5): three throats firing in turn.
+// The Three-Throated (spec §5). Signature THREE THROATS: three heads (parts)
+// with their own HP and attacks — FROST (rime bolts that freeze), FAN (a
+// 5-round fan) and BEAM (a locked beam from the head). While any head lives
+// the body takes 50% damage. Body cycle: TAIL SLAM (a ring), HEAD SWAP (the
+// heads turn so the beam head faces you) and ACID SPIT (lingering pools).
+// Phase II at 50%, or when every head is gone: the surviving heads fire
+// together, and a lost head's stump sprays shrapnel. REGROWTH: a cut throat
+// regrows after 12 s and mends 4%, twice at most per head. Calls LEVIATHAN
+// at 60% and 30% (the rung below). Summoned HYDRA runs Phase I only, never
+// regrows. No radial volleys.
+const HY_HEAD_HP=0.07, HY_REGROW=12, HY_HEAL=0.04, HY_SPREAD=0.8;
+function hySlotAng(e,slot){ return (e.hy?e.hy.face:0)+(slot-1)*HY_SPREAD; }
+function hySlotPos(e,slot,R){ const a=hySlotAng(e,slot); return {x:e.x+Math.cos(a)*R*1.08,y:e.y+Math.sin(a)*R*1.08}; }
+function hyAlive(e){ return e.hy?e.hy.heads.filter(h=>!h.lost):[]; }
+function hyHeadPos(e,h){ const q=h.part; if(q&&!q.dead) return {x:q.x,y:q.y}; const p=hySlotPos(e,h.slot,e.r*(e.vscale||1)); h.x=p.x; h.y=p.y; return p; }
+function hyStartHead(e,h,C){
+ const p=hyHeadPos(e,h), aim=Math.atan2(C.p.y-p.y,C.p.x-p.x);
+ if(h.kind==='frost') h.st={tel:0.35,aim};
+ else if(h.kind==='fan') h.st={tel:0.5,aim};
+ else h.st={tel:0.8,aim};
+ SFX.click();
+}
+function hyFireHead(e,h,C){
+ const p=hyHeadPos(e,h), a=Math.atan2(C.p.y-p.y,C.p.x-p.x);
+ if(h.kind==='frost'){ const src=e.hyFsrc||(e.hyFsrc=srcOf(e,'FROST HEAD'));
+  for(let k=-1;k<=1;k++){ const b=eshotAt(e,p.x,p.y,a+k*0.14,150,7,0.9,5); if(b){ b.freeze=1.0; b.src=src; } }
+  SFX.eshoot(); }
+ else if(h.kind==='fan'){ const src=e.hyNsrc||(e.hyNsrc=srcOf(e,'FAN HEAD'));
+  for(let k=-2;k<=2;k++){ const b=eshotAt(e,p.x,p.y,a+k*0.16,260,5,0.8,2.6); if(b) b.src=src; }
+  SFX.eshoot(); }
+ else { const b=bossBeam(e,{a,warn:0.8,live:0.6,w:10,follow:false,dmg:Math.round(e.dmg*0.6),what:'BEAM HEAD'});
+  if(b){ b.x=p.x; b.y=p.y; beamEnds(b); } SFX.alarm(); }
+ h.st=null;
+}
 BOSS_KITS.hydra={
  def:{name:'HYDRA',epithet:'the Three-Throated',tier:3,hp:1500,r:34,spd:0.85,shape:'hepta',pt:3.6,sig:'throats',chaff:['stalker','mite']},
  lore:'A LORD WITH THREE THROATS — HYDRA argues with itself, and every voice is aimed.',
- codex:{role:'Many-headed', threat:'Three angles of fire',
-  tell:'Each neck flares in turn, then throws a short fan from where that head points.',
-  counter:'The heads fire one after another: move after each flare, not before.',
+ codex:{role:'Many-headed', threat:'Regrows twice; two phases',
+  tell:'A frost head aims (rime that FREEZES), a fan head opens its wedge, a beam head rules its line. A dashed ring at its tail is the SLAM; green pools are ACID.',
+  counter:'Take the throats one at a time, then all together. A cut throat regrows in 12 s: kill the body in that window. While any head lives the body takes half.',
   lore:'The Three-Throated. A council ship, built when its makers could not agree on a captain and so installed three. They still cannot agree. Everything it fires is the loser of an argument that has run for four hundred million years.'},
- cycle:['throats','slam'],
- attacks:Object.assign(atk('slam'),{
-  throats(e,C){ // the heads fire in turn, each a short fan from its own neck
-   C.mv(0.4); e.burstT-=C.dt;
-   if(e.burstT<=0){ e.burstT=C.enrage?0.5:0.75; e.head=((e.head||0)+1)%3;
-    const hp=hydraHead(e,e.head), a=Math.atan2(C.p.y-hp.y,C.p.x-hp.x);
-    for(let k=-1;k<=1;k++) eshotAt(e,hp.x,hp.y,a+k*0.14,240,5,0.8);
+ cycle:['tailslam','headswap','acidspit'],
+ phases:[{},{at:0.5,enter(e){ e.hy.fireT=Math.min(e.hy.fireT,0.4); e.hy.swap=null; }}],
+ armor(e){ return hyAlive(e).length?0.5:1; },
+ init(e){
+  e.hy={face:Math.atan2(player?player.y-e.y:0,player?player.x-e.x:1),fireT:1.2,cur:2,swap:null,heads:[]};
+  const kinds=['frost','fan','beam'];
+  for(let k=0;k<3;k++){ const q=addPart(e,{id:'head'+k,r:14,hp:e.maxhp*HY_HEAD_HP,kind:'head'}); if(!q) continue;
+   q.lx=undefined; const p=hySlotPos(e,k,e.r); q.x=p.x; q.y=p.y;
+   e.hy.heads.push({kind:kinds[k],slot:k,part:q,lost:false,regrow:0,used:0,st:null,sprayT:2.5,x:p.x,y:p.y,flare:0}); }
+ },
+ attacks:{
+  tailslam(e,C){ // a ring from its feet, previewed first
+   let S=e.hyT; if(e.atkT===0||!S) S=e.hyT={st:'close',t:0};
+   S.t-=C.dt;
+   if(S.st==='close'){ C.mv(0.5); if(C.d<260&&S.t<=0){ S.st='wind'; S.t=0.55;
+    shockwave(e,e.x,e.y,{maxR:185,spd:340,dmg:e.dmg,warn:0.55,w:16,what:'TAIL SLAM'}); } }
+   else if(S.st==='wind'&&S.t<=0){ S.st='close'; S.t=C.enrage?0.7:1.2; } },
+  headswap(e,C){ // the heads turn round the body until the beam head faces the ship
+   C.mv(0.3);
+   if(e.atkT===0){ const bh=e.hy.heads.find(h=>h.kind==='beam'&&!h.lost);
+    if(bh&&bh.slot!==1){ const others=e.hy.heads.filter(h=>h!==bh&&!h.lost);
+     bh.slot=1; others.forEach((h,i)=>{ h.slot=i===0?0:2; });
+     if(others.length===1) others[0].slot=0; }
+    e.hy.swap={t:0.9}; SFX.click(); }
+   if(e.hy.swap){ e.hy.swap.t-=C.dt; if(e.hy.swap.t<=0) e.hy.swap=null; } },
+  acidspit(e,C){ // three lingering pools: one on you, the rest near you
+   C.mv(0.4);
+   if(e.atkT===0){ e.hyA={t:0.55,done:false}; SFX.click(); }
+   const S=e.hyA; if(!S) return; S.t-=C.dt;
+   if(!S.done&&S.t<=0){ S.done=true; const p=C.p, src=srcOf(e,'ACID SPIT');
+    const pts=[{x:p.x,y:p.y}];
+    for(let k=0;k<2;k++){ const a=Math.random()*6.283, d=60+Math.random()*90;
+     pts.push({x:clamp(p.x+Math.cos(a)*d,PX0+20,PX1-20),y:clamp(p.y+Math.sin(a)*d,PY0+20,PY1-20)}); }
+    for(const q of pts){ if(hazards.length>=CAP.haz) break;
+     hazards.push({x:q.x,y:q.y,r:52,t:0,life:6,dmg:Math.round(e.dmg*0.4),tick:0,warn:0.55,src,hyOwn:e.uid}); }
     SFX.eshoot(); } }
- }),
- draw(e,g){ // a heptagon body with three lobed necks
-  const R=g.R, face=Math.atan2(player?player.y-e.y:0,player?player.x-e.x:1);
-  for(let k=0;k<3;k++){ const a=face+(k-1)*0.8, hx=Math.cos(a)*R*1.05, hy=Math.sin(a)*R*1.05;
-   ctx.strokeStyle=g.dim; ctx.lineWidth=3; ctx.beginPath(); ctx.moveTo(Math.cos(a)*R*0.5,Math.sin(a)*R*0.5); ctx.lineTo(hx,hy); ctx.stroke();
-   // the next throat flares red before it fires
-   ctx.fillStyle=(((e.head||0)+1)%3===k&&e.burstT<0.35)?K.red:g.body; ctx.strokeStyle=g.col; ctx.lineWidth=1.5; ctx.save(); ctx.translate(hx,hy); poly(5,R*0.26,a); ctx.fill(); ctx.stroke(); ctx.restore(); }
+ },
+ signature(e,C){ // the throats: P1 they take turns, P2 the survivors fire together
+  if(!e.hy) return;
+  const alive=hyAlive(e);
+  if(!alive.length) return;
+  if(e.hy.swap) return; // hold fire while the heads turn
+  const together=e.ph>=2&&!e.summoned;
+  // tick running shots down first
+  for(const h of alive){ if(h.st){ h.st.tel-=C.dt; if(h.st.tel<=0) hyFireHead(e,h,C); } }
+  if(alive.some(h=>h.st)) return;
+  e.hy.fireT-=C.dt;
+  if(e.hy.fireT>0) return;
+  e.hy.fireT=C.enrage?0.8:1.2;
+  if(together){ for(const h of alive) hyStartHead(e,h,C); }
+  else { const order=e.hy.heads.filter(h=>!h.lost);
+   for(let k=1;k<=order.length;k++){ const h=order[(e.hy.cur+k)%order.length];
+    if(h&&!h.lost){ e.hy.cur=order.indexOf(h); hyStartHead(e,h,C); break; } } }
+ },
+ onPartBreak(e,q){
+  if(!e.hy||q.kind!=='head') return;
+  const h=e.hy.heads.find(x=>x.part===q); if(!h||h.lost) return;
+  h.lost=true; h.st=null; h.x=q.x; h.y=q.y; h.flare=0.5; h.sprayT=1.2;
+  addFloater(q.x,q.y-24,'THROAT CUT',K.gold);
+  if(!e.summoned&&!e.hardEnrage&&h.used<2){ h.regrow=HY_REGROW; }
+  if(!e.summoned&&e.ph<2&&!e.hy.heads.some(x=>!x.lost)){ e.ph=2; phaseBeat(e); }
+ },
+ post(e,dt){
+  if(!e.hy) return;
+  const p=player, want=p?Math.atan2(p.y-e.y,p.x-e.x):e.hy.face;
+  e.hy.face=turnTo(e.hy.face,want,1.6*dt);
+  const R=e.r*(e.vscale||1);
+  for(const h of e.hy.heads){
+   if(h.flare>0) h.flare-=dt;
+   if(h.lost){
+    if(h.regrow>0){ if(e.hardEnrage) h.regrow=0;
+     else { h.regrow-=dt;
+      if(h.regrow<=0){ h.regrow=0; h.used++;
+       const q=addPart(e,{id:'head'+h.slot+'r'+h.used,r:14,hp:e.maxhp*HY_HEAD_HP,kind:'head'});
+       if(q){ q.lx=undefined; const t=hySlotPos(e,h.slot,R); q.x=t.x; q.y=t.y;
+        h.part=q; h.lost=false; h.st=null; h.sprayT=2.5;
+        e.hp=Math.min(e.maxhp,e.hp+e.maxhp*HY_HEAL);
+        addFloater(e.x,calloutY(e),'REGROWTH',K.red); SFX.alarm(); } } } }
+    // P2: a lost head's stump sprays shrapnel
+    if(e.ph>=2&&!e.summoned&&!e.rec){ h.sprayT-=dt;
+     if(h.sprayT<=0){ h.sprayT=2.5; const src=e.hySsrc||(e.hySsrc=srcOf(e,'STUMP SHRAPNEL'));
+      const sx=h.x||e.x, sy=h.y||e.y;
+      for(let k=0;k<6;k++){ const b=eshotAt(e,sx,sy,k/6*6.283+e.t,200,5,0.7,2.6); if(b) b.src=src; }
+      SFX.eshoot(); } }
+    continue; }
+   const t=hySlotPos(e,h.slot,R), q=h.part;
+   if(q&&!q.dead){ const dx=t.x-q.x, dy=t.y-q.y, d=Math.hypot(dx,dy);
+    if(d>1){ const v=Math.min(d,320*dt); q.x+=dx/d*v; q.y+=dy/d*v; }
+    h.x=q.x; h.y=q.y; }
+  }
+ },
+ label(e){ if(e.atk==='tailslam') return 'TAIL SLAM'; if(e.atk==='headswap') return 'HEAD SWAP'; if(e.atk==='acidspit') return 'ACID SPIT'; return null; },
+ under(e){
+  if(!e.hy) return;
+  const p=player;
+  // head aims: frost line, fan wedge, beam line (the beam itself draws once live)
+  for(const h of e.hy.heads){ if(h.lost||!h.st||!p) continue;
+   const q=hyHeadPos(e,h), a=Math.atan2(p.y-q.y,p.x-q.x);
+   ctx.save(); ctx.globalAlpha=0.85;
+   if(h.kind==='fan'){ const w=0.42, r=240;
+    ctx.strokeStyle=K.red; ctx.lineWidth=1.5; ctx.beginPath(); ctx.moveTo(q.x,q.y); ctx.arc(q.x,q.y,r,a-w,a+w); ctx.closePath(); ctx.stroke(); }
+   else tickedLine(q.x,q.y,p.x,p.y,K.red,1,20,3);
+   ctx.restore(); }
+  if(e.atk==='headswap'&&e.hy.swap){ ctx.save(); ctx.globalAlpha=0.7; ctx.strokeStyle=pigOf(e).c; ctx.lineWidth=1; ctx.setLineDash([4,4]);
+   ctx.beginPath(); ctx.arc(e.x,e.y,e.r*1.08,0,6.283); ctx.stroke(); ctx.setLineDash([]); ctx.restore(); }
+  const A=e.hyA;
+  if(e.atk==='acidspit'&&A&&!A.done){ ctx.save(); ctx.globalAlpha=0.7; ctx.strokeStyle=K.red; ctx.lineWidth=1; ctx.setLineDash([4,4]);
+   ctx.beginPath(); ctx.arc(e.x,e.y,e.r+16,0,6.283); ctx.stroke(); ctx.setLineDash([]); ctx.restore(); }
+ },
+ draw(e,g){ // a heptagon body with three lobed necks; heads drawn free (parts skip auto-draw)
+  const R=g.R, face=e.hy?e.hy.face:0;
+  // necks under the heads
+  for(const h of (e.hy?e.hy.heads:[])){ const a=hySlotAng(e,h.slot);
+   const bx=Math.cos(a)*R*0.5, by=Math.sin(a)*R*0.5, t=hySlotPos(e,h.slot,R);
+   const lx=t.x-e.x, ly=t.y-e.y;
+   ctx.strokeStyle=h.lost?g.dim:g.col; ctx.lineWidth=h.lost?2:4;
+   ctx.beginPath(); ctx.moveTo(bx,by); ctx.lineTo(lx,ly); ctx.stroke();
+   if(h.lost){ // the stump: a flaring cut that sprays in P2
+    ctx.save(); ctx.translate(lx,ly); ctx.rotate(a);
+    ctx.fillStyle=h.flare>0?K.redHi:g.body; ctx.strokeStyle=h.flare>0?K.redHi:g.col; ctx.lineWidth=1.5;
+    poly(6,R*0.2,0); ctx.fill(); ctx.stroke();
+    if(e.ph>=2){ const f=clamp(1-(h.sprayT||0)/2.5,0,1);
+     ctx.strokeStyle=K.red; ctx.lineWidth=1; ctx.beginPath(); ctx.arc(0,0,R*0.2+6*f,0,6.283); ctx.stroke(); }
+    // regrow bud with its countdown
+    if(h.regrow>0){ ctx.strokeStyle=g.col; ctx.lineWidth=1; ctx.setLineDash([3,3]);
+     ctx.beginPath(); ctx.arc(0,0,R*0.3,0,6.283); ctx.stroke(); ctx.setLineDash([]);
+     ctx.fillStyle=g.col; ctx.font='600 10px "Martian Mono",monospace'; ctx.textAlign='center';
+     ctx.fillText(Math.ceil(h.regrow),0,4); }
+    ctx.restore(); continue; }
+   ctx.save(); ctx.translate(lx,ly); ctx.rotate(a);
+   const hot=!!h.st;
+   ctx.fillStyle=hot?K.red:(h.part&&h.part.flash>0?g.P.flash:g.body);
+   ctx.strokeStyle=hot?K.redHi:g.col; ctx.lineWidth=1.5;
+   // lobed head: a pentagon with side lobes
+   poly(5,R*0.3,0); ctx.fill(); ctx.stroke();
+   ctx.fillStyle=hot?K.redHi:g.dim;
+   ctx.beginPath(); ctx.arc(R*0.12,0,3,0,6.283); ctx.fill();
+   if(h.kind==='beam'){ ctx.strokeStyle=hot?K.redHi:g.dim; ctx.lineWidth=1;
+    ctx.beginPath(); ctx.moveTo(R*0.3,0); ctx.lineTo(R*0.44,0); ctx.stroke(); }
+   ctx.restore(); }
+  // tail nub behind
+  ctx.save(); ctx.rotate(face+Math.PI);
+  polyPts([[R*1.3,0],[R*0.7,-R*0.3],[R*0.7,R*0.3]]);
+  ctx.fillStyle=g.body; ctx.fill(); ctx.strokeStyle=g.col; ctx.lineWidth=g.lw; ctx.stroke();
+  ctx.restore();
   ctx.fillStyle=g.body; ctx.strokeStyle=g.col; ctx.lineWidth=g.lw; poly(7,R*0.78,e.t*0.2); ctx.fill(); ctx.stroke();
   ctx.strokeStyle=g.dim; ctx.lineWidth=1; poly(7,R*0.42,e.t*0.2); ctx.stroke();
+  ctx.fillStyle=g.col; ctx.beginPath(); ctx.arc(0,0,4,0,6.283); ctx.fill();
  },
- hitParts:{ rot:e=>Math.atan2(player?player.y-e.y:0,player?player.x-e.x:1), c:[[1.05*Math.cos(-0.8),1.05*Math.sin(-0.8),0.28],[1.05,0,0.28],[1.05*Math.cos(0.8),1.05*Math.sin(0.8),0.28]] }
+ // necks, heads and tail reach past the body circle
+ hitParts:{ rot:e=>e.hy?e.hy.face:0, c:[[1.08,0,0.3],[1.08*Math.cos(0.8),1.08*Math.sin(0.8),0.3],[1.08*Math.cos(-0.8),1.08*Math.sin(-0.8),0.3],[-1.05,0,0.3]] }
 };
-function hydraHead(e,k){ const face=Math.atan2(player?player.y-e.y:0,player?player.x-e.x:1), a=face+(k-1)*0.8; return {x:e.x+Math.cos(a)*e.r*1.05,y:e.y+Math.sin(a)*e.r*1.05}; }
 // ===== END BOSS: HYDRA =====
 
 // ===== BOSS: WYVERN =====
