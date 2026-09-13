@@ -880,13 +880,15 @@ Headless Chrome needs `window.__kriefne.forceState('playing')`. Kill stray serve
 **Step 2: thralls (spec §8).** Started 2026-09-14 by one agent, working directly on `wave3`.
 
 Plan, in order:
-- [ ] 1. Engine: a thrall section next to `mkSummoned` (`THRALL` knobs, `thrallKinds`/`thrallCap`/`thrallCount`, `mkThrall` through `bossCore`), `type:'thrall'` dispatch in the enemy loop (`thrallUpdate`, `bossPost`), generic thrall kit (signature + one secondary), `killEnemy`/`srcOf`/codex/draw/lab touch-points.
-- [ ] 2. Per-kit `thrall:{...}` entries for the 17 eligible gods (OVERLORD…ECLIPSE), `thrall:false` on NULLIFIER, CHORUS, SINGULARITY; kit-side `!e.summoned` guards that must also skip thralls (War Cry, REVENANT pod, HYDRA regrow/phase).
-- [ ] 3. Director: thralls carved out of the `compTotal` roster into `spawnQueue` (never in the opening wave), alive cap in the wave director, nest chaff draws them.
-- [ ] 4. Draw: parent silhouette at 60%, thin line, no rank rings, HP pip; no name/label/tracker.
+- [x] 1. Engine (d314d49): `THRALL` knobs, `thrallKinds`/`thrallCap`/`thrallCount`/`thrallKit`, `mkThrall` through `bossCore(…,thrall)` + `thrallShape`, `thrallUpdate` (no RELENTLESS/desperation/recovery/phase/call, never enraged), `type:'thrall'` in the enemy loop, `bossPost`, `under`, `bossDied`, `srcOf` ("OVERLORD THRALL"), `killEnemy` (no codex unlock, 4 gems), `canBlink` (thralls: 'always' kinds only), lab `godLike`.
+- [x] 2. Per-kit `thrall:{sig,sec,signature,attacks,init,armor}` for the 17 eligible gods, `thrall:false` on the last three; kit guards (REVENANT pod, HYDRA regrow/phase, KRAKEN regrow, JUGGERNAUT wreck wake, ECLIPSE moon reform).
+- [x] 3. Director (d314d49): `compFor` = `compTotal − thrallCount×THRALL.cost`; thralls spliced into `spawnQueue` from its second fifth on (never the opening wave, never in map-gen types); the wave director skips a thrall over `thrallCap`; `nestChaff` packs bring one at `THRALL.nestP`.
+- [x] 4. Draw: `drawBossShape` hairline (`g.lw` 1), no rank rings/enrage ticks, telegraphs kept; 30 px pip with a pigment diamond; no name/label/tracker.
 - [ ] 5. Pigment rule + test for kinds that can now co-occur.
-- [ ] 6. `suiteThralls` + the 60 s per-kind run; `node test.js`, then `--only fightsim` (adjust thrall density/HP if Hose bands drift).
-- [ ] 7. Visual check (lab deep links + a natural S60), then the end-of-step handoff.
+- [ ] 6. `suiteThralls` + the 60 s per-kind run; fightsim run in progress (first run after d314d49).
+- [ ] 7. Visual check, then the end-of-step handoff.
+
+Gotchas: `node test.js` was green (2256) right after d314d49. The cycle is `[sig,'hunt',sec,'hunt']` (`thrallHunt` closes to 260 px, then circles); `bossLabel` shows 'CONTACT' for 'hunt'. Part radii are scaled ×0.6 once after `kit.init`, so kits must not re-add parts for a thrall (every regrow path is guarded).
 
 Representation (decided at step start): a **new `type:'thrall'`** with `kind` = the parent and `e.thrall=true`, built by `bossCore`. Every "must not" (bonus bank, lead/nest head, boss XP/heal/draft, boss bar, tracker, `bossesIn` in the tests, SINGULARITY's lead check) is gated on `type==='boss'` today, so a new type is excluded from all of them by default; the "should" list (update/post dispatch, `under`/draw, `bossDied` cleanup, srcOf naming, lab) is short and enumerable. A flag on `type:'boss'` would have needed an opt-out at ~20 sites and in every test that loops `type==='boss'`.
 
