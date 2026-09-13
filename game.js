@@ -4848,25 +4848,104 @@ BOSS_KITS.eclipse={
 // ===== END BOSS: ECLIPSE =====
 
 // ===== BOSS: NULLIFIER =====
+// The Silent (spec §5). Signature DISRUPTOR FIELD (kept): a hatched field
+// that jams abilities and blink where you stand. Secondaries: SILENCE
+// PULSE (a shockwave that jams dash for 3 s), NULL LANCE (a beam that
+// erases your rounds along its narrow line — never the whole body) and
+// VOID MINES (small bullet-erase zones). P2 at 66%: the field follows you.
+// P3 at 33%: the Null Lance rotates. Recovery SILENT STEP at 55% and 30%
+// (the allow-list): it vanishes, jams the off-screen tracker for 3 s,
+// reappears near an edge and heals from its pool. Calls ECLIPSE at 70%
+// and 35% (the rung below). No radial volleys.
+function nuMine(e,x,y){ return eraseZone(e,x,y,70,{life:5,warn:0.5}); }
 BOSS_KITS.nullifier={
  def:{name:'NULLIFIER',epithet:'the Silent',tier:4,hp:1250,r:30,spd:1.00,shape:'prism',pt:3.4,sig:'jam',chaff:['sniper','stalker']},
  lore:'A SOVEREIGN OF SILENCE — NULLIFIER needs you ordinary for four seconds.',
- codex:{role:'Disruptor', threat:'Jams your abilities',
-  tell:'A hatched DISRUPTOR FIELD drops on your position.',
-  counter:'Walk out. It locks dash and recall — never your guns. Sniper escorts punish standing still.',
-  lore:'The Silent. Counter-insurgency hardware from a war against ships that relied on their gear. It cannot shoot especially well. It does not need to; it only needs you to be ordinary for four seconds. The holmgang lets it take your wings, never your guns, and it resents the clause.'},
- cycle:['disrupt','fan','summon','burst'],
- attacks:atk('disrupt','fan','summon','burst'),
- draw(e,g){ // split prism halves with a null core
-  const R=g.R;
+ codex:{role:'Disruptor', threat:'Follows in P2; Silent Step twice',
+  tell:'A hatched DISRUPTOR FIELD drops on you and jams your systems. A dashed ring is the SILENCE PULSE — it jams your dash for 3 s. A thin ruled line is the NULL LANCE, eating your rounds along it (never the whole hull). Hatched NULL circles are VOID MINES, eating rounds inside.',
+  counter:'Walk out of the field — it follows from Phase II, so keep walking. Dash the pulse, never tank it. Shoot round the lance, never down it. Clear mines with cheap rounds before your volley. When it steps, watch the edges: the tracker lies for 3 s.',
+  lore:'The Silent. Counter-insurgency hardware from a war against ships that relied on their gear. It cannot shoot especially well. It does not need to; it only needs you to be ordinary for four seconds. The holmgang lets it take your wings, never your guns, and it resents the clause. The step is its one vanity: for three seconds, it is nowhere.'},
+ cycle:['disrupt','pulse','lance','mines'],
+ phases:[{},{at:0.66},{at:0.33}],
+ attacks:{
+  disrupt(e,C){ // a jam field on you — from P2 it follows you
+   C.mv(0.45); e.burstT-=C.dt;
+   if(e.burstT<=0){ e.burstT=3.4;
+    if(hazards.length<CAP.haz){ const z={x:C.p.x,y:C.p.y,r:96,t:0,life:4,dmg:0,tick:0,warn:0.6,jam:true,
+      src:srcOf(e,'DISRUPTOR FIELD'),owner:e,
+      followNull:(e.ph>=2&&!e.summoned)?true:false};
+     hazards.push(z); }
+    addFloater(e.x,calloutY(e),'DISRUPTOR FIELD',K.red); SFX.alarm(); } },
+  pulse(e,C){ // a 0.6 s rear, then a ring that jams your dash for 3 s
+   C.mv(0.4);
+   let S=e.nuP; if(e.atkT===0||!S) S=e.nuP={st:'wind',t:0.6};
+   S.t-=C.dt;
+   if(S.st==='wind'&&S.t<=0){ S.st='cool'; S.t=C.enrage?1.8:2.6;
+    shockwave(e,e.x,e.y,{maxR:280,spd:340,dmg:Math.round(e.dmg*0.5),fx:'jam',dur:3,warn:0,w:14,what:'SILENCE PULSE'});
+    SFX.ring(); }
+   else if(S.st==='cool'&&S.t<=0){ S.st='wind'; S.t=0.6; } },
+  lance(e,C){ // a thin beam erasing your rounds along its line
+   C.mv(0.35);
+   let S=e.nuL; if(e.atkT===0||!S) S=e.nuL={t:0.5};
+   S.t-=C.dt;
+   if(S.t<=0){ S.t=C.enrage?2.6:3.6;
+    bossBeam(e,{a:C.aim,w:14,rot:(e.ph>=3&&!e.summoned)?0.7:0,warn:0.8,live:2,
+     dmg:Math.round(e.dmg*0.5),erase:true,what:'NULL LANCE'});
+    SFX.click(); } },
+  mines(e,C){ // small bullet-erase zones round your position
+   C.mv(0.4);
+   let S=e.nuM; if(e.atkT===0||!S) S=e.nuM={t:0.5};
+   S.t-=C.dt;
+   if(S.t<=0){ S.t=C.enrage?2.4:3.2;
+    const n=2+((arenaIdx>=60)?1:0);
+    for(let k=0;k<n;k++){ const a=Math.random()*6.283, d=60+Math.random()*120;
+     nuMine(e,clamp(C.p.x+Math.cos(a)*d,PX0+80,PX1-80),clamp(C.p.y+Math.sin(a)*d,PY0+80,PY1-80)); }
+    addFloater(e.x,calloutY(e),'VOID MINES',K.red); SFX.click(); } }
+ },
+ // SILENT STEP (the allow-list): vanish, jam the tracker 3 s, reappear at
+ // an edge, mend. While the jam holds the hull draws dashed and dim — the
+ // tracker still points, but at a god that is not there to be hit... the
+ // engine's chevron keeps showing; the step's lie is the floater and static.
+ recover:{ at:[0.55,0.30], pool:0.08, label:'SILENT STEP', hold:true, max:5,
+  start(e){ const m=PX0+e.r+30+(Math.random()*(PX1-PX0-2*(e.r+30)));
+   const top=Math.random()<0.5;
+   const nx=clamp(Math.random()<0.5?PX0+e.r+24:(Math.random()<0.5?PX1-e.r-24:m), PX0+e.r, PX1-e.r);
+   const ny=top?PY0+e.r+24:PY1-e.r-24;
+   bossBlink(e,nx,ny,'recover');
+   e.nullJam=3;
+   rings.push({x:e.x,y:e.y,r:8,maxR:70,spd:300,dmg:0,hit:true});
+   addFloater(e.x,calloutY(e),'SILENT STEP — TRACKER JAMMED',K.red); SFX.portal(); },
+  update(e,C){ bossHeal(e,e.maxhp*0.02*C.dt); return e.rec.t>=4?'stepped':false; },
+  end(e,why){ addFloater(e.x,calloutY(e),why==='stepped'?'STEP SPENT':'STEP ENDS',why==='stepped'?K.gold:K.red); } },
+ label(e){ if(e.atk==='disrupt') return 'DISRUPTOR FIELD'; if(e.atk==='pulse') return 'SILENCE PULSE';
+  if(e.atk==='lance') return 'NULL LANCE'; if(e.atk==='mines') return 'VOID MINES'; return null; },
+ post(e,dt){ const p=player;
+  if(e.nullJam>0) e.nullJam-=dt; // the tracker lie, ticking down
+  if(p){ // P2: the field gets up and follows you
+   for(const z of hazards){ if(!z.followNull||z.owner!==e) continue;
+    const dx=p.x-z.x, dy=p.y-z.y, l=Math.hypot(dx,dy);
+    if(l>4){ const v=Math.min(130*dt,l); z.x+=dx/l*v; z.y+=dy/l*v; } } } },
+ under(e){ const p=player;
+  const S=e.nuP;
+  if(e.atk==='pulse'&&S&&S.st==='wind'){ ctx.save(); ctx.globalAlpha=0.8;
+   ctx.strokeStyle=K.red; ctx.lineWidth=1.5; ctx.setLineDash([8,6]);
+   ctx.beginPath(); ctx.arc(e.x,e.y,280,0,6.283); ctx.stroke(); ctx.setLineDash([]); ctx.restore(); }
+  if(e.nullJam>0&&p){ // static where it is not: the jam's signature
+   ctx.save(); ctx.globalAlpha=0.7; ctx.strokeStyle=K.red; ctx.lineWidth=1; ctx.setLineDash([3,4]);
+   ctx.beginPath(); ctx.arc(e.x,e.y,e.r+16+(REDUCED?0:((e.t*40)%10)),0,6.283); ctx.stroke(); ctx.setLineDash([]); ctx.restore(); } },
+ draw(e,g){ // split prism halves with a null core — dashed while stepped
+  const R=g.R, jammed=e.nullJam>0;
   ctx.save(); ctx.rotate(e.t*0.5);
-  ctx.fillStyle=g.body; ctx.strokeStyle=g.col; ctx.lineWidth=g.lw;
+  if(jammed) ctx.setLineDash([5,4]);
+  ctx.fillStyle=g.body; ctx.strokeStyle=jammed?g.dim:g.col; ctx.lineWidth=g.lw;
   ctx.beginPath(); ctx.moveTo(0,-R); ctx.lineTo(R*0.86,R*0.5); ctx.lineTo(-R*0.86,R*0.5); ctx.closePath(); ctx.fill(); ctx.stroke();
   ctx.strokeStyle=g.dim; ctx.beginPath(); ctx.moveTo(0,R); ctx.lineTo(R*0.86,-R*0.5); ctx.lineTo(-R*0.86,-R*0.5); ctx.closePath(); ctx.stroke();
+  ctx.setLineDash([]);
   ctx.restore();
   ctx.fillStyle=K.ground; ctx.beginPath(); ctx.arc(0,0,R*0.26,0,6.283); ctx.fill();
-  ctx.strokeStyle=g.col; ctx.lineWidth=1.5; ctx.stroke();
+  ctx.strokeStyle=jammed?g.dim:g.col; ctx.lineWidth=1.5; ctx.stroke();
  }
+ ,hitParts:{ rot:e=>e.t*0.5, c:[[0.75,0,0.22],[-0.75,0,0.22],[0,0.75,0.2]] }
 };
 // ===== END BOSS: NULLIFIER =====
 

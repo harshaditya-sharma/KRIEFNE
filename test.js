@@ -4606,7 +4606,7 @@ function suiteKits3() {
   s = a.enemies.filter(e => e.summoned);
   ok('and again at 35%', s.length === 1 && s[0].kind === 'harbinger');
  }
-  return null;
+ return null;
 }
 
 // ======================================================================
@@ -4863,6 +4863,117 @@ function suiteKits4() {
   a.killEnemy(a.enemies.indexOf(s[0])); b.hp = b.hpSeen = b.maxhp * 0.34; kitRun(a, 1.5);
   s = a.enemies.filter(e => e.summoned);
   ok('and again at 35%', s.length === 1 && s[0].kind === 'juggernaut');
+ }
+ // ---------------- NULLIFIER ----------------
+ basics('nullifier');
+ {
+  const { a, p, b } = kitRoom('nullifier', 89, { dx: 200 });
+  b.forcedAttack = 'disrupt'; b.sumLeft = []; const pin = pinAt(p, p.x, p.y);
+  kitRun(a, 0.5, () => { pin(); noChaff(a); });
+  const z = a.hazards.find(h => h.jam && h.owner === b);
+  ok('DISRUPTOR FIELD: a jam field on the ship', !!z && z.warn >= 0.5 - 1e-9);
+  let jammed = false;
+  kitRun(a, 1.5, () => { pin(); noChaff(a); if (p.status.jam > 0) jammed = true; });
+  ok('standing in it jams the ship', jammed);
+  p.dashUnlocked = true; p.dashCd = 0; p.status.jam = 2; p.lockMsgCd = 99;
+  a.tryDash();
+  eq('jammed means no dash', p.dashT, 0);
+  p.status.jam = 0; a.tryDash();
+  ok('unjamed, the dash answers', p.dashT > 0);
+ }
+ {
+  const { a, p, b } = kitRoom('nullifier', 89, { dx: 150 });
+  b.forcedAttack = 'pulse'; b.sumLeft = [];
+  kitRun(a, 0.3, () => { p.x = b.x - 150; p.y = b.y; noChaff(a); });
+  ok('SILENCE PULSE rears up as a ruled ring', !kitRenders(a));
+  let jamSeen = 0, tried = false, blocked = false;
+  kitRun(a, 2.0, () => { p.x = b.x - 150; p.y = b.y; noChaff(a);
+   if (p.status.jam > 0) { jamSeen = Math.max(jamSeen, p.status.jam);
+    if (!tried) { tried = true; p.dashUnlocked = true; p.dashCd = 0; p.lockMsgCd = 99; a.tryDash(); blocked = (p.dashT === 0); } } });
+  range('the pulse jams dash for 3s', jamSeen, 2.5, 3.0);
+  ok('a dash under Silence stays grounded', tried && blocked);
+ }
+ {
+  const { a, p, b } = kitRoom('nullifier', 89);
+  b.forcedAttack = 'lance'; b.sumLeft = [];
+  p.x = b.x + 300; p.y = b.y;
+  kitRun(a, 0.8, () => { p.x = b.x + 300; p.y = b.y; noChaff(a); });
+  const bm = a.bossBeams.find(q => q.owner === b && q.src && q.src.what === 'NULL LANCE');
+  ok('NULL LANCE: a thin beam, telegraphed 0.8s', !!bm && bm.w <= 14 && bm.warn >= 0.8 && bm.erase === true);
+  ok('narrow enough never to cover the hull', !bm || bm.w * 2 < b.r * 2);
+  // rounds laid across its line are eaten
+  let eaten = 0;
+  if (bm) { const mx = bm.x + Math.cos(bm.a) * 50, my = bm.y + Math.sin(bm.a) * 50;
+   const before = a.bullets.length;
+   for (let k = 0; k < 5; k++) a.bullets.push(mkRound({ x: mx, y: my, vx: 0, vy: 0, dmg: 10 }));
+   kitRun(a, 1.0, () => noChaff(a));
+   eaten = before + 5 - a.bullets.length; }
+  atLeast('it erases player rounds along its line', eaten, 1);
+ }
+ {
+  const { a, p, b } = kitRoom('nullifier', 89);
+  b.forcedAttack = 'mines'; b.sumLeft = [];
+  kitRun(a, 0.8, () => noChaff(a));
+  const zs = a.bossZones.filter(z => z.owner === b);
+  ok('VOID MINES: small bullet-erase zones', zs.length >= 2 && zs.every(z => z.r <= 160 && z.warn >= 0.5 - 1e-9));
+  let eaten = 0;
+  if (zs.length) { const z0 = zs[0], before = a.bullets.length;
+   for (let k = 0; k < 4; k++) a.bullets.push(mkRound({ x: z0.x, y: z0.y, vx: 0, vy: 0, dmg: 10 }));
+   kitRun(a, 0.8, () => noChaff(a));
+   eaten = before + 4 - a.bullets.length; }
+  atLeast('a volley laid on a mine never arrives', eaten, 1);
+ }
+ {
+  const { a, p, b } = kitRoom('nullifier', 89);
+  b.forcedAttack = 'disrupt'; b.sumLeft = [];
+  kitRun(a, 0.05, () => noChaff(a));
+  b.sumLeft = [];
+  b.hp = b.hpSeen = b.maxhp * 0.65; kitRun(a, 1.6, () => noChaff(a));
+  ok('PHASE II at 66%', b.ph === 2);
+  b.burstT = 0.01;
+  kitRun(a, 0.3, () => noChaff(a));
+  const z = a.hazards.find(h => h.followNull && h.owner === b);
+  ok('Phase II: the field is a follower', !!z);
+  const d0 = Math.hypot(p.x - z.x, p.y - z.y);
+  p.x += 300; p.y += 100;
+  kitRun(a, 2.5, () => noChaff(a));
+  const d1 = Math.hypot(p.x - z.x, p.y - z.y);
+  ok('that walks the field onto the ship', d1 < 80, d0.toFixed(0) + ' -> ' + d1.toFixed(0));
+  b.hp = b.hpSeen = b.maxhp * 0.32; kitRun(a, 1.6, () => noChaff(a));
+  ok('PHASE III at 33%', b.ph === 3);
+  b.forcedAttack = 'lance'; b.nuL = { t: 0.01 };
+  kitRun(a, 1.0, () => noChaff(a));
+  const bm = a.bossBeams.find(q => q.owner === b && q.src && q.src.what === 'NULL LANCE');
+  ok('Phase III: the lance rotates', !!bm && bm.rot !== 0);
+  const s = kitRoom('nullifier', 89, { summoned: true }); kitRun(s.a, 0.05, () => noChaff(s.a));
+  s.b.hp = s.b.hpSeen = s.b.maxhp * 0.2; kitRun(s.a, 1.0, () => noChaff(s.a));
+  ok('a summoned NULLIFIER never phases (Phase I kit only)', s.b.ph === 1);
+ }
+ {
+  const { a, p, b } = kitRoom('nullifier', 89);
+  b.forcedAttack = 'pulse'; b.nuP = { st: 'cool', t: 99 }; b.sumLeft = []; b.fightT = 20;
+  const x0 = b.x, y0 = b.y;
+  b.hp = b.hpSeen = b.maxhp * 0.54;
+  kitRun(a, 1.5, () => noChaff(a));
+  ok('at 55% NULLIFIER takes the SILENT STEP', b.mode === 'recover' && a.bossLabel(b) === 'SILENT STEP');
+  atLeast('vanishing across the field', Math.hypot(b.x - x0, b.y - y0), 200);
+  ok('jamming the tracker for 3s', b.nullJam > 0);
+  const wE = a.sectorWorld(89);
+  const edgeD = Math.min(b.x - 24, wE.w - 24 - b.x, b.y - 80, wE.h - 24 - b.y);
+  atMost('reappearing near an edge', edgeD, 150);
+  const h0 = b.hp; kitRun(a, 2.0, () => noChaff(a));
+  ok('mending from its pool', b.hp > h0);
+  kitRun(a, 2.5, () => noChaff(a));
+  ok('the step ends on its own', b.mode !== 'recover');
+ }
+ {
+  const { a, b } = kitRoom('nullifier', 89);
+  b.hp = b.hpSeen = b.maxhp * 0.69; kitRun(a, 0.5);
+  let s = a.enemies.filter(e => e.summoned);
+  ok('at 70% NULLIFIER calls ECLIPSE', s.length === 1 && s[0].kind === 'eclipse', s.map(e => e.kind).join(','));
+  a.killEnemy(a.enemies.indexOf(s[0])); b.hp = b.hpSeen = b.maxhp * 0.34; kitRun(a, 1.5);
+  s = a.enemies.filter(e => e.summoned);
+  ok('and again at 35%', s.length === 1 && s[0].kind === 'eclipse');
  }
  return null;
 }
