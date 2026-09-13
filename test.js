@@ -5092,6 +5092,111 @@ function suiteKits4() {
   s = a.enemies.filter(e => e.summoned);
   ok('and again at 35%', s.length === 1 && s[0].kind === 'nullifier');
  }
+
+ // ---------------- SINGULARITY ----------------
+ basics('singularity', true);
+ ok('SINGULARITY owns the rationed spiral wall', typeof KITS.singularity.attacks.spiralwall === 'function');
+ ok('its recovery is the Absorption, not a generic mend', !KITS.singularity.recover);
+ {
+  const { a, p, b } = kitRoom('singularity', 99);
+  b.forcedAttack = 'spiralwall'; b.sumLeft = [];
+  const px = p.x, py = p.y;
+  kitRun(a, 2.5, () => { p.x = px; p.y = py; noChaff(a); });
+  const wall = a.ebullets.filter(r => r.src && r.src.id === 'singularity');
+  atLeast('SPIRAL WALL: a dense rotating wall', wall.length, 8);
+  // one volley, one gap: snapshot a single instant of fire
+  a.ebullets.length = 0;
+  let snap = null;
+  for (let k = 0; k < 10 && !snap; k++) { kitRun(a, 0.1, () => { p.x = px; p.y = py; noChaff(a); });
+   if (a.ebullets.length >= 8) snap = a.ebullets.slice(); }
+  let gap = 0;
+  if (snap) { const angs = snap.map(r => Math.atan2(r.y - b.y, r.x - b.x)).sort((m, n) => m - n);
+   for (let k = 0; k < angs.length; k++) gap = Math.max(gap, wrapA(angs[(k + 1) % angs.length] - angs[k])); }
+  atLeast('with ONE gap to hold', gap, 0.8);
+ }
+ {
+  const { a, p, b } = kitRoom('singularity', 99);
+  b.forcedAttack = 'tidal'; b.sumLeft = [];
+  kitRun(a, 0.8, () => noChaff(a));
+  const ms = a.marks.filter(m => m.owner === b);
+  ok('TIDAL MARK: telegraphed pulling marks', ms.length >= 2 && ms.every(m => m.warn >= 0.5 - 1e-9 && m.pull > 0));
+  p.x = ms[0].x + 100; p.y = ms[0].y; // inside the pull's reach
+  for (const m of a.marks.slice()) if (m !== ms[0]) a.marks.splice(a.marks.indexOf(m), 1);
+  const d0 = Math.hypot(ms[0].x - p.x, ms[0].y - p.y);
+  kitRun(a, 0.5, () => noChaff(a)); // unpinned: the mark does the steering
+  ok('that drag the ship before they burst', Math.hypot(ms[0].x - p.x, ms[0].y - p.y) < d0 - 5);
+  ok('the marks draw', !kitRenders(a));
+ }
+ {
+  const { a, p, b } = kitRoom('singularity', 99);
+  b.forcedAttack = 'gravity'; b.fightT = 20;
+  b.hp = b.hpSeen = b.maxhp * 0.49; kitRun(a, 0.5, () => noChaff(a));
+  const conv = a.enemies.filter(e => e.summoned).map(e => e.kind).sort();
+  deepEq('the CONVOCATION at 50%: CHORUS, NULLIFIER and ECLIPSE together', conv, ['chorus', 'eclipse', 'nullifier']);
+  const oldMax = b.maxhp;
+  b.hp = b.hpSeen = oldMax * 0.24;
+  kitRun(a, 0.3, () => noChaff(a));
+  ok('at 25% the ABSORPTION starts', !!b.absorb);
+  eq('the Convocation still on the field, spiralling in', a.enemies.filter(e => e.summoned).length, 3);
+  kitRun(a, 3.5, () => noChaff(a));
+  eq('everything small and summoned is consumed', a.enemies.filter(e => e !== b).length, 0);
+  eq('the bar refills to 2x max HP', b.maxhp, oldMax * 2);
+  range('each absorbed boss +10% of the Phase-2 bar', b.hp / b.maxhp, 0.40, 0.45);
+  ok('PHASE II wakes with its lens', b.ph2 === true && !!b.lens && b.lens.r >= 200);
+  ok('the hidden kit draws', !kitRenders(a));
+ }
+ {
+  const { a, p, b } = kitRoom('singularity', 99);
+  b.forcedAttack = 'gravity'; b.sumLeft = []; b.fightT = 20;
+  kitRun(a, 0.05, () => noChaff(a));
+  b.hp = b.hpSeen = b.maxhp * 0.24;
+  const oldMax = b.maxhp;
+  kitRun(a, 4.5, () => { noChaff(a); for (const e of a.enemies.slice()) if (e !== b && e.type !== 'boss') a.enemies.splice(a.enemies.indexOf(e), 1); });
+  ok('with the field cleared early the bar still doubles', b.maxhp === oldMax * 2 && b.ph2 === true);
+  range('but starts near-empty: clearing summons is rewarded', b.hp / b.maxhp, 0.10, 0.16);
+  eq('EVENT HORIZON answers under the hull', a.bossLabel(b), 'EVENT HORIZON');
+ }
+ {
+  const { a, p, b } = kitRoom('singularity', 99);
+  b.forcedAttack = 'tidal'; b.sgJ = { t: 99 }; b.sumLeft = []; b.fightT = 20;
+  kitRun(a, 0.05, () => noChaff(a));
+  b.hp = b.hpSeen = b.maxhp * 0.24; kitRun(a, 4.5, () => noChaff(a));
+  b.sgJ = { t: 0.01 };
+  kitRun(a, 0.8, () => noChaff(a));
+  const jets = a.bossBeams.find(q => q.owner === b && q.src && q.src.what === 'QUASAR JETS');
+  ok('QUASAR JETS: precessing occluded pole beams', !!jets && jets.arms === 2 && jets.rot !== 0 && jets.warn >= 0.8 - 1e-9);
+  const ax = b.sgAxis;
+  ok('with a marked stretch axis', typeof ax === 'number' && b.sgAxisT > 0);
+  p.x = b.x + Math.cos(ax) * 100; p.y = b.y + Math.sin(ax) * 100;
+  let slow = false;
+  kitRun(a, 1.0, () => { p.x = b.x + Math.cos(ax) * 100; p.y = b.y + Math.sin(ax) * 100; noChaff(a);
+   if (p.status.slow > 0) slow = true; });
+  ok('SPAGHETTIFY slows the ship along the axis', slow);
+ }
+ {
+  const { a, p, b } = kitRoom('singularity', 99);
+  b.forcedAttack = 'spiralwall'; b.sumLeft = []; b.fightT = 20;
+  kitRun(a, 0.05, () => noChaff(a));
+  b.hp = b.hpSeen = b.maxhp * 0.24; kitRun(a, 4.5, () => noChaff(a));
+  a.discs.length = 0;
+  const px = p.x, py = p.y;
+  kitRun(a, 2.0, () => { p.x = px; p.y = py; noChaff(a); });
+  const ring = a.discs.filter(d => d.owner === b && d.src && d.src.what === 'ACCRETION DISK');
+  atLeast('ACCRETION DISK lays a rotating debris ring', ring.length, 3);
+  ok('ground at the disk radius', ring.every(d => Math.abs(Math.hypot(d.x - b.x, d.y - b.y) - 140) < 60));
+  b.forcedAttack = 'debris';
+  a.ebullets.length = 0;
+  let sparks = 0; const seenS = new Set();
+  kitRun(a, 4.0, () => { p.x = px; p.y = py; noChaff(a);
+   for (const r of a.ebullets) if (!seenS.has(r)) { seenS.add(r); sparks++; } });
+  atLeast('HAWKING SPARKS burst into rounds', sparks, 3);
+ }
+ {
+  const s = kitRoom('singularity', 99, { summoned: true }); kitRun(s.a, 0.05, () => noChaff(s.a));
+  const oldMax = s.b.maxhp;
+  s.b.hp = s.b.hpSeen = s.b.maxhp * 0.2; kitRun(s.a, 4.0, () => noChaff(s.a));
+  ok('a summoned SINGULARITY never absorbs (Phase I kit only)', !s.b.ph2 && s.b.maxhp === oldMax);
+ }
  return null;
 }
 

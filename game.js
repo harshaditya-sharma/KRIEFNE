@@ -5081,27 +5081,147 @@ BOSS_KITS.chorus={
 // ===== END BOSS: CHORUS =====
 
 // ===== BOSS: SINGULARITY =====
+// THE APEX (spec §5). Phase 1: GRAVITY (a pull a dash always beats),
+// SPIRAL WALL (its rationed one-gap wall), DEBRIS (orbital junk) and
+// TIDAL MARK (marks that pull you before they detonate). At 50% the
+// CONVOCATION: CHORUS, NULLIFIER and ECLIPSE together, past the live cap,
+// each running its Phase-1 kit. At 25% ABSORPTION (its recovery): every
+// remaining small enemy and summoned boss spirals in over 3 s and is
+// consumed — silently, no draft, no gems — then the bar refills to 2× max
+// HP and Phase 2 begins with the hidden Quasar kit: QUASAR JETS
+// (precessing occluded pole beams), ACCRETION DISK (a rotating debris
+// ring), HAWKING SPARKS (slow motes that burst into rounds), LENSING
+// (rounds curve round it, homing withers nearby), EVENT HORIZON (a hard
+// inward drift) and SPAGHETTIFY (a marked axis that slows you along it).
+// Clearing the Convocation early is rewarded: each absorbed boss starts
+// another 10% of the Phase-2 bar filled.
+function sgConsume(e,o){ const ix=enemies.indexOf(o); if(ix<0) return false;
+ enemies.splice(ix,1); o.dead=true; if(o.type==='boss') bossDied(o);
+ rings.push({x:o.x,y:o.y,r:6,maxR:50,spd:260,dmg:0,hit:true});
+ return true; }
 BOSS_KITS.singularity={
  def:{name:'SINGULARITY',epithet:'the One-Eyed',tier:5,hp:1950,r:40,spd:0.85,shape:'well',pt:4.0,sig:'wellpull',chaff:['tempest','brute']},
  lore:'THE APEX — SINGULARITY, the One-Eyed. Every rank answers to it.',
- codex:{role:'Apex', threat:'The Convocation',
-  tell:'GRAVITY drags you inward while debris arcs outward. At half its bar it calls three SOVEREIGNS at once.',
-  counter:'Thrust against the pull. Burn it down fast once the Convocation lands, or fight four gods at once.',
-  lore:'The One-Eyed. The first machine any species ever sent into the dark. It gave its eye to a black hole and lives at the lip of it, where time runs slow: the oldest thing in the universe, and the one that has lived through the least of it. Everything you have fought since the first sector was, in some documented sense, subcontracted from here.'},
+ codex:{role:'Apex', threat:'Convocation; Absorption into Phase II',
+  tell:'GRAVITY drags you while DEBRIS arcs out and TIDAL MARKS pull before they burst; the SPIRAL WALL keeps one gap. At half its bar the CONVOCATION lands: three SOVEREIGNS at once. At a quarter it ABSORBS the field — then Phase II: QUASAR JETS, a grinding ACCRETION DISK, bursting HAWKING SPARKS, LENSING that bends your rounds, the EVENT HORIZON drift and the SPAGHETTIFY axis.',
+  counter:'Thrust against the pull; hold the wall gap. Burn the Convocation down before the quarter mark — every god left standing fattens the Phase-2 bar by a tenth. In Phase II curve your fire with the lens, never against it, and cross the disk between debris.',
+  lore:'The One-Eyed. The first machine any species ever sent into the dark. It gave its eye to a black hole and lives at the lip of it, where time runs slow: the oldest thing in the universe, and the one that has lived through the least of it. Everything you have fought since the first sector was, in some documented sense, subcontracted from here. The second phase is not anger. It is the rest of the machine waking up.'},
  // The Convocation (decided): CHORUS, NULLIFIER and ECLIPSE together at 50%,
- // past the live cap. Absorption and Phase 2 are wave 2's.
+ // past the live cap. Absorption and Phase 2 below.
  calls:['chorus','nullifier','eclipse'], summons:{at:[0.5], pastCap:true},
- cycle:['gravity','debris','muster','spiralwall'],
- attacks:atk('gravity','debris','muster','spiralwall'),
- draw(e,g){ // accretion rings around a void
+ cycle:['gravity','spiralwall','debris','tidal'],
+ attacks:{
+  gravity(e,C){ if(e.ph2){ // EVENT HORIZON: a hard inward drift
+    C.mv(0.2); const p=C.p;
+    if(C.d>40){ const pull=170*C.dt; p.x-=C.nx*pull; p.y-=C.ny*pull; }
+    e.burstT-=C.dt;
+    if(e.burstT<=0){ e.burstT=1.2;
+     for(const k of [-1,1]) eshot(e,C.aim+k*0.1,240,5,0.9,3);
+     SFX.eshoot(); }
+    return; }
+   ATK.gravity(e,C); },
+  spiralwall(e,C){ if(e.ph2){ // ACCRETION DISK: a rotating ring of grinding debris
+    C.mv(0.3);
+    e.sgDisk=(e.sgDisk||0)+C.dt*1.1;
+    e.burstT-=C.dt;
+    if(e.burstT<=0){ e.burstT=0.5;
+     for(let k=0;k<2;k++){ const a=e.sgDisk+k*Math.PI;
+      dropDisc(e,e.x+Math.cos(a)*140,e.y+Math.sin(a)*140,34,
+       {life:2.2,safe:0.3,dmg:Math.round(e.dmg*0.4),what:'ACCRETION DISK'}); }
+     SFX.eshoot(); }
+    return; }
+   ATK.spiralwall(e,C); },
+  debris(e,C){ if(e.ph2){ // HAWKING SPARKS: slow motes that burst into rounds
+    C.mv(0.35);
+    e.burstT-=C.dt;
+    if(e.burstT<=0){ e.burstT=1.4;
+     if(hazards.length+3<CAP.haz){ const a=Math.random()*6.283, d=120+Math.random()*160;
+      hazards.push({x:clamp(e.x+Math.cos(a)*d,PX0+60,PX1-60),y:clamp(e.y+Math.sin(a)*d,PY0+60,PY1-60),
+       r:26,t:0,life:2.4,dmg:0,tick:0,warn:0.6,spark:true,owner:e,burstT:1.2,src:srcOf(e,'HAWKING SPARKS')}); }
+     SFX.click(); }
+    return; }
+   ATK.debris(e,C); },
+  tidal(e,C){ if(e.ph2){ // QUASAR JETS: precessing occluded pole beams + the axis
+    C.mv(0.25);
+    let S=e.sgJ; if(e.atkT===0||!S) S=e.sgJ={t:0.5};
+    S.t-=C.dt;
+    if(S.t<=0){ S.t=C.enrage?2.4:3.2;
+     e.sgAxis=C.aim; e.sgAxisT=3.2;
+     bossBeam(e,{a:C.aim,arms:2,rot:0.4,w:12,off:e.r*0.6,warn:0.8,live:2.5,
+      dmg:Math.round(e.dmg*0.55),what:'QUASAR JETS'});
+     SFX.click(); }
+    return; }
+   // TIDAL MARK: telegraphed circles that pull you before they detonate
+   C.mv(0.35);
+   let S=e.sgT; if(e.atkT===0||!S) S=e.sgT={t:0.5};
+   S.t-=C.dt;
+   if(S.t<=0){ S.t=C.enrage?2.6:3.4;
+    const pts=[]; for(let k=0;k<3;k++){ const a=Math.random()*6.283, d=40+Math.random()*140;
+     pts.push({x:C.p.x+Math.cos(a)*d,y:C.p.y+Math.sin(a)*d,r:58}); }
+    bossMarks(e,pts,{warn:1.1,dmg:Math.round(e.dmg*0.8),pull:120,what:'TIDAL MARK'}); SFX.click(); } }
+ },
+ signature(e,C){ // 25%: ABSORPTION — the field spirals in and is consumed
+  if(!e.summoned&&!e.absDone&&!e.absorb&&e.hp/e.maxhp<=0.25){
+   e.absorb={t:0,nb:0};
+   addFloater(e.x,calloutY(e),'SINGULARITY ABSORBS THE FIELD',K.red); SFX.alarm(); }
+  const A=e.absorb; if(!A) return;
+  A.t+=C.dt;
+  for(const o of enemies.slice()){ if(o===e||o.dead) continue;
+   if(o.type==='boss'&&!o.summoned) continue; // the lead is never its own meal
+   const dx=e.x-o.x, dy=e.y-o.y, l=Math.hypot(dx,dy)||1;
+   if(l<e.r+30){ if(sgConsume(e,o)&&o.type==='boss') A.nb++; }
+   else { const v=Math.min(380*C.dt,l); o.x+=dx/l*v; o.y+=dy/l*v; } }
+  if(A.t>=3){ // the stragglers go too; the bar refills to 2×; Phase 2 wakes
+   for(const o of enemies.slice()){ if(o===e||o.dead) continue;
+    if(o.type!=='boss'||o.summoned){ if(sgConsume(e,o)&&o.type==='boss') A.nb++; } }
+   const oldMax=e.maxhp; e.maxhp=oldMax*2;
+   e.hp=Math.min(e.maxhp,oldMax*0.25+e.maxhp*0.10*A.nb); e.hpSeen=e.hp;
+   e.absorb=null; e.absDone=true; e.ph2=true; e.lens={r:280,k:2.2};
+   rings.push({x:e.x,y:e.y,r:e.r,maxR:e.r+220,spd:300,dmg:0,hit:true});
+   addFloater(e.x,calloutY(e),'SINGULARITY — PHASE II · 2× HULL',K.red); SFX.alarm(); } },
+ label(e){ if(e.ph2){ if(e.atk==='gravity') return 'EVENT HORIZON'; if(e.atk==='spiralwall') return 'ACCRETION DISK';
+   if(e.atk==='debris') return 'HAWKING SPARKS'; if(e.atk==='tidal') return 'QUASAR JETS'; return 'QUASAR'; }
+  if(e.atk==='tidal') return 'TIDAL MARK'; return null; },
+ post(e,dt){ const p=player;
+  if(e.sgAxisT>0){ e.sgAxisT-=dt; // SPAGHETTIFY: the marked axis stretches you
+   if(p&&e.sgAxis!=null){ const dx=Math.cos(e.sgAxis), dy=Math.sin(e.sgAxis);
+    const rx=p.x-e.x, ry=p.y-e.y;
+    if(Math.abs(rx*dy-ry*dx)<70) applyStatus('slow',0.5,{mul:0.6}); } }
+  for(let i=hazards.length-1;i>=0;i--){ const z=hazards[i]; // HAWKING SPARKS burst
+   if(!z.spark||z.owner!==e) continue;
+   z.burstT-=dt;
+   if(z.burstT<=0){ hazards.splice(i,1);
+    if(p){ const src=e.sgSsrc||(e.sgSsrc=srcOf(e,'HAWKING SPARKS'));
+     const a=Math.atan2(p.y-z.y,p.x-z.x);
+     for(let k=-1;k<=1;k++){ const r=eshotAt(e,z.x,z.y,a+k*0.2,230,5,0.8,3.2); if(r) r.src=src; } }
+    SFX.eshoot(); } } },
+ under(e){ const p=player;
+  if(e.absorb){ ctx.save(); ctx.globalAlpha=0.85; // everything falling in
+   ctx.strokeStyle=K.red; ctx.lineWidth=1.5; ctx.setLineDash([10,8]);
+   ctx.beginPath(); ctx.arc(e.x,e.y,e.r+60+(REDUCED?0:(e.t*60)%40),0,6.283); ctx.stroke(); ctx.setLineDash([]); ctx.restore(); }
+  if(!e.ph2||!p) return;
+  ctx.save(); ctx.globalAlpha=0.55; ctx.strokeStyle=K.red; ctx.lineWidth=1; ctx.setLineDash([6,6]);
+  ctx.beginPath(); ctx.arc(e.x,e.y,280,0,6.283); ctx.stroke(); // the horizon
+  ctx.setLineDash([]);
+  ctx.beginPath(); ctx.arc(e.x,e.y,140,0,6.283); ctx.stroke(); // the disk
+  if(e.sgAxisT>0&&e.sgAxis!=null){ const a=e.sgAxis; // the stretch axis
+   ctx.globalAlpha=0.8; ctx.setLineDash([7,6]);
+   ctx.beginPath(); ctx.moveTo(e.x-Math.cos(a)*420,e.y-Math.sin(a)*420);
+   ctx.lineTo(e.x+Math.cos(a)*420,e.y+Math.sin(a)*420); ctx.stroke(); ctx.setLineDash([]); }
+  ctx.restore(); },
+ draw(e,g){ // accretion rings around a void — jets and a brighter disk in Phase 2
   const R=g.R;
   for(let k=0;k<3;k++){ ctx.save(); ctx.rotate(e.t*(0.5+k*0.4));
-   ctx.strokeStyle=k===0?g.col:g.dim; ctx.lineWidth=k===0?1.5:1;
+   ctx.strokeStyle=k===0?(e.ph2?K.redHi:g.col):g.dim; ctx.lineWidth=(k===0&&e.ph2)?2:(k===0?1.5:1);
    ctx.beginPath(); ctx.ellipse(0,0,R*(1.14-k*0.22),R*(0.42-k*0.09),k*0.9,0,6.283); ctx.stroke(); ctx.restore(); }
   ctx.fillStyle=K.ground; ctx.beginPath(); ctx.arc(0,0,R*0.52,0,6.283); ctx.fill();
-  ctx.strokeStyle=g.col; ctx.lineWidth=g.lw; ctx.stroke();
-  ctx.fillStyle=g.flash?g.P.hi:g.col; ctx.beginPath(); ctx.arc(0,0,R*0.12,0,6.283); ctx.fill();
+  ctx.strokeStyle=e.ph2?K.redHi:g.col; ctx.lineWidth=e.ph2?2:g.lw; ctx.stroke();
+  ctx.fillStyle=e.ph2?K.redHi:(g.flash?g.P.hi:g.col); ctx.beginPath(); ctx.arc(0,0,R*0.12,0,6.283); ctx.fill();
+  if(e.ph2){ ctx.strokeStyle=g.dim; ctx.lineWidth=1; // the pole ticks
+   for(const s of [-1,1]){ ctx.beginPath(); ctx.moveTo(0,s*R*0.6); ctx.lineTo(0,s*R*1.1); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(-4,s*R*0.9); ctx.lineTo(4,s*R*0.9); ctx.stroke(); } }
  }
+ ,hitParts:{ rot:e=>e.t*0.5, c:[[0.85,0,0.28],[-0.85,0,0.28],[0,0.6,0.24]] }
 };
 // ===== END BOSS: SINGULARITY =====
 
