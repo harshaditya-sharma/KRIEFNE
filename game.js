@@ -1868,8 +1868,11 @@ function bossThink(e,C){
   name=cyc[e.phase]; }
  // A charge, ram or gaze cut off by the slot change is dropped, not carried
  // over: a stale gaze would keep drawing its cone through other attacks.
- if(name!==e.atk){ e.chargeOn=false; e.ramLx=undefined; e.gaze=null; e.atk=name; }
+ // e.atkT: seconds this attack's slot has run (0 on its first frame), so a
+ // kit attack can tell a fresh slot from a continuing one.
+ if(name!==e.atk){ e.chargeOn=false; e.ramLx=undefined; e.gaze=null; e.atk=name; e.atkT=0; }
  const fn=kit.attacks[name]; if(fn) fn(e,C);
+ e.atkT=(e.atkT||0)+dt;
  if(e.wave2){ e.burstT-=dt; if(e.burstT<=0){ e.wave2=false; rings.push({x:e.x,y:e.y,r:20,maxR:200,spd:340,dmg:e.dmg,hit:false,heavy:true}); SFX.ring(); } }
 }
 // One god, one frame, from the enemy loop in update().
@@ -2128,6 +2131,8 @@ function statusTags(p){ const S=p&&p.status, t=[]; if(!S) return t;
 // it) its beams, marks, discs, zones, currents, grasps and boulders go too.
 // Pool names `marks`, `discs` and `bossBeams` are the DevX overlay's.
 let bossBeams=[], marks=[], discs=[], bossZones=[], bossCurrents=[], bossGrasps=[];
+// Turn angle `cur` toward `want` by at most `max` radians (a heading that swings, never snaps).
+function turnTo(cur,want,max){ return cur+clamp(angDiff(want,cur),-max,max); }
 function angDiff(a,b){ let d=(a-b)%6.283185; if(d>Math.PI) d-=6.283185; if(d<-Math.PI) d+=6.283185; return d; }
 function ownerGone(o){ return !!(o&&(o.dead||o.hp<=0)); }
 function hzRoom(){ return hazards.length+discs.length<CAP.haz; }
@@ -2495,49 +2500,235 @@ function nestChaff(dt){
 // Wave 2 fills these kits in; each group edits only its own blocks.
 
 // ===== BOSS: OVERLORD =====
+// The Berserk (spec §5). Signature BERSERK CHARGE: a ruled line held 0.6 s,
+// then a straight charge that stops at a wall or cover (enraged, it rebounds
+// off one wall once). CLEAVE: a wedge that tracks you while it winds, then a
+// sweeping fan across it. STOMP: it closes, plants, and a ring rolls out from
+// its feet. WAR CRY, once, at 50%: two seconds of speed while a pack of drones
+// and stalkers rallies to it. No radial burst, no recovery: it teaches the
+// fight, not the escape. One phase plus enrage (faster cadence).
+const OL_CRY=0.5, OL_CRY_T=2, OL_CRY_MUL=1.45;
+function olRun(e,C,S,v){ // one frame of a committed charge; true when it has stopped
+ const step=v*C.dt, stuck=S.lx!==undefined&&Math.hypot(e.x-S.lx,e.y-S.ly)<step*0.25;
+ S.lx=e.x; S.ly=e.y; e.x+=S.dx*step; e.y+=S.dy*step; e.intent+=step; e.charging=true; S.run+=C.dt;
+ const wx=e.x<=PX0+e.r+1||e.x>=PX1-e.r-1, wy=e.y<=PY0+e.r+1||e.y>=PY1-e.r-1;
+ if((wx||wy)&&C.enrage&&!S.bounced){ // enraged: one rebound off the wall, then on
+  S.bounced=true; if(wx) S.dx=-S.dx; if(wy) S.dy=-S.dy; S.lx=undefined;
+  spawnBurst(e.x,e.y,12,K.red,220,0.45,3); if(settings.shake) shake=Math.min(10,shake+4); SFX.ring(); return false; }
+ if(wx||wy||stuck||S.run>1.5){ spawnBurst(e.x,e.y,10,K.metal,200,0.4,3); if(settings.shake) shake=Math.min(10,shake+3); SFX.brk(); return true; }
+ return false; }
 BOSS_KITS.overlord={
- def:{name:'OVERLORD',epithet:'the Berserk',tier:1,hp:985,r:30,spd:1.00,shape:'octa',pt:3.0,sig:null,chaff:['drone','stalker']},
+ def:{name:'OVERLORD',epithet:'the Berserk',tier:1,hp:985,r:30,spd:1.00,shape:'prow',pt:3.0,sig:'charge',chaff:['drone','stalker']},
  lore:'AN ENFORCER BARS THE TRAIL — OVERLORD, the Berserk, has never yielded a holmgang. End the saga.',
  codex:{role:'Brawler', threat:'Never recovers',
-  tell:'Cycles BURST / SUMMON / CHARGE / SWEEP on a three-second clock.',
-  counter:'Pure aggression with no escape. Learn the cycle and out-damage it.',
+  tell:'A ruled red line off its prow is the CHARGE. A red wedge that follows you is a CLEAVE; a dashed ring at its feet, a STOMP.',
+  counter:'Step sideways off the charge line, never back along it. Leave the wedge before it swings. At half strength it calls a pack: thin it, then press.',
   lore:'The Berserk. The youngest of the gods, which out here means a few hundred million years old. Its makers built it to win rather than to hold, and it has never yielded a holmgang. They called this discipline. There is no one left to call it anything.'},
- cycle:['burst','summon','charge','sweep'],
- attacks:atk('burst','summon','charge','sweep'),
- draw(e,g){ // the Berserk: dashed ring, eight-sided core
-  const R=g.R;
-  ctx.save(); ctx.rotate(e.t*0.6); ctx.strokeStyle=g.dim; ctx.lineWidth=3; ctx.setLineDash([18,10]); ctx.beginPath(); ctx.arc(0,0,R+4,0,6.283); ctx.stroke(); ctx.setLineDash([]); ctx.restore();
-  ctx.fillStyle=g.body; ctx.strokeStyle=g.col; ctx.lineWidth=g.lw; poly(8,R-4,-e.t*0.4); ctx.fill(); ctx.stroke();
-  ctx.strokeStyle=g.dim; ctx.lineWidth=1; poly(8,R*0.5,-e.t*0.4); ctx.stroke();
-  ctx.fillStyle=g.col; ctx.beginPath(); ctx.arc(0,0,5,0,6.283); ctx.fill();
-  if(g.enrage){ ctx.fillStyle=g.col; for(let k=0;k<4;k++){ const a=e.t*3+k*1.57; ctx.beginPath(); ctx.moveTo(Math.cos(a)*(R+2),Math.sin(a)*(R+2)); ctx.lineTo(Math.cos(a+0.2)*(R+12),Math.sin(a+0.2)*(R+12)); ctx.lineTo(Math.cos(a-0.2)*(R+12),Math.sin(a-0.2)*(R+12)); ctx.closePath(); ctx.fill(); } }
- }
+ cycle:['charge','cleave','stomp','charge','cleave'],
+ vmax:520,
+ attacks:{
+  charge(e,C){ // BERSERK CHARGE: a 0.6 s line, then the commit
+   let S=e.olC; if(e.atkT===0||!S) S=e.olC={st:'rest',t:0.15};
+   S.t-=C.dt;
+   if(S.st==='rest'){ C.mv(0.35);
+    if(S.t<=0){ S.st='wind'; S.t=0.6; S.dx=C.nx; S.dy=C.ny; S.L=Math.max(e.r,rayObs(e.x,e.y,S.dx,S.dy,900)-e.r); S.bounced=false; S.run=0; S.lx=undefined; SFX.alarm(); } }
+   else if(S.st==='wind'){ if(S.t<=0){ S.st='run'; SFX.dash(); } }
+   else if(S.st==='run'){ const v=(C.enrage?440:400)*(e.cryT>0?1.15:1);
+    if(olRun(e,C,S,v)){ S.st='rest'; S.t=C.enrage?0.45:0.8; } } },
+  cleave(e,C){ // a tracking wedge, then a fan swept across it
+   let S=e.olK; if(e.atkT===0||!S) S=e.olK={st:'rest',t:0.2};
+   S.t-=C.dt;
+   if(S.st==='rest'){ C.mv(0.55); if(S.t<=0){ S.st='wind'; S.t=C.enrage?0.5:0.6; S.a=C.aim; S.side=Math.random()<0.5?1:-1; } }
+   else if(S.st==='wind'){ C.mv(0.2); S.a=turnTo(S.a,C.aim,2.4*C.dt); if(S.t<=0){ S.st='swing'; S.t=0.5; S.k=0; } }
+   else if(S.st==='swing'){ C.mv(0.1); const n=11, due=Math.min(n,Math.floor((0.5-S.t)/0.5*n)+1);
+    while(S.k<due){ const f=S.k/(n-1); eshot(e,S.a+S.side*(f*2-1)*0.95,270,5,0.8,2.6); S.k++; if(S.k%3===1) SFX.eshoot(); }
+    if(S.t<=0){ S.st='rest'; S.t=C.enrage?0.35:0.7; } } },
+  stomp(e,C){ // close, plant, a ring from its feet
+   let S=e.olS; if(e.atkT===0||!S) S=e.olS={st:'close',t:0};
+   S.t-=C.dt;
+   if(S.st==='close'){ C.mv(0.9); if(C.d<190&&S.t<=0){ S.st='plant'; S.t=0.6;
+    shockwave(e,e.x,e.y,{maxR:175,spd:340,dmg:e.dmg,warn:0.6,w:16,what:'STOMP'}); } }
+   else if(S.st==='plant'&&S.t<=0){ S.st='close'; S.t=C.enrage?0.6:1.1; spawnBurst(e.x,e.y,14,K.metal,220,0.5,3); if(settings.shake) shake=Math.min(10,shake+4); SFX.ring(); } }
+ },
+ signature(e,C){
+  // WAR CRY, once, at half strength: a burst of speed and a pack rallying to it
+  if(!e.summoned&&!e.cried&&e.hp<=e.maxhp*OL_CRY){ e.cried=true; e.cryT=OL_CRY_T;
+   const kinds=['drone','stalker','drone','stalker']; let n=0;
+   for(const k of kinds){ if(enemies.length>=Math.min(14,CAP.enemies)) break;
+    const s2=nearSpot(e.x,e.y,70,150,24), m=mkEnemy(k,s2.x,s2.y,arenaIdx); m.spawnT=0.9; enemies.push(m); n++; }
+   rings.push({x:e.x,y:e.y,r:e.r,maxR:e.r+170,spd:320,dmg:0,hit:true});
+   addFloater(e.x,calloutY(e),'OVERLORD — WAR CRY'+(n?' · '+n+' RALLY':''),K.red); SFX.alarm(); }
+  if(e.cryT>0){ e.cryT-=C.dt; const mv=C.mv, ob=C.orbit; C.mv=f=>mv(f*OL_CRY_MUL); C.orbit=f=>ob(f*OL_CRY_MUL); }
+ },
+ post(e,dt){ // the prow swings to its work; locked along a charge
+  const S=e.olC, lock=e.atk==='charge'&&S&&(S.st==='wind'||S.st==='run');
+  const want=lock?Math.atan2(S.dy,S.dx):(player?Math.atan2(player.y-e.y,player.x-e.x):0);
+  e.prow=e.prow==null?want:turnTo(e.prow,want,(lock?14:5)*dt); },
+ under(e){ // the telegraphs, in world space beneath the hull
+  const C=e.olC, K2=e.olK;
+  if(e.atk==='charge'&&C&&C.st==='wind'){ const ex=e.x+C.dx*(C.L+e.r), ey=e.y+C.dy*(C.L+e.r);
+   ctx.save(); ctx.globalAlpha=0.85; tickedLine(e.x,e.y,ex,ey,K.red,1.5,22,5); ctx.restore();
+   const nx=-C.dy*e.r, ny=C.dx*e.r; line(e.x+nx,e.y+ny,ex+nx,ey+ny,K.redDim,1,[6,6]); line(e.x-nx,e.y-ny,ex-nx,ey-ny,K.redDim,1,[6,6]); }
+  if(e.atk==='cleave'&&K2&&K2.st==='wind'){ const a=K2.a, w=0.95, r=270;
+   ctx.save(); ctx.beginPath(); ctx.moveTo(e.x,e.y); ctx.arc(e.x,e.y,r,a-w,a+w); ctx.closePath(); ctx.clip();
+   ctx.strokeStyle=K.redDim; ctx.lineWidth=1; ctx.beginPath(); for(let rr=e.r+20;rr<r;rr+=30){ ctx.moveTo(e.x+Math.cos(a-w)*rr,e.y+Math.sin(a-w)*rr); ctx.arc(e.x,e.y,rr,a-w,a+w); } ctx.stroke(); ctx.restore();
+   ctx.strokeStyle=K.red; ctx.lineWidth=1.5; ctx.beginPath(); ctx.moveTo(e.x,e.y); ctx.arc(e.x,e.y,r,a-w,a+w); ctx.closePath(); ctx.stroke();
+   // the sweep's direction: a tick at the edge it starts from
+   const s0=a-K2.side*w; line(e.x+Math.cos(s0)*(r-18),e.y+Math.sin(s0)*(r-18),e.x+Math.cos(s0)*(r+14),e.y+Math.sin(s0)*(r+14),K.redHi,2); }
+ },
+ draw(e,g){ // a war-prow chevron over an octagon core
+  const R=g.R, a=e.prow!=null?e.prow:(e.facing||0);
+  ctx.fillStyle=g.body; ctx.strokeStyle=g.col; ctx.lineWidth=g.lw; poly(8,R*0.8,a+0.3927); ctx.fill(); ctx.stroke();
+  ctx.strokeStyle=g.dim; ctx.lineWidth=1; poly(8,R*0.46,a+0.3927); ctx.stroke();
+  ctx.save(); ctx.rotate(a);
+  polyPts([[R*1.34,0],[R*0.12,-R*1.0],[-R*0.24,-R*0.8],[R*0.74,0],[-R*0.24,R*0.8],[R*0.12,R*1.0]]);
+  ctx.fillStyle=g.body; ctx.fill(); ctx.strokeStyle=g.col; ctx.lineWidth=g.lw; ctx.stroke();
+  ctx.strokeStyle=g.dim; ctx.lineWidth=1; ctx.beginPath(); ctx.moveTo(R*1.08,0); ctx.lineTo(R*0.12,-R*0.8); ctx.moveTo(R*1.08,0); ctx.lineTo(R*0.12,R*0.8); ctx.stroke();
+  if(e.cryT>0&&!REDUCED){ ctx.strokeStyle=g.col; ctx.lineWidth=1; for(let k=1;k<=2;k++){ ctx.beginPath(); ctx.arc(R*0.2,0,R*(1.1+0.22*k+0.15*Math.sin(e.t*12)),-1.1,1.1); ctx.stroke(); } }
+  ctx.restore();
+  ctx.fillStyle=g.col; ctx.beginPath(); ctx.arc(0,0,4,0,6.283); ctx.fill();
+ },
+ // the prow reaches past the core's circle
+ hitParts:{ rot:e=>e.prow!=null?e.prow:(e.facing||0), c:[[1.1,0,0.26],[0.18,-0.9,0.16],[0.18,0.9,0.16]] }
 };
 // ===== END BOSS: OVERLORD =====
 
 // ===== BOSS: WARDEN =====
+// Bridge-Warden (spec §5). Signature TOLL GATE: three pylons planted round the
+// ship, linked by beams for 4 s; each link is broken in the middle, so the
+// only way out is through a gap. TWINWAVE: two staggered rings (the one radial
+// volley its rank is allowed, §3.9). SLAM: it closes and a knockback ring
+// throws the ship clear. LANE LOCK: two walls of slow rounds either side of
+// the ship close into a narrowing corridor; leave by its ends. Recovery RAISE
+// THE BRIDGE, at 55%: six barrier plates ring it and it mends while three or
+// more stand. Calls OVERLORD at 50%. One phase plus enrage.
+const WD_GATE_R=180, WD_GATE_SPAN=0.37, WD_GATE_WARN=0.9, WD_GATE_LIVE=4;
+function wdGate(e,p){ // plant three pylons round the ship and link them, leaving a gap mid-link
+ // the turn of the triangle that keeps every pylon clearest of its own hull
+ let pts=null, best=-1; const base=Math.random()*6.283;
+ for(let t=0;t<6;t++){ const a0=base+t*0.35, q=[]; let m=1e9;
+  for(let k=0;k<3;k++){ const a=a0+k*2.094, x=clamp(p.x+Math.cos(a)*WD_GATE_R,PX0+30,PX1-30), y=clamp(p.y+Math.sin(a)*WD_GATE_R,PY0+30,PY1-30); q.push({x,y}); m=Math.min(m,Math.hypot(x-e.x,y-e.y)); }
+  if(m>best){ best=m; pts=q; } }
+ const src=srcOf(e,'TOLL GATE'), dmg=Math.round(e.dmg*0.4);
+ for(let k=0;k<3;k++){ const A=pts[k], B=pts[(k+1)%3], L=Math.hypot(B.x-A.x,B.y-A.y), ang=Math.atan2(B.y-A.y,B.x-A.x);
+  for(const [P,a] of [[A,ang],[B,ang+Math.PI]]){
+   const b=bossBeam(e,{a,len:L*WD_GATE_SPAN,warn:WD_GATE_WARN,live:WD_GATE_LIVE,w:9,dmg,follow:false,what:'TOLL GATE'});
+   if(b){ b.x=P.x; b.y=P.y; b.src=src; beamEnds(b); } } }
+ e.gate={pts,t:0,end:WD_GATE_WARN+WD_GATE_LIVE};
+ addFloater(e.x,calloutY(e),'TOLL GATE — cross at the gaps',K.red); SFX.alarm(); }
 BOSS_KITS.warden={
- def:{name:'WARDEN',epithet:'Bridge-Warden',tier:2,hp:1250,r:34,spd:0.80,shape:'hex',pt:3.5,sig:null,chaff:['drone','stalker']},
+ def:{name:'WARDEN',epithet:'Bridge-Warden',tier:2,hp:1250,r:34,spd:0.80,shape:'gate',pt:3.5,sig:'tollgate',chaff:['drone','stalker']},
  lore:'A CAPTAIN HOLDS THE BRIDGE — WARDEN guards a lane that leads nowhere now.',
- codex:{role:'Siege fortress', threat:'Retreats once or twice',
-  tell:'Slow. Spirals, guards, seismic slams, twin staggered waves.',
-  counter:'Stay off the rings. When it RETREATS, chase — damage stops its healing.',
+ codex:{role:'Siege fortress', threat:'Raises the Bridge once',
+  tell:'Three pylons land round you and rule red lines between them: the TOLL GATE. Dashed rings are the TWINWAVE and the SLAM; two ruled walls either side of you are a LANE LOCK.',
+  counter:'Leave a toll gate through the gaps mid-link. Take the twinwave between its two rings. Walk a lane lock out by its ends. When it raises the bridge, break four plates and the mending stops.',
   lore:'Bridge-Warden. Lane authority, built to stand at the one crossing between two dead empires. It was never meant to advance, only to make advancing expensive, and it has kept that contract long after the lane stopped leading anywhere.'},
- cycle:['spiral','summon','slam','twinwave'],
- attacks:atk('spiral','summon','slam','twinwave'),
- draw(e,g){ // dashed siege collar, heavy hex core
-  const R=g.R;
-  ctx.save(); ctx.rotate(e.t*0.4); ctx.strokeStyle=g.dim; ctx.lineWidth=3; ctx.setLineDash([14,8]); ctx.beginPath(); ctx.arc(0,0,R+4,0,6.283); ctx.stroke(); ctx.setLineDash([]); ctx.restore();
-  ctx.fillStyle=g.body; ctx.strokeStyle=g.col; ctx.lineWidth=g.lw; poly(6,R-4,e.t*0.25); ctx.fill(); ctx.stroke();
-  ctx.strokeStyle=g.dim; poly(6,R*0.55,e.t*0.25); ctx.stroke();
+ cycle:['twinwave','slam','lanelock','slam'],
+ attacks:{
+  twinwave(e,C){ // two staggered rings from where it stands
+   C.mv(0.35); if(e.atkT===0) e.wdW=0.25; e.wdW-=C.dt;
+   if(e.wdW<=0){ e.wdW=C.enrage?2.0:2.8;
+    shockwave(e,e.x,e.y,{maxR:200,spd:260,dmg:e.dmg,warn:0.6,what:'TWINWAVE'});
+    shockwave(e,e.x,e.y,{maxR:240,spd:260,dmg:e.dmg,warn:1.05,what:'TWINWAVE'}); SFX.ring(); } },
+  slam(e,C){ // close, brace, a ring that throws the ship back
+   let S=e.wdS; if(e.atkT===0||!S) S=e.wdS={st:'close',t:0};
+   S.t-=C.dt;
+   if(S.st==='close'){ C.mv(0.85); if(C.d<200&&S.t<=0){ S.st='brace'; S.t=0.6;
+    shockwave(e,e.x,e.y,{maxR:190,spd:360,dmg:e.dmg,fx:'knockback',kb:520,warn:0.6,w:16,what:'SLAM'}); } }
+   else if(S.st==='brace'&&S.t<=0){ S.st='close'; S.t=C.enrage?0.9:1.5; spawnBurst(e.x,e.y,16,K.metal,240,0.5,3); if(settings.shake) shake=Math.min(10,shake+5); SFX.ring(); } },
+  lanelock(e,C){ // two walls of slow rounds close on the ship's line
+   C.mv(0.25);
+   if(e.atkT===0||!e.wdL){ const ux=C.nx, uy=C.ny; e.wdL={t:0,warn:0.7,done:false,ux,uy,cx:C.p.x,cy:C.p.y}; SFX.click(); }
+   const L=e.wdL; L.t+=C.dt;
+   if(!L.done&&L.t>=L.warn){ L.done=true; const nx=-L.uy, ny=L.ux, src=srcOf(e,'LANE LOCK');
+    for(const s of [-1,1]) for(let k=-9;k<=9;k++){ const x=L.cx+L.ux*k*30+nx*s*150, y=L.cy+L.uy*k*30+ny*s*150;
+     if(x<PX0||x>PX1||y<PY0||y>PY1) continue;
+     const b=eshotAt(e,x,y,Math.atan2(-ny*s,-nx*s),42,6,0.8,3.5); if(b){ b.src=src; } }
+    SFX.eshoot(); }
+   if(L.t>L.warn+3.5) e.wdL=null; }
+ },
+ signature(e,C){ // TOLL GATE on its own clock
+  if(e.wdG===undefined) e.wdG=4;
+  e.wdG-=C.dt;
+  if(e.wdG<=0&&!e.gate&&!(e.wdL&&!e.wdL.done)){ e.wdG=C.enrage?6.5:9; wdGate(e,C.p); } },
+ // RAISE THE BRIDGE: six barrier plates; it mends while three or more stand.
+ recover:{ at:[0.55], pool:0.08, label:'RAISE THE BRIDGE', hold:true, max:9,
+  start(e){ const R=e.r*1.6;
+   for(let k=0;k<6;k++){ const a=k*1.0472; addPart(e,{id:'plate'+k,lx:Math.cos(a)*R,ly:Math.sin(a)*R,r:12,hp:e.maxhp*0.012,kind:'plate'}); }
+   rings.push({x:e.x,y:e.y,r:e.r,maxR:e.r+90,spd:260,dmg:0,hit:true});
+   addFloater(e.x,calloutY(e),'WARDEN RAISES THE BRIDGE · break the plates',K.red); SFX.alarm(); },
+  update(e,C){ e.partRot=(e.partRot||0)+C.dt*0.5;
+   let n=0; for(const q of e.parts) if(q.kind==='plate'&&!q.dead) n++;
+   if(n<3) return 'broken';
+   bossHeal(e,e.maxhp*0.022*C.dt);
+   return e.healPool<=0?'mended':false; },
+  end(e,why){ e.parts=e.parts.filter(q=>q.kind!=='plate');
+   addFloater(e.x,calloutY(e),why==='broken'?'BRIDGE BROKEN':'BRIDGE LOWERED',why==='broken'?K.gold:K.red); }
+ },
+ label(e){ return e.atk==='lanelock'?'LANE LOCK':null; },
+ post(e,dt){ // the gate faces the ship; a planted toll gate keeps its time
+  const want=player?Math.atan2(player.y-e.y,player.x-e.x):0;
+  e.wdFace=e.wdFace==null?want:turnTo(e.wdFace,want,1.6*dt);
+  if(e.gate){ e.gate.t+=dt; if(e.gate.t>=e.gate.end) e.gate=null; } },
+ under(e){ // pylons of a toll gate, and a lane lock's ruled walls
+  const P=pigOf(e);
+  if(e.gate) for(const q of e.gate.pts){ const f=clamp((e.gate.end-e.gate.t)*2,0,1);
+   ctx.save(); ctx.globalAlpha=f; ctx.translate(q.x,q.y);
+   polyPts([[-9,11],[9,11],[6,-12],[-6,-12]]); ctx.fillStyle=P.body; ctx.fill(); ctx.strokeStyle=P.c; ctx.lineWidth=1.5; ctx.stroke();
+   ctx.strokeStyle=P.dim; ctx.lineWidth=1; ctx.beginPath(); ctx.moveTo(-5,4); ctx.lineTo(5,4); ctx.moveTo(-4,-3); ctx.lineTo(4,-3); ctx.stroke();
+   ctx.restore(); }
+  const L=e.wdL;
+  if(L&&!L.done){ const nx=-L.uy, ny=L.ux;
+   ctx.save(); ctx.globalAlpha=0.85;
+   for(const s of [-1,1]){ const ox=nx*s*150, oy=ny*s*150;
+    tickedLine(L.cx+ox-L.ux*270,L.cy+oy-L.uy*270,L.cx+ox+L.ux*270,L.cy+oy+L.uy*270,K.red,1,20,4);
+    line(L.cx+ox*0.8,L.cy+oy*0.8,L.cx+ox*0.55,L.cy+oy*0.55,K.redDim,1); } // which way the wall will close
+   ctx.restore(); }
+ },
+ draw(e,g){ // a hex core inside a gate arch of two trapezoid pylons
+  const R=g.R, a=e.wdFace!=null?e.wdFace:(e.facing||0);
+  ctx.save(); ctx.rotate(a);
+  // the arch: a lintel curving behind the core, pylon to pylon
+  ctx.strokeStyle=g.col; ctx.lineWidth=g.lw+3; ctx.beginPath(); ctx.moveTo(-R*0.62,-R*0.92); ctx.quadraticCurveTo(-R*1.5,0,-R*0.62,R*0.92); ctx.stroke();
+  ctx.strokeStyle=g.body; ctx.lineWidth=g.lw; ctx.beginPath(); ctx.moveTo(-R*0.62,-R*0.92); ctx.quadraticCurveTo(-R*1.5,0,-R*0.62,R*0.92); ctx.stroke();
+  for(const s of [-1,1]){ // the pylons, narrowing outward
+   polyPts([[-R*0.72,s*R*0.66],[R*0.72,s*R*0.66],[R*0.46,s*R*1.12],[-R*0.46,s*R*1.12]]);
+   ctx.fillStyle=g.body; ctx.fill(); ctx.strokeStyle=g.col; ctx.lineWidth=g.lw; ctx.stroke();
+   ctx.strokeStyle=g.dim; ctx.lineWidth=1; ctx.beginPath(); for(const x of [-0.3,0.1,0.5]){ ctx.moveTo(R*x,s*R*0.72); ctx.lineTo(R*x,s*R*1.06); } ctx.stroke(); }
+  ctx.restore();
+  ctx.fillStyle=g.body; ctx.strokeStyle=g.col; ctx.lineWidth=g.lw; poly(6,R*0.62,a); ctx.fill(); ctx.stroke();
+  ctx.strokeStyle=g.dim; ctx.lineWidth=1; poly(6,R*0.34,a); ctx.stroke();
   ctx.fillStyle=g.col; ctx.beginPath(); ctx.arc(0,0,4,0,6.283); ctx.fill();
- }
+ },
+ drawPart(e,q,g){ // a barrier plate, broad face out, its HP as an engraved arc
+  const a=Math.atan2(q.ly,q.lx)+(e.partRot||0), r=q.r;
+  ctx.rotate(a); polyPts([[-r*0.5,-r*0.72],[r*0.5,-r],[r*0.5,r],[-r*0.5,r*0.72]]);
+  ctx.fillStyle=q.flash>0?g.P.flash:g.body; ctx.fill(); ctx.strokeStyle=g.col; ctx.lineWidth=1.5; ctx.stroke();
+  const f=clamp(q.hp/(q.maxhp||1),0,1); ctx.strokeStyle=g.dim; ctx.lineWidth=2; ctx.beginPath(); ctx.moveTo(0,-r*0.6); ctx.lineTo(0,-r*0.6+f*r*1.2); ctx.stroke(); },
+ // the pylons and the arch reach past the core's circle
+ hitParts:{ rot:e=>e.wdFace!=null?e.wdFace:(e.facing||0), c:[[0.3,-0.92,0.3],[-0.3,-0.92,0.3],[0,-0.98,0.26],[0.3,0.92,0.3],[-0.3,0.92,0.3],[0,0.98,0.26],[-1.02,0,0.18],[-0.9,-0.5,0.16],[-0.9,0.5,0.16]] }
 };
 // ===== END BOSS: WARDEN =====
 
 // ===== BOSS: PHANTOM =====
+// The Undelivered (spec §5), the one god that always blinks (bossBlink).
+// Signature UNDELIVERED BEAM: a locked red line held 0.7 s, then a beam down
+// it that stops at cover; the line stays where it was locked, whoever moves.
+// BLINK FAN: a blink 190-300 px out, a 0.35 s aim, a fan. AFTERIMAGE: every
+// blink leaves a decoy where it stood that aims, fires one fan and fades (the
+// AFTERIMAGE slot is a chain of three quick blinks). CROSSFIRE: it blinks to
+// your flank and a decoy stands on the other; both beam through you at once,
+// an X to step out of. Recovery GHOST FORM, once. Calls WARDEN at 50%.
+const PH_LABEL={blinkfan:'BLINK FAN',afterimage:'AFTERIMAGE',crossfire:'CROSSFIRE'};
+function phDecoy(e,x,y,kind){ const G=e.ghosts||(e.ghosts=[]); if(G.length>=4) G.shift();
+ const g={x,y,t:0,kind,a:null,done:false,life:kind==='fan'?1.2:1.5}; G.push(g); return g; }
+// A blink that leaves an afterimage (a fan decoy) where it stood, unless told not to.
+function phBlink(e,x,y,decoy){ const ox=e.x, oy=e.y; if(!bossBlink(e,x,y,'blink')) return false;
+ if(decoy!==false) phDecoy(e,ox,oy,'fan'); return true; }
+function phSpot(P,a,d,m){ const x=clamp(P.x+Math.cos(a)*d,PX0+m,PX1-m), y=clamp(P.y+Math.sin(a)*d,PY0+m,PY1-m);
+ return pointBlocked(x,y,m,arena.obs)?nearSpot(P.x,P.y,190,300,m):{x,y}; }
 BOSS_KITS.phantom={
- def:{name:'PHANTOM',epithet:'the Undelivered',tier:2,hp:760,r:26,spd:1.35,shape:'diamond',pt:9,sig:'laser',chaff:['drone','mite']},
+ def:{name:'PHANTOM',epithet:'the Undelivered',tier:2,hp:760,r:26,spd:1.35,shape:'diamond',pt:3.2,sig:'beam',chaff:['drone','mite']},
  // Ghost Form, once (spec §5), the reference recovery: translucent on the
  // spot, rounds land at 30% (e.phased), knitting from its pool while the
  // escorts it raised live. Killing them breaks it; so does RELENTLESS.
@@ -2553,113 +2744,357 @@ BOSS_KITS.phantom={
  },
  lore:'A CAPTAIN WITHOUT A POST — PHANTOM carries a reply no one is left to read.',
  codex:{role:'Skirmisher', threat:'Ghost Form, once',
-  tell:'A locked RED LINE that holds still — the beam comes down exactly there.',
-  counter:'Step off the line. In GHOST FORM it still takes 30% damage — kill its escorts to break it.',
+  tell:'A locked RED LINE that holds still: the beam comes down exactly there. Every blink leaves an AFTERIMAGE that aims once. Two lines crossing on you is a CROSSFIRE.',
+  counter:'Step off the line, not along it. An afterimage fires once down the line it shows, so leave that line. In GHOST FORM it still takes 30% damage: kill its escorts to break it.',
   lore:'The Undelivered. A courier that learned its cargo was itself. It crossed eleven thousand years to deliver a reply and arrived at an empty star. The blink hardware was for outrunning interdiction; the beam was improvised later, from the part that did the outrunning.'},
- cycle:['skirmish'],
+ cycle:['blinkfan','afterimage','crossfire'],
  attacks:{
-  skirmish(e,C){ // weave, fan, blink
-   C.orbit(1.1); e.burstT-=C.dt;
-   if(e.burstT<=0){ e.burstT=C.enrage?1.1:1.7;
-    for(let k=-2;k<=2;k++) eshot(e,C.aim+k*0.16,260,5);
-    SFX.eshoot(); }
-   e.teleCd-=C.dt;
-   // Blink to a VALIDATED spot 190-300px out: on screen, out of obstacles, off
-   // the walls. PHANTOM is the one god the teleport policy lets blink freely.
-   if(e.teleCd<=0){ e.teleCd=C.enrage?3:4.5;
-    const tp=nearSpot(C.p.x,C.p.y,190,300,e.r+16); bossBlink(e,tp.x,tp.y,'blink'); } }
+  blinkfan(e,C){ // blink out, a short aim, a fan
+   C.orbit(1.1); let S=e.phF; if(e.atkT===0||!S) S=e.phF={t:0.3,aim:0};
+   S.t-=C.dt;
+   if(S.aim>0){ S.aim-=C.dt; if(S.aim<=0){ for(let k=-2;k<=2;k++) eshot(e,C.aim+k*0.16,260,5); SFX.eshoot(); } }
+   else if(S.t<=0){ S.t=C.enrage?1.3:1.8; const tp=nearSpot(C.p.x,C.p.y,190,300,e.r+16); phBlink(e,tp.x,tp.y); S.aim=0.35; } },
+  afterimage(e,C){ // three quick blinks round the ship; the afterimages do the shooting
+   C.orbit(0.8); let S=e.phA; if(e.atkT===0||!S) S=e.phA={t:0.25,n:0,ang:Math.atan2(e.y-C.p.y,e.x-C.p.x),dir:Math.random()<0.5?1:-1};
+   S.t-=C.dt;
+   if(S.t<=0){ if(S.n<3){ S.n++; S.ang+=1.2*S.dir; const q=phSpot(C.p,S.ang,230,e.r+16); phBlink(e,q.x,q.y); S.t=0.55; }
+    else { S.n=0; S.t=C.enrage?0.6:1.0; } } },
+  crossfire(e,C){ // your flank and its afterimage opposite: two beams cross on you
+   C.mv(0.1); let S=e.phX; if(e.atkT===0||!S) S=e.phX={t:0.25,st:'wait'};
+   S.t-=C.dt;
+   if(S.st==='wait'&&S.t<=0){ const P=C.p, base=Math.atan2(e.y-P.y,e.x-P.x)+1.5708*(Math.random()<0.5?1:-1);
+    const A=phSpot(P,base,240,e.r+16); phBlink(e,A.x,A.y,false);
+    const g=phDecoy(e,0,0,'cross'), B=phSpot(P,base+Math.PI-0.9,240,e.r+16); g.x=B.x; g.y=B.y;
+    const dmg=Math.round(e.dmg*0.6), o={warn:0.8,live:0.4,w:12,follow:false,dmg,what:'CROSSFIRE'};
+    bossBeam(e,Object.assign({a:Math.atan2(P.y-e.y,P.x-e.x)},o));
+    const b2=bossBeam(e,Object.assign({a:Math.atan2(P.y-g.y,P.x-g.x)},o)); if(b2){ b2.x=g.x; b2.y=g.y; beamEnds(b2); }
+    addFloater(e.x,calloutY(e),'CROSSFIRE',K.red); SFX.alarm();
+    S.st='rest'; S.t=C.enrage?1.5:2.2; }
+   else if(S.st==='rest'&&S.t<=0){ S.st='wait'; S.t=0.2; } }
  },
- signature(e,C){ // locks a line, telegraphs, then fires down it
-  const p=C.p; e.laserT-=C.dt;
-  if(e.laser){ e.laser.t-=C.dt;
-   if(e.laser.t<=0){ const a=e.laser.ang, dx2=Math.cos(a), dy2=Math.sin(a);
-    const tt=clamp((p.x-e.x)*dx2+(p.y-e.y)*dy2,0,700), cx=e.x+dx2*tt, cy=e.y+dy2*tt;
-    e.beamA=a; e.beamT=0.25; e.laser=null; e.laserT=C.enrage?3.5:5;
-    for(let k=0;k<=10;k++) pushPart({x:e.x+dx2*k*70,y:e.y+dy2*k*70,vx:0,vy:0,life:0.25,maxlife:0.25,col:K.red,r:5});
-    SFX.eshoot();
-    if(Math.hypot(p.x-cx,p.y-cy)<16) hurtPlayer(e.dmg+8,true,srcOf(e)); } }
-  else if(e.laserT<=0){ e.laser={t:0.7,ang:C.aim}; SFX.click(); }
+ signature(e,C){ // UNDELIVERED BEAM: a locked line, 0.7 s, then the beam
+  if(e.phB===undefined) e.phB=2.5;
+  e.phB-=C.dt;
+  if(e.phB<=0&&e.atk!=='crossfire'){ e.phB=C.enrage?3.5:5;
+   bossBeam(e,{a:C.aim,warn:0.7,live:0.3,w:12,follow:false,dmg:Math.round(e.dmg*0.6),what:'UNDELIVERED BEAM'}); SFX.click(); } },
+ post(e,dt){
+  // the trailing ghost: where it was a moment ago
+  e.phTrT=(e.phTrT||0)-dt; const tr=e.phTr||(e.phTr=[]);
+  if(e.phTrT<=0){ e.phTrT=0.06; tr.push({x:e.x,y:e.y}); if(tr.length>6) tr.shift(); }
+  // afterimages: a fan decoy locks its aim, holds 0.35 s, fires once and fades
+  const G=e.ghosts; if(!G) return;
+  for(let i=G.length-1;i>=0;i--){ const g=G[i]; g.t+=dt;
+   if(g.kind==='fan'&&player){ if(g.a===null&&g.t>=0.15) g.a=Math.atan2(player.y-g.y,player.x-g.x);
+    if(!g.done&&g.t>=0.5){ g.done=true; const src=e.phDsrc||(e.phDsrc=srcOf(e,'AFTERIMAGE'));
+     for(let k=-1;k<=1;k++){ const b=eshotAt(e,g.x,g.y,g.a+k*0.2,240,5,0.7); if(b) b.src=src; } SFX.eshoot(); } }
+   if(g.t>=g.life) G.splice(i,1); } },
+ label(e){ return e.atk?PH_LABEL[e.atk]:null; },
+ under(e){ const P=pigOf(e);
+  // the trailing ghost
+  const tr=e.phTr; if(tr&&tr.length){ const q=tr[0]; if(Math.hypot(q.x-e.x,q.y-e.y)>8){ ctx.save(); ctx.globalAlpha=0.22; ctx.translate(q.x,q.y); ctx.strokeStyle=P.c; ctx.lineWidth=1; poly(4,e.r*0.62,-e.t*1.2); ctx.stroke(); ctx.setLineDash([3,4]); poly(4,e.r,e.t*1.2); ctx.stroke(); ctx.setLineDash([]); ctx.restore(); } }
+  // afterimages: a fading copy of the hull; a fan decoy's aim as a short ticked line
+  if(e.ghosts) for(const g of e.ghosts){ const f=clamp(1-g.t/g.life,0,1);
+   ctx.save(); ctx.globalAlpha=0.55*f; ctx.translate(g.x,g.y); ctx.fillStyle=P.body; ctx.strokeStyle=P.c; ctx.lineWidth=1.25; ctx.setLineDash([4,3]);
+   poly(4,e.r,e.t*1.2); ctx.stroke(); ctx.setLineDash([]); poly(4,e.r*0.62,-e.t*1.2); ctx.fill(); ctx.stroke(); ctx.restore();
+   if(g.kind==='fan'&&g.a!==null&&!g.done){ ctx.save(); ctx.globalAlpha=0.85; tickedLine(g.x,g.y,g.x+Math.cos(g.a)*110,g.y+Math.sin(g.a)*110,K.red,1,18,3); ctx.restore(); } }
+  // BLINK FAN's aim
+  const S=e.phF; if(e.atk==='blinkfan'&&S&&S.aim>0&&player){ ctx.save(); ctx.globalAlpha=0.8; tickedLine(e.x,e.y,player.x,player.y,K.red,1,24,3); ctx.restore(); }
  },
- draw(e,g){ // ghosted diamond inside a counter-spinning frame
-  const R=g.R;
-  ctx.save(); ctx.rotate(e.t*1.2+Math.PI/4); ctx.strokeStyle=g.dim; ctx.lineWidth=1; ctx.strokeRect(-R*0.62,-R*0.62,R*1.24,R*1.24); ctx.restore();
-  ctx.fillStyle=g.body; ctx.strokeStyle=g.col; ctx.lineWidth=g.lw; poly(4,R-6,-e.t*1.2); ctx.fill(); ctx.stroke();
-  ctx.strokeStyle=g.dim; poly(4,R*0.4,-e.t*1.2); ctx.stroke();
+ draw(e,g){ // a diamond inside a counter-spinning square frame
+  const R=g.R, fa=REDUCED?0:e.t*1.2;
+  if(codexPreview){ ctx.save(); ctx.globalAlpha*=0.3; ctx.translate(-R*0.95,R*0.55); ctx.strokeStyle=g.col; ctx.lineWidth=1; poly(4,R*0.62,0); ctx.stroke(); ctx.setLineDash([3,4]); poly(4,R,0); ctx.stroke(); ctx.setLineDash([]); ctx.restore(); }
+  ctx.fillStyle=g.body; ctx.strokeStyle=g.col; ctx.lineWidth=g.lw;
+  ctx.beginPath(); for(const rr of [R*1.0,R*0.8]) for(let i=0;i<=4;i++){ const a=fa+i*1.5708, x=Math.cos(a)*rr, y=Math.sin(a)*rr; if(i) ctx.lineTo(x,y); else ctx.moveTo(x,y); }
+  ctx.fill('evenodd'); ctx.stroke();
+  ctx.strokeStyle=g.dim; ctx.lineWidth=1; ctx.beginPath(); for(let i=0;i<4;i++){ const a=fa+i*1.5708; ctx.moveTo(Math.cos(a)*R*0.8,Math.sin(a)*R*0.8); ctx.lineTo(Math.cos(a)*R*0.62,Math.sin(a)*R*0.62); } ctx.stroke();
+  ctx.fillStyle=g.body; ctx.strokeStyle=g.col; ctx.lineWidth=g.lw; poly(4,R*0.58,-fa); ctx.fill(); ctx.stroke();
+  ctx.strokeStyle=g.dim; ctx.lineWidth=1; poly(4,R*0.28,-fa); ctx.stroke();
   ctx.fillStyle=g.col; ctx.beginPath(); ctx.arc(0,0,3,0,6.283); ctx.fill();
- }
+ },
+ // the frame's corners turn past the hull circle
+ hitParts:{ rot:e=>REDUCED?0:e.t*1.2, c:[[0.93,0,0.12],[0,0.93,0.12],[-0.93,0,0.12],[0,-0.93,0.12]] }
 };
 // ===== END BOSS: PHANTOM =====
 
 // ===== BOSS: REVENANT =====
-// Placeholder kit (wave 2 builds the full one, spec §5): Rime Bolts only.
+// The Cold-Sleeper (spec §5). Signature RIME BOLTS: three slow pale rounds
+// down your line after a 0.35 s aim; one that lands freezes (1.0 s). FROST
+// LANE: a ruled line of five marked points, then drifting frost mines on them
+// that freeze on touch. SHATTER DASH: a ruled line, a short dash, and six
+// shards off its end at the ship. COLD SNAP: for 4 s a ship that stands still
+// for 0.8 s is frozen, so keep moving. Recovery SLEEPER POD: a cryo pod (a
+// part) planted near a wall at the start; at 55% it walks back, docks beside
+// it and mends 2.5%/s. Destroying the pod, or dealing 6% of its HP while it is
+// docked, forces it out. Calls PHANTOM at 50%. One phase plus enrage.
+const RV_LABEL={frostlane:'FROST LANE',shatter:'SHATTER DASH',coldsnap:'COLD SNAP'};
+const RV_POD_HP=0.05, RV_DOCK_HEAL=0.025, RV_FORCE=0.06, RV_SNAP_STILL=0.8, RV_SNAP_T=4;
+function rvPlant(e){ // the sleeper pod, near the wall closest to where it woke
+ if(!arena||!arena.obs||!player) return;
+ const d=[e.x-PX0,PX1-e.x,e.y-PY0,PY1-e.y], i=d.indexOf(Math.min.apply(null,d)), inset=100;
+ let x=e.x, y=e.y, nx=0, ny=0;
+ if(i===0){ x=PX0+inset; nx=1; } else if(i===1){ x=PX1-inset; nx=-1; } else if(i===2){ y=PY0+inset; ny=1; } else { y=PY1-inset; ny=-1; }
+ if(pointBlocked(x,y,e.r+26,arena.obs)){ const q=nearSpot(x,y,40,200,e.r+26); x=q.x; y=q.y; }
+ const q=addPart(e,{id:'pod',r:20,hp:e.maxhp*RV_POD_HP,kind:'pod'}); if(!q) return;
+ q.lx=undefined; q.x=x; q.y=y; q.nx=nx; q.ny=ny; e.rvPod=q; }
+function rvPodLive(e){ const q=e.rvPod; return q&&!q.dead&&q.hp>0?q:null; }
+// It docks beside the pod along the wall, so its labels never sit on the pod.
+function rvDockAt(e,q){ const d=e.r+q.r+6; return {x:clamp(q.x-q.ny*d,PX0+e.r,PX1-e.r),y:clamp(q.y+q.nx*d,PY0+e.r,PY1-e.r)}; }
 BOSS_KITS.revenant={
  def:{name:'REVENANT',epithet:'the Cold-Sleeper',tier:2,hp:900,r:28,spd:0.95,shape:'pods',pt:3.4,sig:'rime',chaff:['drone','mite']},
  lore:'A CAPTAIN WHO SLEPT THROUGH THE COLD — REVENANT wakes for you, and only you.',
- codex:{role:'Cryo skirmisher', threat:'Slow rounds that bite',
-  tell:'Its pods pale before a volley of three slow RIME BOLTS down your line.',
-  counter:'Slow rounds are easy to sidestep. Keep moving across the volley, never along it.',
-  lore:'The Cold-Sleeper. A sleeper ship whose crew never woke, and whose pods decided, somewhere in the dark, to keep the ship instead. It wakes only for a visitor. The cold it carries is not a weapon, exactly; it is simply what the inside of the pods is like.'},
- cycle:['rime','fan'],
- attacks:Object.assign(atk('fan'),{
-  rime(e,C){ // three slow pale rounds down your line, 0.35s aimed tell
-   C.mv(0.45); e.burstT-=C.dt;
-   if(e.aimT>0){ e.aimT-=C.dt; if(e.aimT<=0){ for(let k=-1;k<=1;k++){ const b=eshot(e,C.aim+k*0.12,150,7,0.9,5); if(b) b.freeze=1.0; } SFX.eshoot(); } }
-   else if(e.burstT<=0){ e.burstT=C.enrage?1.3:1.9; e.aimT=0.35; } }
- }),
- draw(e,g){ // three overlapping cryo capsules in a Y
-  const R=g.R;
-  for(let k=0;k<3;k++){ ctx.save(); ctx.rotate(-1.5708+k*2.094+e.t*0.15);
-   const L=R*0.95, w=R*0.34; polyPts([[w*0.2,-w],[L-w,-w],[L,0],[L-w,w],[w*0.2,w],[-w*0.4,0]]);
+ codex:{role:'Cryo skirmisher', threat:'Sleeper Pod, once',
+  tell:'Pale RIME BOLTS freeze on a hit. A ruled line of dashed circles is a FROST LANE; a ruled line off its hull, a SHATTER DASH. A ring round your hull is a COLD SNAP.',
+  counter:'Cross the bolts, never ride them. Keep moving through a cold snap. Shoot its pod early, or hit it hard once it docks: 6% of its strength forces it out.',
+  lore:'The Cold-Sleeper. A sleeper ship whose crew never woke, and whose pods decided, somewhere in the dark, to keep the ship instead. It wakes only for a visitor, and it leaves one pod by the wall when it does. The pod is not a lifeboat. It is where it means to go back to sleep.'},
+ cycle:['frostlane','shatter','coldsnap','frostlane','shatter'],
+ vmax:560,
+ init(e){ if(!e.summoned) try{ rvPlant(e); }catch(_){} },
+ attacks:{
+  frostlane(e,C){ // five marked points down its aim, then drifting frost mines
+   C.mv(0.4); let S=e.rvL; if(e.atkT===0||!S) S=e.rvL={st:'rest',t:0.2};
+   S.t-=C.dt;
+   if(S.st==='rest'&&S.t<=0){ S.st='wind'; S.t=0.55; S.a=C.aim; S.pts=[];
+    for(let k=0;k<5;k++){ const d=90+k*80; S.pts.push({x:e.x+Math.cos(S.a)*d,y:e.y+Math.sin(S.a)*d}); } SFX.click(); }
+   else if(S.st==='wind'&&S.t<=0){ const p=C.p, src=srcOf(e,'FROST MINE');
+    for(const q of S.pts){ if(q.x<PX0+9||q.x>PX1-9||q.y<PY0+9||q.y>PY1-9||Math.hypot(p.x-q.x,p.y-q.y)<p.r+17) continue;
+     const b=eshotAt(e,q.x,q.y,S.a+(Math.random()-0.5)*0.3,22,9,0.5,7); if(b){ b.freeze=1.0; b.mine=true; b.rvOwn=e.uid; b.src=src; } }
+    S.st='rest'; S.t=C.enrage?0.9:1.4; SFX.eshoot(); } },
+  shatter(e,C){ // a ruled line, a short dash, shards off its end
+   let S=e.rvS; if(e.atkT===0||!S) S=e.rvS={st:'rest',t:0.25};
+   S.t-=C.dt;
+   if(S.st==='rest'){ C.mv(0.5);
+    if(S.t<=0){ S.st='wind'; S.t=0.55; S.dx=C.nx; S.dy=C.ny; S.L=clamp(rayObs(e.x,e.y,S.dx,S.dy,400)-e.r,40,280); S.go=0; S.lx=undefined; SFX.click(); } }
+   else if(S.st==='wind'){ if(S.t<=0){ S.st='dash'; SFX.dash(); } }
+   else if(S.st==='dash'){ const step=540*C.dt, stuck=S.lx!==undefined&&Math.hypot(e.x-S.lx,e.y-S.ly)<step*0.25;
+    S.lx=e.x; S.ly=e.y; e.x+=S.dx*step; e.y+=S.dy*step; S.go+=step; e.intent+=step; e.charging=true;
+    const wall=e.x<=PX0+e.r+1||e.x>=PX1-e.r-1||e.y<=PY0+e.r+1||e.y>=PY1-e.r-1;
+    if(S.go>=S.L||wall||stuck){ const a=Math.atan2(C.p.y-e.y,C.p.x-e.x), src=srcOf(e,'SHATTER');
+     for(let k=0;k<6;k++){ const b=eshot(e,a+(k-2.5)*0.2,290,5,0.8,2.6); if(b) b.src=src; }
+     spawnBurst(e.x,e.y,16,pigOf(e).hi,240,0.5,3); SFX.brk(); S.st='rest'; S.t=C.enrage?0.7:1.1; } } },
+  coldsnap(e,C){ // for 4 s, standing still freezes the ship
+   C.orbit(0.7);
+   if(!e.rvC){ e.rvC={t:0,warn:0.6,end:0.6+RV_SNAP_T,still:0}; rings.push({x:C.p.x,y:C.p.y,r:12,maxR:140,spd:260,dmg:0,hit:true});
+    addFloater(C.p.x,C.p.y-40,'COLD SNAP — keep moving',K.red); SFX.alarm(); } }
+ },
+ signature(e,C){ // RIME BOLTS on their own clock, never mid-dash
+  if(e.rvR===undefined) e.rvR=1.6;
+  if(e.rvAim>0){ e.rvAim-=C.dt;
+   if(e.rvAim<=0){ const src=e.rvBsrc||(e.rvBsrc=srcOf(e,'RIME BOLT'));
+    for(let k=-1;k<=1;k++){ const b=eshot(e,C.aim+k*0.14,150,7,0.9,5); if(b){ b.freeze=1.0; b.rime=true; b.rvOwn=e.uid; b.src=src; } } SFX.eshoot(); } }
+  else { e.rvR-=C.dt; const dashing=e.atk==='shatter'&&e.rvS&&e.rvS.st!=='rest';
+   if(e.rvR<=0&&!dashing){ e.rvR=C.enrage?1.8:2.6; e.rvAim=0.35; } } },
+ // SLEEPER POD: back to the pod, dock, mend. Pod broken, or 6% dealt while docked, forces it out.
+ recover:{ at:[0.55], pool:0.08, label:'SLEEPER POD', hold:true, max:12,
+  start(e){ e.rvDock=false; e.rvAim=0;
+   if(!rvPodLive(e)){ e.rvNoPod=true; return; }
+   addFloater(e.x,calloutY(e),'REVENANT RETURNS TO ITS POD · break the pod',K.red); SFX.alarm(); },
+  update(e,C){ const q=rvPodLive(e); if(!q) return e.rvNoPod?'nopod':'broken';
+   if(!e.rvDock){ const t=rvDockAt(e,q), dx=t.x-e.x, dy=t.y-e.y, d=Math.hypot(dx,dy);
+    if(d<6){ e.rvDock=true; e.rvRef=e.hp; e.rvTaken=0; rings.push({x:q.x,y:q.y,r:q.r,maxR:q.r+60,spd:200,dmg:0,hit:true});
+     addFloater(e.x,calloutY(e),'DOCKED · hit it hard to force it out',K.red); }
+    else { const sv=steer(e,dx/d,dy/d), v=Math.min(d,e.sp*2.1*C.sF*C.dt); e.x+=sv[0]*v; e.y+=sv[1]*v; e.intent+=v; }
+    return false; }
+   e.rvTaken+=Math.max(0,e.rvRef-e.hp); if(e.rvTaken>=e.maxhp*RV_FORCE) return 'forced';
+   bossHeal(e,e.maxhp*RV_DOCK_HEAL*C.dt); e.rvRef=e.hp;
+   return e.healPool<=0?'mended':false; },
+  end(e,why){ e.rvDock=false; e.rvNoPod=false;
+   const q=rvPodLive(e); if(q){ const i=e.parts.indexOf(q); if(i>=0) e.parts.splice(i,1); q.dead=true; } // the pod is spent either way
+   if(why!=='nopod') addFloater(e.x,calloutY(e),why==='forced'?'FORCED OUT OF THE POD':why==='broken'?'POD SHATTERED':'REVENANT WAKES',(why==='forced'||why==='broken')?K.gold:K.red); }
+ },
+ onPartBreak(e,q){ if(q.kind==='pod'&&!e.rec) addFloater(q.x,q.y-30,'POD SHATTERED',K.gold); },
+ post(e,dt){ // COLD SNAP keeps its own time, whatever slot follows
+  const S=e.rvC; if(!S) return; S.t+=dt; const p=player;
+  if(p&&S.t>=S.warn&&S.t<S.end){ const st=p.status, sp=Math.hypot(p.mvx||0,p.mvy||0);
+   if(st&&st.freeze>0) S.still=0; else if(sp<30) S.still+=dt; else S.still=Math.max(0,S.still-dt*2);
+   if(S.still>=RV_SNAP_STILL){ S.still=0; if(applyStatus('freeze',1.0)) hurtPlayer(Math.round(e.dmg*0.4),false,srcOf(e,'COLD SNAP')); } }
+  if(S.t>=S.end) e.rvC=null; },
+ label(e){ return e.atk?RV_LABEL[e.atk]:null; },
+ under(e){ const P=pigOf(e), p=player;
+  // the sleeper pod: a capsule by the wall, its HP ruled along it
+  const q=rvPodLive(e);
+  if(q){ const a=Math.atan2(q.ny,q.nx)+1.5708;
+   if(e.rec&&!e.rvDock){ line(e.x,e.y,q.x,q.y,P.dim,1,[5,6]); }
+   if(e.rvDock){ line(e.x,e.y,q.x,q.y,P.c,2); }
+   ctx.save(); ctx.translate(q.x,q.y); ctx.rotate(a); const L=q.r, w=q.r*0.62;
+   ctx.beginPath(); ctx.moveTo(-L+w,-w); ctx.lineTo(L-w,-w); ctx.arc(L-w,0,w,-1.5708,1.5708); ctx.lineTo(-L+w,w); ctx.arc(-L+w,0,w,1.5708,4.712); ctx.closePath();
+   ctx.fillStyle=q.flash>0?P.flash:P.body; ctx.fill(); ctx.strokeStyle=e.rvDock?P.hi:P.c; ctx.lineWidth=1.5; ctx.stroke();
+   ctx.strokeStyle=P.dim; ctx.lineWidth=1; ctx.strokeRect(-L*0.45,-w*0.45,L*0.9,w*0.9);
+   const f=clamp(q.hp/(q.maxhp||1),0,1); ctx.strokeStyle=P.c; ctx.lineWidth=2; ctx.beginPath(); ctx.moveTo(-L*0.7,w+4); ctx.lineTo(-L*0.7+L*1.4*f,w+4); ctx.stroke();
+   if(e.rec){ ctx.strokeStyle=P.hi; ctx.lineWidth=1; ctx.setLineDash([3,3]); ctx.beginPath(); ctx.arc(0,0,L+8,0,6.283); ctx.stroke(); ctx.setLineDash([]); } // the target, while it matters most
+   ctx.restore(); }
+  // rime bolts and frost mines carry a frost rim over the red round
+  for(const b of ebullets){ if(b.rvOwn!==e.uid) continue;
+   ctx.strokeStyle=K.red; ctx.lineWidth=1; ctx.beginPath();
+   const n=b.mine?6:4, r1=b.r+3, r2=b.r+(b.mine?9:6), sp=REDUCED?0:e.t*(b.mine?0.8:2);
+   for(let k=0;k<n;k++){ const a=sp+k*6.283/n; ctx.moveTo(b.x+Math.cos(a)*r1,b.y+Math.sin(a)*r1); ctx.lineTo(b.x+Math.cos(a)*r2,b.y+Math.sin(a)*r2); }
+   ctx.stroke(); if(b.mine){ ctx.beginPath(); ctx.arc(b.x,b.y,b.r+3,0,6.283); ctx.stroke(); } }
+  // telegraphs: the rime aim, a frost lane's marked points, a shatter dash's line
+  if(e.rvAim>0&&p){ ctx.save(); ctx.globalAlpha=0.8; tickedLine(e.x,e.y,p.x,p.y,K.red,1,24,3); ctx.restore(); }
+  const L=e.rvL; if(e.atk==='frostlane'&&L&&L.st==='wind'){ const q0=L.pts[0], q1=L.pts[L.pts.length-1];
+   ctx.save(); ctx.globalAlpha=0.85; tickedLine(q0.x,q0.y,q1.x,q1.y,K.red,1,20,3);
+   ctx.strokeStyle=K.red; ctx.lineWidth=1; ctx.setLineDash([4,4]); for(const q2 of L.pts){ ctx.beginPath(); ctx.arc(q2.x,q2.y,12,0,6.283); ctx.stroke(); } ctx.setLineDash([]); ctx.restore(); }
+  const S=e.rvS; if(e.atk==='shatter'&&S&&S.st==='wind'){ const ex=e.x+S.dx*(S.L+e.r), ey=e.y+S.dy*(S.L+e.r);
+   ctx.save(); ctx.globalAlpha=0.85; tickedLine(e.x,e.y,ex,ey,K.red,1.5,20,4); ctx.strokeStyle=K.red; ctx.lineWidth=1; ctx.beginPath(); ctx.arc(ex,ey,e.r,0,6.283); ctx.stroke(); ctx.restore(); }
+  // COLD SNAP: arming, a ring closing on the hull; live, a gauge of how long it has stood still
+  const Cs=e.rvC; if(Cs&&p){ ctx.save(); ctx.strokeStyle=K.red; ctx.lineWidth=1;
+   if(Cs.t<Cs.warn){ ctx.setLineDash([5,5]); ctx.beginPath(); ctx.arc(p.x,p.y,p.r+14+80*(1-Cs.t/Cs.warn),0,6.283); ctx.stroke(); ctx.setLineDash([]); }
+   else if(Cs.t<Cs.end){ const R=p.r+14; ctx.globalAlpha=0.8; ctx.setLineDash([2,4]); ctx.beginPath(); ctx.arc(p.x,p.y,R,0,6.283); ctx.stroke(); ctx.setLineDash([]);
+    ctx.globalAlpha=1; ctx.lineWidth=2.5; ctx.beginPath(); ctx.arc(p.x,p.y,R,-1.5708,-1.5708+6.283*clamp(Cs.still/RV_SNAP_STILL,0,1)); ctx.stroke(); }
+   ctx.restore(); }
+ },
+ draw(e,g){ // three overlapping cryo capsules in a Y, a hub where they meet
+  const R=g.R, spin=REDUCED?0:e.t*0.15;
+  for(let k=0;k<3;k++){ ctx.save(); ctx.rotate(-1.5708+k*2.094+spin);
+   const x0=-R*0.05, x1=R*1.2, w=R*0.33;
+   ctx.beginPath(); ctx.moveTo(x0+w,-w); ctx.lineTo(x1-w,-w); ctx.arc(x1-w,0,w,-1.5708,1.5708); ctx.lineTo(x0+w,w); ctx.arc(x0+w,0,w,1.5708,4.712); ctx.closePath();
    ctx.fillStyle=g.body; ctx.fill(); ctx.strokeStyle=g.col; ctx.lineWidth=g.lw; ctx.stroke();
-   ctx.strokeStyle=g.dim; ctx.lineWidth=1; ctx.beginPath(); ctx.moveTo(R*0.3,0); ctx.lineTo(L-w,0); ctx.stroke(); ctx.restore(); }
-  ctx.fillStyle=e.aimT>0?K.redHi:g.col; ctx.beginPath(); ctx.arc(0,0,4,0,6.283); ctx.fill();
- }
+   ctx.strokeStyle=g.dim; ctx.lineWidth=1; ctx.strokeRect(R*0.42,-w*0.45,R*0.5,w*0.9); ctx.restore(); }
+  ctx.fillStyle=g.body; ctx.strokeStyle=g.col; ctx.lineWidth=g.lw; poly(6,R*0.3,spin); ctx.fill(); ctx.stroke();
+  ctx.fillStyle=e.rvAim>0?K.redHi:g.col; ctx.beginPath(); ctx.arc(0,0,4,0,6.283); ctx.fill();
+ },
+ // the capsule ends reach past the hull circle
+ hitParts:{ rot:e=>REDUCED?0:e.t*0.15, c:[[0,-0.87,0.34],[0.753,0.435,0.34],[-0.753,0.435,0.34]] }
 };
 // ===== END BOSS: REVENANT =====
 
 // ===== BOSS: LEVIATHAN =====
+// The Lane-Wyrm (spec §5). The head keeps a heading and turns at a limited
+// rate, so the body snakes; five segments follow it as one piece. Signature
+// WAKE TRAIL: the head and each segment drop discs their own size that shrink
+// to nothing, harmless for their first 0.25 s. WHIP: it rears (a hatched arc
+// shows the sweep) and swings its whole tail through a wide arc. COIL: a
+// dashed ring round you, then it circles you, fencing you in with its wake,
+// and tightens. LUNGE: a ruled line, then a straight dash. Phase II at 50%:
+// SEGMENT VOLLEY (each segment in turn, tail to head, fires one round at you
+// after a 0.35 s glow) and a 5 s wake. Recovery SHED RUN at 55%: it runs from
+// you with a wake half again as long and mends while it has gone 2 s unhit.
+// Calls REVENANT at 60% and 30%. Never teleports; no burrow, mines or spiral.
+const LV_LINK=0.82, LV_UNHIT=2;
+function lvMove(e,C,tx,ty,f,turn){ // turn the heading toward (tx,ty), then go forward along it
+ const want=Math.atan2(ty-e.y,tx-e.x); if(e.hd==null) e.hd=want;
+ e.hd=turnTo(e.hd,want,turn*C.dt);
+ const sv=steer(e,Math.cos(e.hd),Math.sin(e.hd)), v=e.sp*f*C.spdM*C.sF;
+ e.hd=turnTo(e.hd,Math.atan2(sv[1],sv[0]),turn*2*C.dt);
+ e.x+=sv[0]*v*C.dt; e.y+=sv[1]*v*C.dt; e.intent+=v*C.dt; }
+function lvLen(e){ const g=e.segs[e.segs.length-1]; return g?Math.hypot(g.x-e.x,g.y-e.y)+g.r:e.r; }
+function lvSwing(e,da){ const c=Math.cos(da), s=Math.sin(da); // the whole tail turns about the head, rigid
+ for(const g of e.segs){ const x=g.x-e.x, y=g.y-e.y; g.x=e.x+x*c-y*s; g.y=e.y+x*s+y*c; } }
+function lvVolley(e){ if(!e.lvV&&e.segs.length) e.lvV={t:0,i:0}; }
 BOSS_KITS.leviathan={
  def:{name:'LEVIATHAN',epithet:'the Lane-Wyrm',tier:3,hp:1700,r:36,spd:0.85,shape:'serpent',pt:4.0,sig:'segments',chaff:['mite','drone']},
  lore:'A LORD OF THE DEEP LANE — LEVIATHAN leaves a ghost of itself in the lane.',
- codex:{role:'Serpent', threat:'Body damages on contact',
-  tell:'The head sweeps twin streams as the whole body wheels after it, leaving a fading red WAKE the shape of its tail.',
-  counter:'Watch the body, not the head. Segments and the wake hurt — cross the trail where it has faded.',
+ codex:{role:'Serpent', threat:'Sheds once; two phases',
+  tell:'It rears and a hatched red arc marks the WHIP. A dashed ring round you is the COIL; a ruled line off its jaws, the LUNGE. Its wake is a fading red copy of its tail.',
+  counter:'Leave the arc before the tail swings. Break out of a coil before the ring tightens. When it runs to SHED, keep hitting it: two seconds unhit and it mends.',
   lore:'The Lane-Wyrm. Lane-boring infrastructure that kept growing after the contract lapsed, tunnelling debris fields for a trade that ended before home\'s star was lit. The segments are not armour; they are the original boring string, still following the head out of habit.'},
- // burrow is gone (spec §3.5): LEVIATHAN never leaves the surface
- cycle:['tailsweep','mines','spiral'],
- attacks:Object.assign(atk('mines','spiral'),{
-  tailsweep(e,C){ // the body itself is the attack
-   C.orbit(0.85); e.spirT-=C.dt;
-   if(e.spirT<=0){ e.spirT=0.5; const a=e.t*1.6;
-    for(let k=0;k<2;k++) eshot(e,a+k*3.14,200,7,0.9); } }
- }),
- // Phase II (spec §5): the wake lingers 5 s instead of 3.5 — the phase framework's proof
- phases:[{},{at:0.5,enter(e){ e.wakeLife=5; }}],
- init(e){ e.segs=[]; for(let k=0;k<5;k++) e.segs.push({x:e.x,y:e.y,r:e.r*(0.72-k*0.08)}); e.wakeLife=3.5; },
- signature(e,C){ // a trailing body that also hurts to touch
-  const p=C.p;
-  for(const g of e.segs) if(!e.phased&&e.contactCd<=0&&dist2(p.x,p.y,g.x,g.y)<(g.r+p.r)*(g.r+p.r)){ e.contactCd=0.7; hurtPlayer(Math.round(e.dmg*0.6),true,srcOf(e,'BODY')); }
+ cycle:['whip','coil','lunge'],
+ vmax:600,
+ attacks:{
+  whip(e,C){ // rear, then swing the whole tail through a wide arc
+   let S=e.lvW; if(e.atkT===0||!S) S=e.lvW={st:'hunt',t:0.4};
+   S.t-=C.dt;
+   if(S.st==='hunt'){ lvMove(e,C,C.p.x,C.p.y,0.9,2.4);
+    const tail=e.segs[e.segs.length-1];
+    if(S.t<=0&&C.d<260&&tail){ S.a0=Math.atan2(tail.y-e.y,tail.x-e.x); const ap=Math.atan2(C.p.y-e.y,C.p.x-e.x);
+     S.dir=angDiff(ap,S.a0)>=0?1:-1; S.sweep=2.5*S.dir; S.R=lvLen(e)+8; S.st='wind'; S.t=0.55; SFX.alarm(); } }
+   else if(S.st==='wind'){ if(S.t<=0){ S.st='swing'; S.t=0.4; SFX.dash(); } }
+   else if(S.st==='swing'){ const da=S.sweep*Math.min(C.dt,S.t+C.dt)/0.4; lvSwing(e,da); e.hd+=da; e.vis=e.hd;
+    if(S.t<=0){ S.st='hunt'; S.t=C.enrage?0.8:1.3; spawnBurst(e.segs[e.segs.length-1].x,e.segs[e.segs.length-1].y,10,K.red,200,0.4,3); } } },
+  coil(e,C){ // a ring round you, circled and fenced with the wake, then drawn tight
+   const fresh=()=>{ addFloater(e.x,calloutY(e),'COIL',K.red); SFX.alarm(); return {st:'wind',t:0.6,cx:C.p.x,cy:C.p.y,R:230,dir:Math.random()<0.5?1:-1}; };
+   let S=e.lvK; if(e.atkT===0||!S) S=e.lvK=fresh();
+   S.t-=C.dt;
+   if(S.st==='wind'){ const a=Math.atan2(e.y-S.cy,e.x-S.cx); lvMove(e,C,S.cx+Math.cos(a)*S.R,S.cy+Math.sin(a)*S.R,1.0,3);
+    if(S.t<=0){ S.st='circle'; S.t=2.4; } }
+   else if(S.st==='circle'||S.st==='tighten'){ const k=Math.min(1,C.dt*1.2); S.cx+=(C.p.x-S.cx)*k; S.cy+=(C.p.y-S.cy)*k;
+    if(S.st==='tighten') S.R=Math.max(120,S.R-130*C.dt);
+    const a=Math.atan2(e.y-S.cy,e.x-S.cx)+0.55*S.dir; lvMove(e,C,S.cx+Math.cos(a)*S.R,S.cy+Math.sin(a)*S.R,2.4,5);
+    if(S.t<=0){ if(S.st==='circle'){ S.st='tighten'; S.t=1.0; } else { S.st='rest'; S.t=0.8; } } }
+   else { lvMove(e,C,C.p.x,C.p.y,0.8,2.2); if(S.t<=0) e.lvK=fresh(); } },
+  lunge(e,C){ // a ruled line off the jaws, then the dash
+   let S=e.lvL; if(e.atkT===0||!S) S=e.lvL={st:'hunt',t:0.5};
+   S.t-=C.dt;
+   if(S.st==='hunt'){ lvMove(e,C,C.p.x,C.p.y,0.85,2.4);
+    if(S.t<=0){ S.st='wind'; S.t=0.6; S.dx=C.nx; S.dy=C.ny; S.L=clamp(rayObs(e.x,e.y,S.dx,S.dy,520)-e.r,60,460); S.go=0; S.lx=undefined; addFloater(e.x,calloutY(e),'LUNGE',K.red); SFX.click(); } }
+   else if(S.st==='wind'){ e.hd=turnTo(e.hd==null?0:e.hd,Math.atan2(S.dy,S.dx),8*C.dt); if(S.t<=0){ S.st='dash'; e.hd=Math.atan2(S.dy,S.dx); SFX.dash(); } }
+   else if(S.st==='dash'){ const step=560*C.dt, stuck=S.lx!==undefined&&Math.hypot(e.x-S.lx,e.y-S.ly)<step*0.25;
+    S.lx=e.x; S.ly=e.y; e.x+=S.dx*step; e.y+=S.dy*step; S.go+=step; e.intent+=step; e.charging=true;
+    const wall=e.x<=PX0+e.r+1||e.x>=PX1-e.r-1||e.y<=PY0+e.r+1||e.y>=PY1-e.r-1;
+    if(S.go>=S.L||wall||stuck){ S.st='hunt'; S.t=C.enrage?0.7:1.2; spawnBurst(e.x,e.y,12,K.metal,220,0.45,3); if(settings.shake) shake=Math.min(10,shake+3); } } },
+  volley(e,C){ // Phase II's added attack, on its own clock; the lab can loop it here
+   lvMove(e,C,C.p.x,C.p.y,0.8,2.2); e.lvVc=(e.atkT===0?0:(e.lvVc||0)-C.dt);
+   if(!e.lvV&&e.lvVc<=0){ lvVolley(e); e.lvVc=1.6; } }
  },
- // The body moves as one piece: every move of the head, forced or not, drags
- // each segment after it, so nothing can leave a segment behind.
- post(e){ let prev=e; const want=e.r*0.82;
-  for(const g of e.segs){ const vx=prev.x-g.x, vy=prev.y-g.y, l=len(vx,vy); if(l>want){ g.x+=vx/l*(l-want); g.y+=vy/l*(l-want); } prev=g; }
-  // Wake Trail (the signature): the head and every segment leave a disc their
-  // own size each time they move most of a width, so a fading copy of the tail
-  // lies behind it. Discs are harmless for their first 0.25 s.
-  const life=e.wakeLife||3.5, src=e.wakeSrc||(e.wakeSrc=srcOf(e,'WAKE')), dmg=Math.round(e.dmg*0.3);
-  const drop=(q,r)=>{ if(q.wx===undefined||Math.hypot(q.x-q.wx,q.y-q.wy)>=r*0.8){ q.wx=q.x; q.wy=q.y; dropDisc(e,q.x,q.y,r,{life,dmg,src}); } };
-  drop(e,e.r*0.8); for(const g of e.segs) drop(g,g.r); },
- under(e){ // the body behind the head
-  const P=pigOf(e); ctx.save(); ctx.globalAlpha=e.phased?0.3:1;
-  for(let k=e.segs.length-1;k>=0;k--){ const g=e.segs[k];
-   ctx.fillStyle=P.body; ctx.strokeStyle=e.hp<e.maxhp*0.3?P.hi:P.c; ctx.lineWidth=1.5;
-   ctx.beginPath(); ctx.arc(g.x,g.y,g.r,0,6.283); ctx.fill(); ctx.stroke();
-   ctx.strokeStyle=P.dim; ctx.lineWidth=1; ctx.beginPath(); ctx.arc(g.x,g.y,g.r*0.55,0,6.283); ctx.stroke(); }
+ // Phase II (spec §5): the wake lingers 5 s, and the SEGMENT VOLLEY joins the kit
+ phases:[{},{at:0.5,enter(e){ e.wakeLife=5; e.lvVT=1.5; }}],
+ init(e){ e.segs=[]; for(let k=0;k<5;k++) e.segs.push({x:e.x,y:e.y,r:e.r*(0.72-k*0.08)}); e.wakeLife=3.5; e.wakeMul=1; },
+ signature(e,C){ // Phase II: a segment volley every few seconds
+  if(e.ph>=2&&!e.summoned){ e.lvVT=(e.lvVT==null?1.5:e.lvVT)-C.dt; if(e.lvVT<=0&&!e.lvV){ e.lvVT=C.enrage?3.2:4.5; lvVolley(e); } } },
+ // SHED RUN: away from the ship, a longer wake behind it, mending while unhit for 2 s
+ recover:{ at:[0.55], pool:0.08, label:'SHED RUN', hold:true, max:9,
+  start(e){ e.wakeMul=1.5; addFloater(e.x,calloutY(e),'LEVIATHAN SHEDS · keep hitting it',K.red); SFX.alarm(); },
+  update(e,C){ const P=C.p; let dx=e.x-P.x, dy=e.y-P.y; const d=Math.hypot(dx,dy)||1; dx/=d; dy/=d;
+   const M=120, tgt=(ux,uy)=>({x:clamp(e.x+ux*300,PX0+M,PX1-M),y:clamp(e.y+uy*300,PY0+M,PY1-M)});
+   let t=tgt(dx,dy); if(Math.hypot(t.x-e.x,t.y-e.y)<110){ const a=tgt(-dy,dx), b=tgt(dy,-dx); t=Math.hypot(a.x-e.x,a.y-e.y)>Math.hypot(b.x-e.x,b.y-e.y)?a:b; }
+   lvMove(e,C,t.x,t.y,1.25,3);
+   if(timeSec-e.lastHit>=LV_UNHIT) bossHeal(e,e.maxhp*0.03*C.dt);
+   return e.healPool<=0?'mended':false; },
+  end(e,why){ e.wakeMul=1; addFloater(e.x,calloutY(e),why==='mended'?'LEVIATHAN TURNS BACK':'SHED RUN ENDS',why==='mended'?K.red:K.gold); }
+ },
+ // The body moves as one piece: after every move of the head, forced or not
+ // (a SURGE, a slide, a shove), each segment is dragged after the one before
+ // it, so nothing can leave a segment behind.
+ post(e,dt){
+  const vx=e.x-e.px, vy=e.y-e.py, L=e.lvL, lock=e.atk==='lunge'&&L&&L.st==='wind';
+  if(lock) e.vis=turnTo(e.vis==null?0:e.vis,Math.atan2(L.dy,L.dx),9*dt);
+  else if(vx*vx+vy*vy>0.25){ const a=Math.atan2(vy,vx); e.vis=e.vis==null?a:turnTo(e.vis,a,9*dt); }
+  else if(e.vis==null) e.vis=e.hd!=null?e.hd:0;
+  let prev=e; const want=e.r*LV_LINK;
+  for(const g of e.segs){ const ux=prev.x-g.x, uy=prev.y-g.y, l=len(ux,uy); if(l>want){ g.x+=ux/l*(l-want); g.y+=uy/l*(l-want); } prev=g; }
+  // the body hurts to touch; a swinging tail hits as hard as the head
+  const p=player, whip=e.atk==='whip'&&e.lvW&&e.lvW.st==='swing';
+  if(p&&!e.phased&&e.contactCd<=0) for(const g of e.segs) if(dist2(p.x,p.y,g.x,g.y)<(g.r+p.r)*(g.r+p.r)){ e.contactCd=0.7; hurtPlayer(Math.round(e.dmg*(whip?1:0.6)),true,srcOf(e,whip?'WHIP':'BODY')); break; }
+  // Wake Trail (the signature): a disc their own size each time the head or a
+  // segment moves 1.25 radii, so a fading copy of the tail lies behind it,
+  // continuous but light enough to read the discs apart
+  const life=(e.wakeLife||3.5)*(e.wakeMul||1), src=e.wakeSrc||(e.wakeSrc=srcOf(e,'WAKE')), dmg=Math.round(e.dmg*0.3);
+  const drop=(q,r)=>{ if(q.wx===undefined||Math.hypot(q.x-q.wx,q.y-q.wy)>=r*1.25){ q.wx=q.x; q.wy=q.y; dropDisc(e,q.x,q.y,r,{life,dmg,src}); } };
+  drop(e,e.r*0.8); for(const g of e.segs) drop(g,g.r);
+  // SEGMENT VOLLEY: tail to head, each glows 0.35 s, then fires one round at the ship
+  const V=e.lvV; if(V&&p){ V.t+=dt; const n=e.segs.length;
+   while(V.i<=n&&V.t>=0.35+V.i*0.14){ const q=V.i<n?e.segs[n-1-V.i]:e, sv=e.lvVsrc||(e.lvVsrc=srcOf(e,'SEGMENT VOLLEY'));
+    const b=eshotAt(e,q.x,q.y,Math.atan2(p.y-q.y,p.x-q.x),300,6,0.8,3); if(b) b.src=sv; V.i++; SFX.eshoot(); }
+   if(V.i>n) e.lvV=null; } },
+ label(e){ return e.lvV&&!e.rec?'SEGMENT VOLLEY':null; },
+ under(e){ // telegraphs, then the body behind the head
+  const P=pigOf(e), W=e.lvW, K2=e.lvK, L=e.lvL;
+  if(e.atk==='whip'&&W&&W.st==='wind'){ const a0=W.a0, a1=W.a0+W.sweep, lo=Math.min(a0,a1), hi=Math.max(a0,a1);
+   ctx.save(); ctx.beginPath(); ctx.moveTo(e.x,e.y); ctx.arc(e.x,e.y,W.R,lo,hi); ctx.closePath(); ctx.save(); ctx.clip();
+   ctx.strokeStyle=K.redDim; ctx.lineWidth=1; ctx.beginPath(); for(let d=-2*W.R;d<W.R;d+=8){ ctx.moveTo(e.x+d,e.y-W.R); ctx.lineTo(e.x+d+W.R,e.y+W.R); } ctx.stroke(); ctx.restore();
+   ctx.beginPath(); ctx.moveTo(e.x,e.y); ctx.arc(e.x,e.y,W.R,lo,hi); ctx.closePath(); ctx.strokeStyle=K.red; ctx.lineWidth=1.5; ctx.stroke();
+   line(e.x+Math.cos(a1)*(W.R-16),e.y+Math.sin(a1)*(W.R-16),e.x+Math.cos(a1)*(W.R+14),e.y+Math.sin(a1)*(W.R+14),K.redHi,2); ctx.restore(); }
+  if(e.atk==='coil'&&K2&&K2.st==='wind'){ ctx.save(); ctx.strokeStyle=K.red; ctx.lineWidth=1.5; ctx.setLineDash([8,6]); ctx.beginPath(); ctx.arc(K2.cx,K2.cy,K2.R,0,6.283); ctx.stroke(); ctx.setLineDash([]);
+   ctx.lineWidth=1; ctx.beginPath(); ctx.arc(K2.cx,K2.cy,120,0,6.283); ctx.setLineDash([2,6]); ctx.stroke(); ctx.setLineDash([]); ctx.restore(); }
+  if(e.atk==='lunge'&&L&&L.st==='wind'){ const ex=e.x+L.dx*(L.L+e.r), ey=e.y+L.dy*(L.L+e.r);
+   ctx.save(); ctx.globalAlpha=0.85; tickedLine(e.x,e.y,ex,ey,K.red,1.5,22,5); const nx=-L.dy*e.r*0.8, ny=L.dx*e.r*0.8;
+   line(e.x+nx,e.y+ny,ex+nx,ey+ny,K.redDim,1,[6,6]); line(e.x-nx,e.y-ny,ex-nx,ey-ny,K.redDim,1,[6,6]); ctx.restore(); }
+  const V=e.lvV, n=e.segs.length, hot=k=>{ if(!V) return false; const i=n-1-k, due=0.35+i*0.14; return V.t>=due-0.35&&V.i<=i; };
+  const whip=e.atk==='whip'&&W&&W.st==='swing', rage=e.hp<e.maxhp*0.3;
+  ctx.save(); ctx.globalAlpha=e.phased?0.3:1;
+  for(let k=n-1;k>=0;k--){ const g=e.segs[k], pv=k?e.segs[k-1]:e, a=Math.atan2(pv.y-g.y,pv.x-g.x), r=g.r;
+   ctx.save(); ctx.translate(g.x,g.y); ctx.rotate(a);
+   polyPts([[r,0],[r*0.45,-r*0.9],[-r*0.55,-r*0.84],[-r,0],[-r*0.55,r*0.84],[r*0.45,r*0.9]]);
+   ctx.fillStyle=P.body; ctx.fill(); ctx.strokeStyle=(whip||rage)?P.hi:P.c; ctx.lineWidth=1.5; ctx.stroke();
+   ctx.strokeStyle=P.dim; ctx.lineWidth=1; ctx.beginPath(); ctx.moveTo(-r*0.6,0); ctx.lineTo(r*0.55,0); ctx.moveTo(r*0.1,-r*0.6); ctx.lineTo(r*0.45,0); ctx.lineTo(r*0.1,r*0.6); ctx.stroke();
+   if(hot(k)){ ctx.strokeStyle=K.red; ctx.lineWidth=1.5; ctx.beginPath(); ctx.arc(0,0,r+4,0,6.283); ctx.stroke(); }
+   ctx.restore(); }
   ctx.restore(); },
- draw(e,g){ // armoured head with mandibles
-  const R=g.R;
-  ctx.save(); ctx.rotate(Math.atan2(player?player.y-e.y:0,player?player.x-e.x:1));
+ draw(e,g){ // an armoured wedge head with mandibles; in the codex, its tail curled round it
+  const R=g.R, a=e.vis!=null?e.vis:(e.facing||0);
+  if(codexPreview){ ctx.save(); for(let k=4;k>=0;k--){ const t=a+Math.PI-1.1+k*0.62, r=R*(0.62-k*0.07), x=Math.cos(t)*R*1.2-Math.cos(a)*R*0.2, y=Math.sin(t)*R*1.2-Math.sin(a)*R*0.2;
+    ctx.save(); ctx.translate(x,y); ctx.rotate(t-1.5708); polyPts([[r,0],[r*0.45,-r*0.9],[-r*0.55,-r*0.84],[-r,0],[-r*0.55,r*0.84],[r*0.45,r*0.9]]);
+    ctx.fillStyle=g.body; ctx.fill(); ctx.strokeStyle=g.col; ctx.lineWidth=1.5; ctx.stroke(); ctx.restore(); } ctx.restore(); }
+  ctx.save(); ctx.rotate(a);
   ctx.fillStyle=g.body; ctx.strokeStyle=g.col; ctx.lineWidth=g.lw;
   ctx.beginPath(); ctx.moveTo(R,0); ctx.lineTo(R*0.2,-R*0.78); ctx.lineTo(-R*0.8,-R*0.5); ctx.lineTo(-R*0.8,R*0.5); ctx.lineTo(R*0.2,R*0.78); ctx.closePath(); ctx.fill(); ctx.stroke();
   ctx.lineWidth=3; ctx.lineCap='round'; ctx.beginPath(); ctx.moveTo(R*0.55,-R*0.4); ctx.lineTo(R*1.25,-R*0.72); ctx.moveTo(R*0.55,R*0.4); ctx.lineTo(R*1.25,R*0.72); ctx.stroke(); ctx.lineCap='butt';
@@ -2667,8 +3102,13 @@ BOSS_KITS.leviathan={
   ctx.fillStyle=g.col; ctx.beginPath(); ctx.arc(R*0.1,-R*0.26,3,0,6.283); ctx.arc(R*0.1,R*0.26,3,0,6.283); ctx.fill();
   ctx.restore();
  },
+ drawTop(e,g){ // SHED RUN: how long it has gone unhit, as an engraved arc round the head
+  if(!e.rec||e.kit.recover.label!==e.rec.label) return;
+  const f=clamp((timeSec-e.lastHit)/LV_UNHIT,0,1), R=g.R+18;
+  ctx.strokeStyle=g.dim; ctx.lineWidth=1; ctx.setLineDash([3,4]); ctx.beginPath(); ctx.arc(0,0,R,0,6.283); ctx.stroke(); ctx.setLineDash([]);
+  ctx.strokeStyle=f>=1?g.P.hi:g.col; ctx.lineWidth=2.5; ctx.beginPath(); ctx.arc(0,0,R,-1.5708,-1.5708+6.283*f); ctx.stroke(); },
  // the mandibles reach past the head's circle
- hitParts:{ rot:e=>Math.atan2(player?player.y-e.y:0,player?player.x-e.x:1), c:[[1.05,-0.62,0.2],[1.05,0.62,0.2]] }
+ hitParts:{ rot:e=>e.vis!=null?e.vis:(e.facing||0), c:[[1.05,-0.62,0.2],[1.05,0.62,0.2]] }
 };
 // ===== END BOSS: LEVIATHAN =====
 

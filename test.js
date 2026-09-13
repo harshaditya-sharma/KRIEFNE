@@ -2579,6 +2579,7 @@ function suiteBullets() {
  {
   const lane = (vs, lateral) => {
    const m = bulletRoom('warden', 9);
+   m.boss.kit = Object.assign({}, m.boss.kit, { hitParts: null }); // the core circle alone: WARDEN's pylons are hitParts, tested in kits1
    m.boss.vscale = vs; m.boss.x = m.cx + 120; m.boss.y = m.cy + lateral;
    const b = mkRound({ x: m.cx, y: m.cy, life: 0.4 }); m.api.bullets.push(b);
    const hp0 = m.boss.hp;
@@ -2650,7 +2651,7 @@ function suiteBullets() {
   const m = bulletRoom('warden', 9);
   const b = mkRound({ x: m.cx, y: m.cy, dmg: 10 }); m.api.bullets.push(b);
   const hp0 = m.boss.hp; let back = 0;
-  for (let f = 0; f < 12; f++) { m.boss.x = m.cx + 120; m.boss.y = m.cy; m.boss.mirror = m.boss.mirror || { arcs: [{ a: Math.PI, half: 1 }], cap: 6 }; m.api.update(DT); back = Math.max(back, m.api.ebullets.length); if (m.api.state !== 'playing') m.api.forceState('playing'); }
+  for (let f = 0; f < 12; f++) { m.boss.x = m.cx + 120; m.boss.y = m.cy; m.boss.mirror = m.boss.mirror || { arcs: [{ a: Math.PI, half: 1 }], cap: 6, budget: 6 }; m.api.update(DT); back = Math.max(back, m.api.ebullets.length); if (m.api.state !== 'playing') m.api.forceState('playing'); }
   ok('bossDeflect: a round into the mirror arc does no damage and is removed', m.boss.hp === hp0 && m.api.bullets.indexOf(b) < 0);
   atLeast('and comes back as an enemy round', back, 1);
   // bulletField: a lensing god turns the round away before it moves
@@ -3000,7 +3001,465 @@ function suiteFuzz() {
  return null;
 }
 
+// ======================================================================
+//  SUITE 8b1 -- wave-2 kits, group 1: OVERLORD, WARDEN, PHANTOM, REVENANT, LEVIATHAN
+// ======================================================================
+// A clean room at the god's nest: no cover, no chaff, the god `dx` px right of
+// the ship. The ship soaks everything (hp refilled every frame) and kitRun
+// counts what landed by the blow's name, so a test can ask "did the STOMP hit".
+function kitRoom(kind, sector, o) {
+ o = o || {};
+ const a = boot(); seedRandom(a, o.seed || (7700 + sector));
+ a.startRun(); a.loadSector(sector); a.forceState('playing');
+ a.arena.obs.length = 0; a.enemies.length = 0; a.queue.length = 0;
+ const p = a.player; p.autoFire = false; a.mouse.down = false;
+ const w = a.sectorWorld(sector); p.x = w.w / 2; p.y = w.h / 2;
+ const dx = o.dx !== undefined ? o.dx : 260, dy = o.dy || 0;
+ const b = o.summoned ? a.mkSummoned(kind, p.x + dx, p.y + dy, sector, 1) : a.mkBoss(kind, p.x + dx, p.y + dy, sector);
+ b.spawnT = 0; b.lead = !o.summoned; a.enemies.push(b);
+ p.hp = p.maxhp = 1e6; p.invuln = 0;
+ return { a, p, b, w };
+}
+function kitRun(a, secs, f) {
+ const p = a.player, seen = {}; let last = p.hp;
+ seconds(a, secs, i => {
+  if (p.hp < last && p.lastSrc) seen[p.lastSrc.what] = (seen[p.lastSrc.what] || 0) + 1;
+  p.hp = p.maxhp; last = p.hp; p.invuln = 0;
+  if (f) f(i);
+  a.mouse.down = false; if (a.state !== 'playing') a.forceState('playing');
+ });
+ return seen;
+}
+function kitRenders(a) { let threw = null; try { a.render(); } catch (e) { threw = e; } return threw; }
+function chaffIn(a) { return a.enemies.filter(e => e.type !== 'boss'); }
+function suiteKits1() {
+ section('kits: S5-S25 (OVERLORD, WARDEN, PHANTOM, REVENANT, LEVIATHAN)');
+ const api0 = boot(), KITS = api0.bossKits;
+ const RADIAL = ['burst', 'spiral', 'spiralwall'];
+ const basics = k => {
+  const kit = KITS[k];
+  ok(k + ': no radial burst, spiral or spiralwall in its kit', RADIAL.every(r => !kit.attacks[r] && kit.cycle.indexOf(r) < 0));
+  ok(k + ': a non-circular silhouette declares hitParts', !!(kit.hitParts && kit.hitParts.c.length));
+  const s = api0.mkSummoned(k, 500, 500, api0.bossdefs[k].debut - 1, 1);
+  ok(k + ': summoned at 85% size, with no recovery and no phases', Math.abs(s.r - kit.def.r * 0.85) < 1e-9 && s.recLeft.length === 0 && s.phAt.length === 0);
+ };
+
+ // ---------------- OVERLORD ----------------
+ {
+  basics('overlord');
+  ok('OVERLORD never recovers', !KITS.overlord.recover);
+  const { a, p, b } = kitRoom('overlord', 4);
+  b.forcedAttack = 'charge';
+  let windT = 0, moved = 0, ranAt = -1, x0 = null;
+  const px = p.x, py = p.y;
+  const hits = kitRun(a, 1.4, i => { const S = b.olC; if (S && S.st === 'wind') { windT += 1 / 60; if (x0 === null) x0 = b.x; moved = Math.max(moved, Math.abs(b.x - x0)); } if (S && S.st === 'run' && ranAt < 0) ranAt = i / 60; p.x = px; p.y = py; });
+  range('the Berserk Charge line is held 0.5-0.7s before it commits', windT, 0.5, 0.7);
+  atMost('it holds still while the line is up', moved, 2);
+  ok('then it charges down the line and the hull strikes the ship', ranAt > 0 && (hits.CHARGE || 0) >= 1, JSON.stringify(hits));
+  ok('the charge line draws', !kitRenders(a));
+ }
+ {
+  const { a, p, b, w } = kitRoom('overlord', 4);
+  p.x = 24 + 260; b.x = p.x + 240; b.y = p.y; b.hp = b.maxhp * 0.6; b.forcedAttack = 'charge';
+  let stoppedAt = null;
+  kitRun(a, 2.2, () => { p.x = 24 + 260 + 0; p.y = b.y + 120; const S = b.olC; if (S && S.st === 'rest' && S.run > 0 && !stoppedAt) stoppedAt = { x: b.x, bounced: S.bounced }; });
+  ok('calm, the charge stops at the wall', !!stoppedAt && !stoppedAt.bounced && stoppedAt.x < 24 + b.r + 40, JSON.stringify(stoppedAt));
+  const r2 = kitRoom('overlord', 4); const A = r2.a, P = r2.p, B = r2.b;
+  P.x = 24 + 260; B.x = P.x + 240; B.y = P.y; B.hp = B.maxhp * 0.25; B.cried = true; B.forcedAttack = 'charge';
+  let bounced = false, minX = 1e9, after = 0;
+  kitRun(A, 2.2, () => { P.x = 24 + 260; P.y = B.y + 120; const S = B.olC; if (S && S.bounced) { bounced = true; after = Math.max(after, B.x - minX); } minX = Math.min(minX, B.x); });
+  ok('enraged, it rebounds off the wall once and charges on', bounced && after > 40, 'bounced ' + bounced + ' back ' + after.toFixed(0));
+ }
+ {
+  const { a, p, b } = kitRoom('overlord', 4);
+  b.forcedAttack = 'cleave';
+  let early = 0, maxN = 0, spread = 0;
+  kitRun(a, 1.35, i => { const S = b.olK; if (S && S.st === 'wind' && a.ebullets.length) early++;
+   if (a.ebullets.length > maxN) { maxN = a.ebullets.length; const a0 = Math.atan2(a.ebullets[0].vy, a.ebullets[0].vx), ang = a.ebullets.map(r => wrapA(Math.atan2(r.vy, r.vx) - a0)); spread = Math.max(...ang) - Math.min(...ang); }
+   if (i === 30) ok('the cleave wedge draws while it winds', !kitRenders(a)); });
+  eq('no cleave round flies while its wedge is up', early, 0);
+  atLeast('then a fan is swept across the wedge', maxN, 10);
+  range('the sweep covers the wedge (~1.9 rad)', spread, 1.6, 2.0);
+ }
+ {
+  const { a, p, b } = kitRoom('overlord', 4, { dx: 120 });
+  b.forcedAttack = 'stomp';
+  let ring = null;
+  const hits = kitRun(a, 1.4, () => { p.x = b.x - 110; p.y = b.y; ring = ring || a.rings.find(g => g.owner === b && g.src && g.src.what === 'STOMP'); });
+  ok('the stomp plants a ring at its feet with a >=0.5s preview', !!ring && ring.maxR >= 150);
+  ok('and the ring lands on a ship in range', (hits.STOMP || 0) >= 1, JSON.stringify(hits));
+ }
+ {
+  const { a, p, b } = kitRoom('overlord', 4);
+  kitRun(a, 0.2);
+  const c0 = chaffIn(a).length;
+  b.hp = b.maxhp * 0.49; kitRun(a, 0.1);
+  ok('at half strength OVERLORD cries WAR CRY once: a pack rallies to it', b.cried && chaffIn(a).length - c0 >= 3 && chaffIn(a).every(e => e.type === 'drone' || e.type === 'stalker'));
+  ok('and it speeds up for two seconds', b.cryT > 1.5 && b.cryT <= 2);
+  const c1 = chaffIn(a).length; b.hp = b.maxhp * 0.3; kitRun(a, 0.5);
+  eq('the war cry comes once only', chaffIn(a).length, c1);
+  const s = kitRoom('overlord', 9, { summoned: true }); s.b.hp = s.b.maxhp * 0.4; kitRun(s.a, 0.3);
+  ok('a summoned OVERLORD never cries for help', !s.b.cried && chaffIn(s.a).length === 0);
+ }
+
+ // ---------------- WARDEN ----------------
+ basics('warden');
+ {
+  const { a, p, b } = kitRoom('warden', 9);
+  const px = p.x, py = p.y; b.wdG = 0.01; b.forcedAttack = 'lanelock'; b.atk = 'lanelock';
+  kitRun(a, 0.05, () => { p.x = px; p.y = py; });
+  const bm = a.bossBeams.filter(q => q.owner === b);
+  eq('TOLL GATE plants three pylons', (b.gate && b.gate.pts.length) || 0, 3);
+  eq('linked by six beam spans (two per link)', bm.length, 6);
+  ok('every span telegraphs for at least 0.5s', bm.every(q => q.warn >= 0.5 && q.t < q.warn));
+  const P = b.gate.pts, A = P[0], B = P[1], L = Math.hypot(B.x - A.x, B.y - A.y);
+  atLeast('each link leaves a gap of at least 2.2 ship diameters', L - 2 * L * 0.37, 2.2 * 2 * p.r);
+  ok('the gate draws', !kitRenders(a));
+  b.forcedAttack = null; a.__sandbox.window.devAiFreeze = true;
+  const gap = kitRun(a, 1.5, () => { p.x = (A.x + B.x) / 2; p.y = (A.y + B.y) / 2; });
+  eq('a ship in the gap is untouched', gap['TOLL GATE'] || 0, 0);
+  const on = kitRun(a, 1.0, () => { p.x = A.x + (B.x - A.x) * 0.2; p.y = A.y + (B.y - A.y) * 0.2; });
+  atLeast('a ship on a live span is ticked by it', on['TOLL GATE'] || 0, 2);
+  a.__sandbox.window.devAiFreeze = false;
+  kitRun(a, 3);
+  eq('the gate comes down after its four seconds', a.bossBeams.filter(q => q.owner === b).length + (b.gate ? 1 : 0), 0);
+ }
+ {
+  const { a, p, b } = kitRoom('warden', 9, { dx: 150 });
+  b.forcedAttack = 'twinwave'; b.wdG = 99; a.__sandbox.window.devAiFreeze = false;
+  const px = p.x, py = p.y; let rs = [];
+  const hits = kitRun(a, 1.9, () => { p.x = px; p.y = py; for (const g of a.rings) if (g.owner === b && rs.indexOf(g) < 0) rs.push(g); });
+  ok('TWINWAVE rolls two staggered rings, each previewed first', rs.length >= 2 && rs[1].delay - rs[0].delay > 0.3 || (rs.length >= 2 && rs[0].maxR !== rs[1].maxR));
+  atLeast('a ship that stands still takes both', hits.TWINWAVE || 0, 2);
+ }
+ {
+  const { a, p, b } = kitRoom('warden', 9, { dx: 130 });
+  b.forcedAttack = 'slam'; b.wdG = 99;
+  const x0 = p.x;
+  const hits = kitRun(a, 1.2);
+  ok('SLAM lands', (hits.SLAM || 0) >= 1, JSON.stringify(hits));
+  atLeast('and throws the ship back', x0 - p.x, 30);
+ }
+ {
+  const { a, p, b } = kitRoom('warden', 9);
+  b.forcedAttack = 'lanelock'; b.wdG = 99; const px = p.x, py = p.y;
+  kitRun(a, 0.4, () => { p.x = px; p.y = py; });
+  eq('LANE LOCK: nothing flies while the walls are ruled', a.ebullets.length, 0);
+  ok('the lane lock draws', !kitRenders(a));
+  kitRun(a, 0.4, () => { p.x = px; p.y = py; });
+  const w0 = a.ebullets.slice(); atLeast('then two walls of slow rounds', w0.length, 30);
+  const off = r => (r.x - px) * (-b.wdL.uy) + (r.y - py) * b.wdL.ux;
+  const width = () => { const o = a.ebullets.map(off); return Math.max(...o) - Math.min(...o); };
+  const wA = width(); kitRun(a, 1.2, () => { p.x = px; p.y = py; }); const wB = width();
+  ok('that close in: the corridor narrows', wB < wA - 80, wA.toFixed(0) + ' -> ' + wB.toFixed(0));
+  atMost('and the walls are sealed (no round gap a hull can slip)', 30, 2 * (p.r + 6));
+ }
+ {
+  const { a, p, b } = kitRoom('warden', 9);
+  b.fightT = 20; b.hp = b.hpSeen = b.maxhp * 0.54; b.forcedAttack = 'twinwave'; b.wdG = 99;
+  kitRun(a, 0.1);
+  const plates = () => b.parts.filter(q => q.kind === 'plate');
+  ok('at 55% WARDEN RAISES THE BRIDGE: six barrier plates', b.mode === 'recover' && a.bossLabel(b) === 'RAISE THE BRIDGE' && plates().length === 6);
+  ok('the plates draw', !kitRenders(a));
+  const h0 = b.hp; kitRun(a, 1); ok('it mends while the plates stand', b.hp > h0);
+  for (const q of plates().slice(0, 3)) a.breakPart(b, q);
+  kitRun(a, 0.1); ok('three plates down still mends', b.mode === 'recover');
+  a.breakPart(b, plates()[0]); kitRun(a, 0.1);
+  ok('the fourth breaks it: under three standing, the bridge falls', b.mode === 'hunt' && plates().length === 0);
+  const h1 = b.hp; kitRun(a, 1); atMost('and the mending stops', b.hp - h1, 1e-6);
+  b.hp = b.maxhp * 0.3; kitRun(a, 0.5); ok('the bridge is raised once only', b.mode !== 'recover');
+ }
+ {
+  const { a, b } = kitRoom('warden', 9);
+  b.fightT = 20; b.hp = b.hpSeen = b.maxhp * 0.54; b.wdG = 99; let peak = b.hp;
+  kitRun(a, 10, () => { peak = Math.max(peak, b.hp); });
+  ok('left alone, it lowers the bridge when its pool is spent', b.mode === 'hunt');
+  atMost('having mended no more than its 8% pool', (peak - b.maxhp * 0.54) / b.maxhp, 0.08 + 1e-9);
+ }
+ {
+  const { a, b } = kitRoom('warden', 9);
+  b.hp = b.maxhp * 0.49; kitRun(a, 0.5);
+  const s = a.enemies.filter(e => e.summoned);
+  ok('at 50% WARDEN calls OVERLORD', s.length === 1 && s[0].kind === 'overlord' && Math.abs(s[0].r - 30 * 0.85) < 1e-9, s.map(e => e.kind).join(','));
+ }
+ {
+  const { a, b } = kitRoom('warden', 9);
+  kitRun(a, 0.1); const hp = b.hitParts[0], r = b.r * (b.vscale || 1);
+  ok('a round through a pylon, clear of the core circle, strikes the WARDEN', Math.hypot(hp.x - b.x, hp.y - b.y) + hp.r > r && a.enemyHitT(b, hp.x - 60, hp.y, hp.x + 60, hp.y, 3.5) >= 0);
+ }
+
+ // ---------------- PHANTOM ----------------
+ basics('phantom');
+ {
+  const { a, p, b } = kitRoom('phantom', 14);
+  b.forcedAttack = 'blinkfan'; b.phB = 99; const px = p.x, py = p.y, pin = () => { p.x = px; p.y = py; };
+  const x0 = b.x, y0 = b.y;
+  kitRun(a, 0.4, pin);
+  ok('BLINK FAN: PHANTOM blinks, legally stamped', b.blinkAt > 0 && Math.hypot(b.x - x0, b.y - y0) > 60);
+  range('190-300px from the ship', Math.hypot(b.x - px, b.y - py), 150, 320);
+  ok('leaving an afterimage where it stood', (b.ghosts || []).some(g => g.kind === 'fan' && Math.hypot(g.x - x0, g.y - y0) < 90 && Math.hypot(g.x - b.x, g.y - b.y) > 150));
+  eq('nothing fires during the 0.35s aim', a.ebullets.length, 0);
+  ok('the aim and the afterimage draw', !kitRenders(a));
+  kitRun(a, 0.35, pin);
+  atLeast('then a five-round fan', a.ebullets.length, 5);
+  const hits = kitRun(a, 0.6, pin);
+  ok('and the afterimage aims once and fires its own fan at the ship', (hits.AFTERIMAGE || 0) >= 1 || a.ebullets.some(r => r.src && r.src.what === 'AFTERIMAGE'), JSON.stringify(hits));
+  kitRun(a, 1.2, pin); ok('then it fades', (b.ghosts || []).every(g => g.t < g.life));
+ }
+ {
+  const { a, p, b } = kitRoom('phantom', 14);
+  b.forcedAttack = 'afterimage'; b.phB = 99; const seen = new Set(), blinks = new Set();
+  kitRun(a, 2.0, () => { for (const g of b.ghosts || []) seen.add(g); if (b.blinkAt > 0) blinks.add(b.blinkAt); });
+  atLeast('AFTERIMAGE: a chain of three quick blinks', blinks.size, 3);
+  atLeast('each leaving a decoy', seen.size, 3);
+ }
+ {
+  const { a, p, b } = kitRoom('phantom', 14);
+  b.forcedAttack = 'crossfire'; b.phB = 99; const px = p.x, py = p.y;
+  kitRun(a, 0.3, () => { p.x = px; p.y = py; });
+  const bm = a.bossBeams.filter(q => q.owner === b && q.src.what === 'CROSSFIRE');
+  eq('CROSSFIRE: two beams', bm.length, 2);
+  const dl = q => { const dx = Math.cos(q.a), dy = Math.sin(q.a); return Math.abs((px - q.x) * dy - (py - q.y) * dx); };
+  ok('from the flank and from its afterimage opposite, both through the ship', bm.length === 2 && bm.every(q => dl(q) < 3) && Math.hypot(bm[0].x - bm[1].x, bm[0].y - bm[1].y) > 200);
+  range('crossing at an angle, not along one line', bm.length === 2 ? Math.abs(Math.abs(wrapA(bm[0].a - bm[1].a)) - Math.PI) : 0, 0.5, 1.4);
+  ok('both telegraph first', bm.every(q => q.warn >= 0.5));
+  const hitStill = kitRun(a, 1.0, () => { p.x = px; p.y = py; });
+  atLeast('a ship left on the X is struck', hitStill.CROSSFIRE || 0, 1);
+  const r2 = kitRoom('phantom', 14); const A = r2.a, P = r2.p, B = r2.b;
+  B.forcedAttack = 'crossfire'; B.phB = 99; const qx = P.x, qy = P.y;
+  kitRun(A, 0.3, () => { P.x = qx; P.y = qy; });
+  const b2 = A.bossBeams.filter(q => q.owner === B), m = b2.length ? (b2[0].a + b2[1].a) / 2 : 0;
+  let best = null; for (const s of [0, Math.PI / 2, Math.PI, 3 * Math.PI / 2]) { const tx = qx + Math.cos(m + s) * 90, ty = qy + Math.sin(m + s) * 90; const d = Math.min(...b2.map(q => Math.abs((tx - q.x) * Math.sin(q.a) - (ty - q.y) * Math.cos(q.a)))); if (!best || d > best.d) best = { tx, ty, d }; }
+  const stepped = kitRun(A, 1.0, () => { P.x = best.tx; P.y = best.ty; });
+  eq('a ship that steps out of the X is not', stepped.CROSSFIRE || 0, 0);
+ }
+ {
+  const { a, p, b } = kitRoom('phantom', 14);
+  b.phB = 0.01; b.forcedAttack = 'blinkfan'; const px = p.x, py = p.y;
+  kitRun(a, 0.05, () => { p.x = px; p.y = py; });
+  const bm = a.bossBeams.find(q => q.owner === b && q.src.what === 'UNDELIVERED BEAM');
+  ok('UNDELIVERED BEAM: a locked line held 0.7s', !!bm && bm.warn >= 0.7 && bm.follow === false);
+  const ox = bm.x; kitRun(a, 0.5, () => { p.x = px; p.y = py; });
+  ok('the line stays where it was locked when PHANTOM blinks away', bm.x === ox && b.x !== ox);
+  const hit = kitRun(a, 0.5, () => { p.x = px; p.y = py; });
+  atLeast('and the beam comes down on a ship that stayed on it', hit['UNDELIVERED BEAM'] || 0, 1);
+  const r2 = kitRoom('phantom', 14); r2.a.arena.obs.push({ kind: 'circle', x: r2.p.x + 120, y: r2.p.y, r: 30 });
+  r2.b.phB = 0.01; r2.b.forcedAttack = 'crossfire'; r2.b.phX = { st: 'rest', t: 99 }; r2.b.atk = 'crossfire';
+  const qx = r2.p.x, qy = r2.p.y, cov = kitRun(r2.a, 1.3, () => { r2.p.x = qx; r2.p.y = qy; if (r2.b.phB < 90) { r2.b.forcedAttack = 'blinkfan'; r2.b.phF = { t: 99, aim: 0 }; } });
+  eq('cover stops the beam', cov['UNDELIVERED BEAM'] || 0, 0);
+ }
+ {
+  const { a, b } = kitRoom('phantom', 14);
+  b.hp = b.maxhp * 0.49; kitRun(a, 0.5);
+  const s = a.enemies.filter(e => e.summoned);
+  ok('at 50% PHANTOM calls WARDEN', s.length === 1 && s[0].kind === 'warden', s.map(e => e.kind).join(','));
+ }
+
+ // ---------------- REVENANT ----------------
+ basics('revenant');
+ {
+  const { a, p, b, w } = kitRoom('revenant', 19);
+  const q = b.rvPod;
+  ok('SLEEPER POD: a cryo pod is planted at the start of the fight', !!q && q.kind === 'pod' && b.parts.indexOf(q) >= 0);
+  atMost('near a wall', Math.min(q.x - 24, w.w - 24 - q.x, q.y - 80, w.h - 24 - q.y), 140);
+  ok('a summoned REVENANT plants none', !a.mkSummoned('revenant', 500, 500, 19, 1).rvPod);
+  b.rvR = 0.01; b.forcedAttack = 'coldsnap'; b.rvC = { t: 99, warn: 0, end: 0, still: 0 };
+  const px = p.x, py = p.y, pin = () => { p.x = px; p.y = py; if (b.rvC && b.rvC.end > 0) b.rvC = { t: 99, warn: 0, end: 0, still: 0 }; };
+  kitRun(a, 0.3, pin);
+  ok('RIME BOLTS: a 0.35s aim first, nothing yet', a.ebullets.filter(r => r.rime).length === 0 && b.rvAim > 0);
+  ok('the aim draws', !kitRenders(a));
+  kitRun(a, 0.1, pin);
+  const bolts = a.ebullets.filter(r => r.rime);
+  ok('then three slow pale bolts that carry a freeze', bolts.length === 3 && bolts.every(r => r.freeze === 1.0 && Math.hypot(r.vx, r.vy) < 200));
+  let froze = false; kitRun(a, 2.0, () => { pin(); if (p.status.freeze > 0) froze = true; });
+  ok('a bolt that lands freezes the ship', froze);
+ }
+ {
+  const { a, p, b } = kitRoom('revenant', 19);
+  b.rvR = 99; b.forcedAttack = 'frostlane'; const px = p.x, py = p.y + 200, pin = () => { p.x = px; p.y = py; };
+  kitRun(a, 0.45, pin);
+  ok('FROST LANE: five points ruled down its aim first', b.rvL && b.rvL.st === 'wind' && b.rvL.pts.length === 5 && a.ebullets.length === 0);
+  ok('the lane draws', !kitRenders(a));
+  kitRun(a, 0.4, pin);
+  const mines = a.ebullets.filter(r => r.mine);
+  atLeast('then frost mines on them', mines.length, 4);
+  ok('drifting, and freezing on touch', mines.every(r => Math.hypot(r.vx, r.vy) < 30 && r.freeze === 1.0 && r.life > 5));
+  const m = mines[0]; let froze = false;
+  kitRun(a, 0.3, () => { p.x = m.x; p.y = m.y; if (p.status.freeze > 0) froze = true; });
+  ok('a ship that touches a mine is frozen', froze);
+  const r2 = kitRoom('revenant', 19, { dx: 250 }); r2.b.rvR = 99; r2.b.forcedAttack = 'frostlane';
+  const sx = r2.p.x, sy = r2.p.y; let onShip = 0;
+  kitRun(r2.a, 1.2, () => { r2.p.x = sx; r2.p.y = sy; for (const r of r2.a.ebullets) if (r.mine && Math.hypot(r.x - sx, r.y - sy) < r2.p.r + r.r) onShip++; });
+  eq('no mine ever appears on the ship', onShip, 0);
+ }
+ {
+  const { a, p, b } = kitRoom('revenant', 19);
+  b.rvR = 99; b.forcedAttack = 'shatter'; const px = p.x, py = p.y + 160, pin = () => { p.x = px; p.y = py; };
+  let wind = 0, x0 = null, moved = 0, go = 0;
+  const hits = kitRun(a, 1.4, () => { pin(); const S = b.rvS; if (S && S.st === 'wind') { wind += 1 / 60; if (x0 === null) x0 = { x: b.x, y: b.y }; moved = Math.max(moved, Math.hypot(b.x - x0.x, b.y - x0.y)); } if (S) go = Math.max(go, S.go || 0); });
+  range('SHATTER DASH: its line is held 0.5-0.6s', wind, 0.5, 0.62);
+  atMost('still while the line is up', moved, 2);
+  range('then a short dash', go, 40, 300);
+  ok('ending in shards at the ship', a.ebullets.filter(r => r.src && r.src.what === 'SHATTER').length >= 5 || (hits.SHATTER || 0) >= 1, JSON.stringify(hits));
+ }
+ {
+  const { a, p, b } = kitRoom('revenant', 19);
+  b.rvR = 99; b.forcedAttack = 'coldsnap'; const px = p.x, py = p.y; const freezes = []; let lastF = 0;
+  kitRun(a, 0.3, () => { p.x = px; p.y = py; });
+  ok('COLD SNAP arms with a ring closing on the hull (no freeze yet)', !!b.rvC && p.status.freeze <= 0);
+  ok('the snap gauge draws', !kitRenders(a));
+  kitRun(a, 4.3, i => { p.x = px; p.y = py; if (p.status.freeze > 0 && lastF <= 0) freezes.push(a.time); lastF = p.status.freeze; });
+  ok('a ship that stands still is frozen by it', freezes.length >= 1 && freezes[0] - (a.time - 4.6) >= 1.3, freezes.map(t => t.toFixed(2)).join(','));
+  ok('never chained: every freeze clears the 1.5s immunity first', freezes.every((t, i) => !i || t - freezes[i - 1] >= 2.2), freezes.map(t => t.toFixed(2)).join(','));
+  const r2 = kitRoom('revenant', 19); r2.b.rvR = 99; r2.b.forcedAttack = 'coldsnap'; let mf = false;
+  kitRun(r2.a, 4.8, i => { const ph = Math.floor(i / 20) % 4; r2.a.keys.KeyD = ph === 0; r2.a.keys.KeyS = ph === 1; r2.a.keys.KeyA = ph === 2; r2.a.keys.KeyW = ph === 3; if (r2.p.status.freeze > 0) mf = true; });
+  for (const k of ['KeyW', 'KeyA', 'KeyS', 'KeyD']) r2.a.keys[k] = false;
+  ok('a ship that keeps moving is never frozen by it', !mf);
+ }
+ {
+  const { a, p, b } = kitRoom('revenant', 19);
+  const q = b.rvPod, dk = { x: q.x + q.nx * 150, y: q.y + q.ny * 150 };
+  b.x = dk.x + 120 * (q.ny ? 1 : 0); b.y = dk.y + 120 * (q.nx ? 1 : 0);
+  b.fightT = 20; b.hp = b.hpSeen = b.maxhp * 0.54; b.rvR = 99; b.forcedAttack = 'frostlane';
+  kitRun(a, 0.05);
+  ok('at 55% REVENANT goes back to its SLEEPER POD', b.mode === 'recover' && a.bossLabel(b) === 'SLEEPER POD');
+  const d0 = Math.hypot(b.x - q.x, b.y - q.y); let docked = -1;
+  for (let i = 0; i < 360 && !b.rvDock; i++) kitRun(a, 1 / 60); docked = b.rvDock ? 1 : -1;
+  ok('it walks back and docks beside the pod', docked > 0 && Math.hypot(b.x - q.x, b.y - q.y) < d0 && Math.hypot(b.x - q.x, b.y - q.y) < b.r + q.r + 12, 'docked at ' + docked);
+  ok('the dock draws', !kitRenders(a));
+  const h0 = b.hp; kitRun(a, 0.5); const rate = (b.hp - h0) / b.maxhp / 0.5;
+  range('docked, it mends 2.5% a second', rate, 0.02, 0.026);
+  b.hp -= b.maxhp * 0.065; kitRun(a, 0.05);
+  ok('dealing 6% while it is docked forces it out', b.mode === 'hunt' && !b.rvDock);
+  const h1 = b.hp; kitRun(a, 1); atMost('and the mending stops', b.hp - h1, 1e-6);
+ }
+ {
+  const { a, p, b } = kitRoom('revenant', 19);
+  b.fightT = 20; b.hp = b.hpSeen = b.maxhp * 0.54; b.rvR = 99; b.forcedAttack = 'frostlane';
+  kitRun(a, 0.2); const h0 = b.hp;
+  a.breakPart(b, b.rvPod); kitRun(a, 0.05);
+  ok('destroying the pod forces it out', b.mode === 'hunt' && !b.rvPod.hp);
+  atMost('with nothing mended', b.hp - h0, 1e-6);
+  const r2 = kitRoom('revenant', 19); r2.a.breakPart(r2.b, r2.b.rvPod);
+  r2.b.fightT = 20; r2.b.hp = r2.b.hpSeen = r2.b.maxhp * 0.5; const h2 = r2.b.hp; let rec = 0;
+  kitRun(r2.a, 2, () => { if (r2.b.mode === 'recover') rec++; });
+  ok('a pod shot down early leaves it no recovery at all', rec <= 1 && r2.b.hp <= h2 + 1e-6);
+ }
+ {
+  const { a, b } = kitRoom('revenant', 19);
+  b.hp = b.maxhp * 0.49; kitRun(a, 0.5);
+  const s = a.enemies.filter(e => e.summoned);
+  ok('at 50% REVENANT calls PHANTOM', s.length === 1 && s[0].kind === 'phantom', s.map(e => e.kind).join(','));
+ }
+
+ // ---------------- LEVIATHAN ----------------
+ basics('leviathan');
+ const gapOf = b => { let prev = b, m = 0; for (const g of b.segs) { m = Math.max(m, Math.hypot(g.x - prev.x, g.y - prev.y) - b.r * 0.82); prev = g; } return m; };
+ const layOut = (b, a) => b.segs.forEach((g, k) => { g.x = b.x + Math.cos(a) * (k + 1) * b.r * 0.82; g.y = b.y + Math.sin(a) * (k + 1) * b.r * 0.82; });
+ {
+  const L = KITS.leviathan;
+  ok('LEVIATHAN has no burrow, mines or spiral left', !L.attacks.burrow && !L.attacks.mines && !L.attacks.spiral);
+  deepEq('its kit: Whip, Coil and Lunge, with the Segment Volley from Phase II', Object.keys(L.attacks).sort(), ['coil', 'lunge', 'volley', 'whip']);
+  const { a, p, b } = kitRoom('leviathan', 24); b.forcedAttack = 'lunge';
+  kitRun(a, 2.0);
+  const own = a.discs.filter(d => d.owner === b), sizes = new Set(own.map(d => Math.round(d.r0)));
+  atLeast('WAKE TRAIL: head and segments each drop discs their own size', sizes.size, 5);
+  ok('harmless at first, shrinking to nothing over 3.5s in Phase I', own.every(d => d.safe >= 0.25 && d.life === 3.5));
+ }
+ {
+  const { a, p, b } = kitRoom('leviathan', 24, { dx: 0, dy: -120 });
+  layOut(b, 0); b.hd = Math.PI; b.forcedAttack = 'whip';
+  const px = p.x, py = p.y; let a0 = null, a1 = null, gap = 0, windT = 0;
+  const tailA = () => { const t = b.segs[4]; return Math.atan2(t.y - b.y, t.x - b.x); };
+  let acc = 0, lastA = null;
+  const hits = kitRun(a, 1.7, () => { p.x = px; p.y = py; const S = b.lvW; if (S && S.st === 'wind') windT += 1 / 60;
+   if (S && S.st === 'swing') { const t = tailA(); if (lastA !== null) acc += wrapA(t - lastA); lastA = t; }
+   gap = Math.max(gap, gapOf(b)); if (S && S.st === 'wind') ok.windDraw = ok.windDraw || !kitRenders(a); });
+  range('WHIP: it rears for 0.5-0.6s behind a hatched arc', windT, 0.5, 0.62);
+  range('then the whole tail swings through a wide arc (rad)', Math.abs(acc), 2.0, 2.9);
+  atLeast('and strikes a ship standing in it', hits.WHIP || 0, 1);
+  atMost('the tail stays attached through the swing', gap, 0.5);
+ }
+ {
+  const { a, p, b } = kitRoom('leviathan', 24, { dx: 300 });
+  b.forcedAttack = 'coil'; const px = p.x, py = p.y;
+  kitRun(a, 0.3, () => { p.x = px; p.y = py; });
+  ok('COIL: a dashed ring round the ship first', b.lvK && b.lvK.st === 'wind' && Math.hypot(b.lvK.cx - px, b.lvK.cy - py) < 1 && !kitRenders(a));
+  let sweep = 0, lastA = null, minR = 1e9, dmax = 0;
+  kitRun(a, 3.6, () => { p.x = px; p.y = py; const S = b.lvK; if (S && (S.st === 'circle' || S.st === 'tighten')) { const t = Math.atan2(b.y - py, b.x - px); if (lastA !== null) sweep += wrapA(t - lastA); lastA = t; minR = Math.min(minR, S.R); dmax = Math.max(dmax, Math.hypot(b.x - px, b.y - py)); } });
+  atLeast('then it circles the ship', Math.abs(sweep), Math.PI);
+  atMost('and tightens the ring', minR, 130);
+  atLeast('fencing it in with its wake', a.discs.filter(d => d.owner === b && Math.hypot(d.x - px, d.y - py) < 300).length, 12);
+ }
+ {
+  const { a, p, b } = kitRoom('leviathan', 24, { dx: 320 });
+  b.forcedAttack = 'lunge'; const px = p.x, py = p.y; let wind = 0, w0 = null, still = 0, go = 0;
+  const hits = kitRun(a, 1.8, () => { p.x = px; p.y = py; const S = b.lvL; if (S && S.st === 'wind') { wind += 1 / 60; if (!w0) w0 = { x: b.x, y: b.y }; still = Math.max(still, Math.hypot(b.x - w0.x, b.y - w0.y)); } if (S) go = Math.max(go, S.go || 0); });
+  range('LUNGE: a ruled line held 0.6s', wind, 0.55, 0.65);
+  atMost('with the head still', still, 2);
+  atLeast('then a straight dash', go, 150);
+  ok('that bites a ship left on the line', (hits.LUNGE || 0) >= 1, JSON.stringify(hits));
+ }
+ {
+  const { a, p, b } = kitRoom('leviathan', 24, { dx: 320 });
+  b.forcedAttack = 'coil';
+  kitRun(a, 1.5); b.hp = b.maxhp * 0.49;
+  let beat = false; kitRun(a, 0.2, () => { beat = beat || b.mode === 'beat'; });
+  ok('PHASE II at 50%: the beat plays', b.ph === 2 && beat);
+  kitRun(a, 1.2);
+  ok('its wake now lasts 5s', a.discs.some(d => d.owner === b && d.life === 5));
+  const seen = new Map(); let firstGlow = null;
+  kitRun(a, 4.5, () => { if (b.lvV && firstGlow === null) firstGlow = a.time;
+   for (const r of a.ebullets) if (r.src && r.src.what === 'SEGMENT VOLLEY' && !seen.has(r)) { let bi = -1, bd = 1e9; [b].concat(b.segs).forEach((q, i) => { const d = Math.hypot(q.x - r.x, q.y - r.y); if (d < bd) { bd = d; bi = i; } }); seen.set(r, { i: bi, t: a.time }); } });
+  const order = [...seen.values()];
+  atLeast('SEGMENT VOLLEY: every segment, then the head, fires one round', order.length, 6);
+  ok('in sequence, tail to head', order.length >= 6 && order[0].i === 5 && order[5].i === 0, order.map(o => o.i).join(','));
+  ok('each after a 0.35s glow', order.length && order[0].t - firstGlow >= 0.33);
+ }
+ {
+  const { a, p, b } = kitRoom('leviathan', 24, { dx: 200 });
+  b.fightT = 20; b.hp = b.hpSeen = b.maxhp * 0.56; b.forcedAttack = 'lunge';
+  kitRun(a, 1.0); layOut(b, 0);
+  b.hp = b.hpSeen = b.maxhp * 0.54; b.lastHit = a.time; const px = p.x, py = p.y, d0 = Math.hypot(b.x - px, b.y - py);
+  kitRun(a, 0.05, () => { p.x = px; p.y = py; });
+  ok('at 55% LEVIATHAN goes on a SHED RUN', b.mode === 'recover' && a.bossLabel(b) === 'SHED RUN' && b.wakeMul === 1.5);
+  ok('the unhit gauge draws', !kitRenders(a));
+  const h0 = b.hp; kitRun(a, 1.8, () => { p.x = px; p.y = py; });
+  atMost('it does not mend in its first 2s unhit', b.hp - h0, 1e-6);
+  atLeast('it runs from the ship', Math.hypot(b.x - px, b.y - py), d0 + 80);
+  ok('its wake grows half again as long', a.discs.some(d => d.owner === b && Math.abs(d.life - 5.25) < 1e-9));
+  const h1 = b.hp; kitRun(a, 0.6, () => { p.x = px; p.y = py; });
+  ok('then, left unhit, it mends', b.hp > h1);
+  const h2 = b.hp; kitRun(a, 1.5, () => { p.x = px; p.y = py; b.hp -= 1; b.lastHit = a.time; });
+  ok('hitting it stops the mending', b.hp < h2);
+  kitRun(a, 8, () => { p.x = px; p.y = py; });
+  ok('the run ends and the wake returns to length', b.mode === 'hunt' && b.wakeMul === 1);
+ }
+ {
+  const { a, b } = kitRoom('leviathan', 24);
+  b.hp = b.maxhp * 0.59; kitRun(a, 0.5);
+  let s = a.enemies.filter(e => e.summoned);
+  ok('at 60% LEVIATHAN calls REVENANT', s.length === 1 && s[0].kind === 'revenant', s.map(e => e.kind).join(','));
+  a.killEnemy(a.enemies.indexOf(s[0])); b.hp = b.maxhp * 0.29; kitRun(a, 1.5);
+  s = a.enemies.filter(e => e.summoned);
+  ok('and again at 30%', s.length === 1 && s[0].kind === 'revenant');
+ }
+ {
+  const { a, p, b, w } = kitRoom('leviathan', 24); layOut(b, 0); b.forcedAttack = 'coil';
+  let gap = 0;
+  p.x = Math.min(w.w - 60, b.x + 900); b.surgeT = 1.6; b.path = null;
+  kitRun(a, 1.5, () => { gap = Math.max(gap, gapOf(b)); });
+  atMost('segments never detach while it SURGES', gap, 0.5);
+  for (let k = 0; k < 20; k++) { b.x += (k % 2 ? -1 : 1) * 250; b.y += 90; kitRun(a, 1 / 60); gap = Math.max(gap, gapOf(b)); }
+  atMost('or when the head is shoved hard, frame after frame (knockback, unstick)', gap, 0.5);
+  const sm = a.mkSummoned('leviathan', 600, 600, 24, 1); sm.hp = sm.maxhp * 0.4; a.enemies.push(sm); kitRun(a, 3);
+  ok('a summoned LEVIATHAN never volleys (Phase I kit only)', !sm.lvV && sm.ph === 1);
+ }
+ return null;
+}
+
 const SUITES = [
+ ['kits1', suiteKits1],
  ['xp', suiteXp],
  ['boot', suiteBoot],
  ['sectors', suiteSectors],
