@@ -3502,39 +3502,136 @@ BOSS_KITS.wyvern={
 // ===== END BOSS: WYVERN =====
 
 // ===== BOSS: ORACLE =====
+// The Rememberer (spec §5). Signature STRIKE MARKS: every ~6 s it marks
+// 4 + 1 per 20 sectors spots (max 8) — one on you, one on your heading, the
+// rest near you — filling 1.1 s, then all detonating together with the escape
+// gap guaranteed. Secondaries: CLOCKBEAM (the rotating twin stream, kept),
+// WARDS (kept) and FORESIGHT (after you dash, marks spawn at your dash end).
+// Phase II below 25%, or once the Call resolves: marks come in two staggered
+// waves. THE CALL (recovery): at 50% it summons two WYVERNs, then walks away
+// (no teleport, stays in the arena, avoids corners) and mends ~1.5%/s while
+// either lives, even while shot, with link lines. Both dead ends it with no
+// re-call; reaching full while a Wyvern lives re-arms once more at 50%, twice
+// at most, never after RELENTLESS. Summoned ORACLE has no Call. No chaff
+// summon, radial burst or parked zone.
+function orMarkCount(){ return Math.min(8,4+Math.floor((arenaIdx+1)/20)); }
+function orStrikePts(e,p,n){
+ const pts=[{x:p.x,y:p.y}];
+ const vx=p.mvx||0, vy=p.mvy||0, sp=Math.hypot(vx,vy);
+ let hx, hy;
+ if(sp>30){ hx=vx/sp; hy=vy/sp; }
+ else { const a=Math.atan2(p.y-e.y,p.x-e.x); hx=Math.cos(a); hy=Math.sin(a); }
+ pts.push({x:clamp(p.x+hx*135,PX0+10,PX1-10),y:clamp(p.y+hy*135,PY0+10,PY1-10)});
+ for(let k=pts.length;k<n;k++){ const a=Math.random()*6.283, d=60+Math.random()*120;
+  pts.push({x:clamp(p.x+Math.cos(a)*d,PX0+10,PX1-10),y:clamp(p.y+Math.sin(a)*d,PY0+10,PY1-10)}); }
+ return pts;
+}
+function orCallWyverns(e){ const out=[]; for(const o of enemies){ if(o.kind==='wyvern'&&o.caller===e.uid&&!o.dead) out.push(o); } return out; }
 BOSS_KITS.oracle={
- def:{name:'ORACLE',epithet:'the Rememberer',tier:3,hp:1150,r:30,spd:0.90,shape:'eye',pt:3.6,sig:'wards',chaff:['tempest','drone']},
+ def:{name:'ORACLE',epithet:'the Rememberer',tier:3,hp:1150,r:30,spd:0.90,shape:'eye',pt:3.6,sig:'marks',chaff:['tempest','drone']},
  lore:'A LORD WHO KEEPS THE LEDGER — ORACLE has already calculated this fight.',
- codex:{role:'Zone controller', threat:'Warded until broken',
-  tell:'Three shards orbit it. Rotating twin beams; damaging fields parked on you.',
-  counter:'Break all three WARDS first — until then it soaks 75% of every round.',
+ codex:{role:'Zone controller', threat:'The Call, once (twice re-armed)',
+  tell:'Dashed circles fill red together: STRIKE MARKS on you, on your heading and near you. Twin CLOCKBEAM streams turn both ways. After you dash, FORESIGHT marks your landing.',
+  counter:'Leave the marks before they fill; the solver always leaves a way out. Break the three WARDS first. When it CALLS two wings, kill them both: while either lives it mends.',
   lore:'The Rememberer. It computes where you will be, which is a harder problem than it sounds and a cheaper one than aiming. It has run the same sum on every species it ever heard, and kept the answers. The wards are its working memory, and it cannot afford to lose them mid-calculation.'},
- // The Call (decided, spec §2/§5): two WYVERNs at 50%. Wave 2 builds its heal
- // and re-arm on top; the budget already leaves room for two re-arms.
  calls:['wyvern','wyvern'], summons:{at:[0.5], budget:6},
- cycle:['clockbeam','zone','summon','burst'],
- attacks:atk('clockbeam','zone','summon','burst'),
- signature(e,C){ // orbiting shields — break them or it takes 25% damage
-  if(!e.wards.length&&!e.wardsBroken){ for(let k=0;k<3;k++) e.wards.push({a:k*2.094,hp:1}); e.wardsBroken=false; }
+ cycle:['clockbeam','foresight'],
+ phases:[{},{at:0.25,enter(e){ e.orMarkT=Math.min(e.orMarkT,1.0); }}],
+ init(e){ if(e.summoned){ e.recLeft=[]; e.sumLeft=[]; } e.orRe=e.orRe||0; e.orFull=false; },
+ attacks:{
+  clockbeam(e,C){ // the rotating twin stream, kept
+   C.mv(0.25); e.spirT-=C.dt;
+   if(e.spirT<=0){ e.spirT=0.10; const a=e.phaseT*1.5;
+    eshot(e,a,240,5,0.7,2.6); eshot(e,a+3.1416,240,5,0.7,2.6); } },
+  foresight(e,C){ // after you dash, marks at your dash end; else a lead mark on your path
+   C.orbit(0.7);
+   if(e.atkT===0){ e.orF={t:0,fired:false,lead:false,px:C.p.x,py:C.p.y}; SFX.click(); }
+   const S=e.orF; if(!S) return; S.t+=C.dt;
+   const p=C.p;
+   if(!S.fired&&p.dashT>0){ S.fired=true;
+    bossMarks(e,[{x:p.x,y:p.y},{x:clamp(p.x+(p.mvx||0)*0.3,PX0+10,PX1-10),y:clamp(p.y+(p.mvy||0)*0.3,PY0+10,PY1-10)}],{warn:1.1,what:'FORESIGHT'}); }
+   else if(!S.lead&&S.t>1.0&&!S.fired){ S.lead=true;
+    const vx=p.mvx||0, vy=p.mvy||0, sp=Math.hypot(vx,vy);
+    const lx=sp>30?p.x+vx/sp*120:p.x+Math.cos(C.aim)*120, ly=sp>30?p.y+vy/sp*120:p.y+Math.sin(C.aim)*120;
+    bossMarks(e,[{x:clamp(lx,PX0+10,PX1-10),y:clamp(ly,PY0+10,PY1-10)}],{warn:1.1,what:'FORESIGHT'}); } }
+ },
+ signature(e,C){ // wards plus strike marks on their own clock
+  if(!e.wards.length&&!e.wardsBroken){ const hp=Math.max(60,e.maxhp*0.04);
+   for(let k=0;k<3;k++) e.wards.push({a:k*2.094,hp}); e.wardsBroken=false; }
   e.wardA=(e.wardA||0)+C.dt*1.1;
   e.shielded=e.wards.length>0;
+  if(e.rec) return; // the Call walks; it does not mark
+  // P2 second wave, staggered after the first
+  if(e.orWave){ e.orWave.t-=C.dt;
+   if(e.orWave.t<=0){ const w=e.orWave; e.orWave=null;
+    bossMarks(e,w.pts,{warn:1.1,what:'STRIKE MARKS'}); } }
+  if(e.orMarkT===undefined) e.orMarkT=2.5;
+  e.orMarkT-=C.dt;
+  if(e.orMarkT>0||e.orWave) return;
+  e.orMarkT=C.enrage?4.2:6;
+  const n=orMarkCount(), pts=orStrikePts(e,C.p,n);
+  if(e.ph>=2&&!e.summoned&&pts.length>1){ const h=Math.ceil(pts.length/2);
+   bossMarks(e,pts.slice(0,h),{warn:1.1,what:'STRIKE MARKS'});
+   e.orWave={pts:pts.slice(h),t:0.6}; }
+  else bossMarks(e,pts,{warn:1.1,what:'STRIKE MARKS'});
  },
- draw(e,g){ // lidded eye, pupil tracks you
-  const R=g.R;
+ // THE CALL: two WYVERNs at 50% (the engine's summon), then walk away and mend
+ // while either lives. Bespoke heal, outside the pool, so it can reach full
+ // and re-arm. At most two re-arms, never past RELENTLESS.
+ recover:{ at:[0.5], pool:8, label:'THE CALL', hold:true, max:60,
+  start(e){ e.orFull=false;
+   addFloater(e.x,calloutY(e),'ORACLE CALLS WYVERN ×2 · kill the wings',K.red); SFX.alarm(); },
+  update(e,C){ const P=C.p, W=orCallWyverns(e);
+   // walk away from the ship, staying in the arena and out of the corners
+   const dx=e.x-P.x, dy=e.y-P.y, d=Math.hypot(dx,dy)||1;
+   let tx=e.x+dx/d*300, ty=e.y+dy/d*300;
+   tx=clamp(tx,PX0+120,PX1-120); ty=clamp(ty,PY0+120,PY1-120);
+   // out of the corner: pull toward the nearest edge centre
+   const cx=clamp(tx,PX0+120,PX1-120), cy=clamp(ty,PY0+120,PY1-120);
+   const ex=Math.min(tx-PX0,PX1-tx), ey=Math.min(ty-PY0,PY1-ty);
+   if(ex<120&&ey<120){ tx=(PX0+PX1)/2; }
+   const mx=cx-e.x, my=cy-e.y, md=Math.hypot(mx,my);
+   if(md>4){ const sv=steer(e,mx/md,my/md), v=Math.min(md,e.sp*1.6*C.sF*C.dt); e.x+=sv[0]*v; e.y+=sv[1]*v; e.intent+=v; }
+   if(!W.length) return 'broken';
+   // ~1.5%/s while either Wyvern lives, even while being shot
+   e.hp=Math.min(e.maxhp,e.hp+e.maxhp*0.015*C.dt);
+   if(e.hp>=e.maxhp-1e-6) e.orFull=true;
+   return false; },
+  end(e,why){ const re=e.orRe||0;
+   if((why==='broken'||why==='timeout')&&e.orFull&&re<2&&!e.hardEnrage&&!e.summoned){
+    e.orRe=re+1; e.recLeft=[0.5]; e.sumLeft=[0.5]; e.orFull=false;
+    addFloater(e.x,calloutY(e),'THE CALL RE-ARMS',K.red); }
+   else { e.recLeft=[]; e.orFull=false; }
+   if(!e.summoned&&e.ph<2) e.orBeat=true; } // deferred: engine sets hunt after end, so beat next frame
+ },
+ label(e){ if(e.rec) return 'THE CALL'; if(e.atk==='foresight') return 'FORESIGHT'; return null; },
+ post(e,dt){ if(e.orF&&e.atk!=='foresight') e.orF=null;
+  if(e.orBeat&&!e.rec&&e.mode==='hunt'){ e.orBeat=false; e.ph=2; phaseBeat(e); } },
+ under(e){
+  // link lines from each living Wyvern to ORACLE during the Call
+  if(e.rec){ const W=orCallWyverns(e);
+   for(const w of W){ ctx.save(); ctx.globalAlpha=0.8; line(w.x,w.y,e.x,e.y,pigOf(e).c,1.5); ctx.restore(); } }
+ },
+ draw(e,g){ // lidded almond eye whose pupil tracks you; narrows for FORESIGHT
+  const R=g.R, narrow=e.atk==='foresight'?0.45:0.66;
   ctx.fillStyle=g.body; ctx.strokeStyle=g.col; ctx.lineWidth=g.lw;
-  ctx.beginPath(); ctx.ellipse(0,0,R,R*0.66,0,0,6.283); ctx.fill(); ctx.stroke();
+  ctx.beginPath(); ctx.ellipse(0,0,R,R*narrow,0,0,6.283); ctx.fill(); ctx.stroke();
   { const a=Math.atan2(player?player.y-e.y:0,player?player.x-e.x:1);
-    ctx.strokeStyle=g.col; ctx.beginPath(); ctx.arc(Math.cos(a)*R*0.34,Math.sin(a)*R*0.22,R*0.30,0,6.283); ctx.stroke();
-    ctx.fillStyle=g.col; ctx.beginPath(); ctx.arc(Math.cos(a)*R*0.34,Math.sin(a)*R*0.22,R*0.12,0,6.283); ctx.fill(); }
+   ctx.strokeStyle=g.col; ctx.beginPath(); ctx.arc(Math.cos(a)*R*0.34,Math.sin(a)*R*0.22,R*0.30,0,6.283); ctx.stroke();
+   ctx.fillStyle=g.col; ctx.beginPath(); ctx.arc(Math.cos(a)*R*0.34,Math.sin(a)*R*0.22,R*0.12,0,6.283); ctx.fill(); }
   ctx.strokeStyle=g.dim; ctx.lineWidth=1;
   ctx.beginPath(); ctx.moveTo(-R,0); ctx.quadraticCurveTo(0,-R*0.95,R,0); ctx.stroke();
   ctx.beginPath(); ctx.moveTo(-R,0); ctx.quadraticCurveTo(0,R*0.95,R,0); ctx.stroke();
  },
- drawTop(e,g){ // the wards ride outside the eye
+ drawTop(e,g){ // the wards ride outside the eye, with HP arcs
   for(const w of e.wards){ const a=w.a+(e.wardA||0);
    ctx.save(); ctx.translate(Math.cos(a)*(g.R+26),Math.sin(a)*(g.R+26)); ctx.rotate(a*2);
-   ctx.fillStyle=g.P.body; ctx.strokeStyle=g.P.c; ctx.lineWidth=1.5; poly(3,10,0); ctx.fill(); ctx.stroke(); ctx.restore(); }
- }
+   ctx.fillStyle=w.flash>0?g.P.flash:g.P.body; ctx.strokeStyle=g.P.c; ctx.lineWidth=1.5; poly(3,10,0); ctx.fill(); ctx.stroke();
+   const f=clamp(w.hp/(Math.max(60,e.maxhp*0.04)),0,1);
+   ctx.strokeStyle=g.P.dim; ctx.lineWidth=2; ctx.beginPath(); ctx.arc(0,0,13,-1.5708,-1.5708+f*6.283); ctx.stroke();
+   ctx.restore(); }
+ },
+ hitParts:{ rot:()=>0, c:[[1.15,0,0.22],[-1.15,0,0.22]] }
 };
 // ===== END BOSS: ORACLE =====
 
