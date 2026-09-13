@@ -1165,7 +1165,7 @@ const EXP_DMG=1.030, EXP_DMG_LATE=1.012, EXP_DMG_APEX=1.07;
 function seg(a,lo,hi){ return Math.max(0,Math.min(a,hi)-lo); }
 function eHpScale(a){ return (1+0.32*Math.min(a,4))*Math.pow(EXP_HP,seg(a,4,59))*Math.pow(EXP_HP_LATE,seg(a,59,109))*Math.pow(EXP_HP_APEX,Math.max(0,a-109)); }
 function eDmgScale(a){ return (1+0.10*Math.min(a,6))*Math.pow(EXP_DMG,seg(a,6,59))*Math.pow(EXP_DMG_LATE,seg(a,59,109))*Math.pow(EXP_DMG_APEX,Math.max(0,a-109)); }
-const EBASE={ drone:{hp:24,sp:130,dmg:8,r:10,xp:3}, stalker:{hp:40,sp:110,dmg:12,r:11,xp:4}, sniper:{hp:30,sp:70,dmg:10,r:10,xp:4}, brute:{hp:130,sp:75,dmg:20,r:18,xp:8}, boss:{hp:1500,sp:90,dmg:15,r:30,xp:50}, mite:{hp:18,sp:155,dmg:6,r:7,xp:2}, tempest:{hp:46,sp:95,dmg:9,r:11,xp:5} };
+const EBASE={ drone:{hp:24,sp:130,dmg:8,r:10,xp:3}, stalker:{hp:40,sp:110,dmg:12,r:11,xp:4}, sniper:{hp:30,sp:70,dmg:10,r:10,xp:4}, brute:{hp:130,sp:75,dmg:20,r:18,xp:8}, boss:{hp:1500,sp:90,dmg:15,r:30,xp:50}, mite:{hp:18,sp:155,dmg:6,r:7,xp:2}, tempest:{hp:46,sp:95,dmg:9,r:11,xp:5}, fighter:{hp:26,sp:175,dmg:9,r:9,xp:4} };
 // Ordinary enemies get their own HP curve on top of eHpScale (spec §7), fitted
 // by the fight simulator (test.js --only fightsim). eHpScale itself is the boss
 // engine's and stays put. S1-S9 are left alone (the early sectors are already
@@ -4151,31 +4151,148 @@ BOSS_KITS.basilisk={
 // ===== END BOSS: BASILISK =====
 
 // ===== BOSS: PROGENITOR =====
-// Placeholder kit (wave 2 builds the full one, spec §5): Broadside only.
+// The Brood-Hall (spec §5). Signature LAUNCH BAYS: four bays (parts) launch
+// squadrons of fast fighters, a new chaff type — break the bays to stop them.
+// Secondaries: BROADSIDE (paired line volleys raking past both flanks),
+// MINEFIELD (the bays drop mines astern) and RECALL BEAM (it tows damaged
+// fighters in and repairs them). P2 at 66%: bigger squadrons, faster. P3 at
+// 33%: the SIMPLIFIED hull-split — the halves separate visually but stay
+// tethered, one hull, one shared HP bar; they never fight independently.
+// Recovery DOCKING at 55% and 30%: fighters return to dock, and each one that
+// lands mends 1.5% — kill them in transit. Calls BASILISK at 70% and 35%
+// (the rung below). No radial volleys.
+const PG_BAY_HP=0.04;
+function pgBays(e){ return (e.parts||[]).filter(q=>q.kind==='bay'&&!q.dead); }
+function pgLaunch(e,n){ // every living bay puts out n fighters
+ for(const q of e.parts||[]){ if(q.kind!=='bay'||q.dead) continue;
+  for(let k=0;k<n;k++){ if(enemies.length>=CAP.enemies-1) return;
+   const dx=q.x-e.x, dy=q.y-e.y, l=Math.hypot(dx,dy)||1;
+   const m=mkEnemy('fighter',q.x+dx/l*24,q.y+dy/l*24,arenaIdx); m.spawnT=0.9; enemies.push(m); } }
+ SFX.eshoot(); }
 BOSS_KITS.progenitor={
  def:{name:'PROGENITOR',epithet:'the Brood-Hall',tier:4,hp:1600,r:36,spd:0.80,shape:'hull',pt:3.6,sig:'bays',chaff:['drone','mite']},
  lore:'A SOVEREIGN THAT IS A HANGAR — PROGENITOR never flies alone for long.',
- codex:{role:'Carrier', threat:'Fire from both flanks',
-  tell:'Its flanks flare, then a BROADSIDE of two parallel lines rakes past its sides.',
-  counter:'The lines run along its flanks. Take its nose or its tail, never its side.',
+ codex:{role:'Carrier', threat:'Bays launch fighters; docks twice; three phases',
+  tell:'Bay notches flare, then FIGHTERS streak out. Ruled lines along its flanks are the BROADSIDE; mines astern, the MINEFIELD; a red tow-line to a fighter, the RECALL.',
+  counter:'Break the bays to stop the launches. Take its nose or its tail, never its side. It tows its damaged fighters home: kill them in transit. When it docks its brood, kill them before they land — every one that docks mends it.',
   lore:'The Brood-Hall. A carrier whose air wing was grown, not built, and grew until the hall and the brood were one thing. It launches as a reflex. It no longer remembers which of its children were meant to come home.'},
- cycle:['broadside','summon'],
- attacks:Object.assign(atk('summon'),{
-  broadside(e,C){ // paired line volleys from both flanks, 0.5 s flare
-   C.mv(0.35); e.burstT-=C.dt;
-   if(e.aimT>0){ e.aimT-=C.dt; if(e.aimT<=0){ const a=e.side, nx=-Math.sin(a), ny=Math.cos(a);
-     for(const sd of [-1,1]) for(let k=0;k<4;k++){ const ox=e.x+nx*sd*e.r, oy=e.y+ny*sd*e.r; eshotAt(e,ox,oy,a+sd*0.02*k,230+k*20,5,0.75,3.4); }
+ cycle:['broadside','minefield','recall'],
+ phases:[{},{at:0.66},{at:0.33,enter(e){ e.pg.split=Math.max(e.pg.split||0,0.01);
+  addFloater(e.x,calloutY(e),'HULL SPLIT — ONE HULL, STILL TETHERED',K.red); SFX.alarm(); }}],
+ init(e){ e.pg={face:Math.atan2(player?player.y-e.y:0,player?player.x-e.x:1),launchT:1.0,tow:[],split:0,dock:null};
+  const R=e.r;
+  for(const [bx,by] of [[0.55,0.62],[-0.55,0.62],[0.55,-0.62],[-0.55,-0.62]])
+   addPart(e,{id:'bay'+bx+'_'+by,lx:bx*R,ly:by*R,r:12,hp:e.maxhp*PG_BAY_HP,kind:'bay'}); },
+ attacks:{
+  broadside(e,C){ // paired line volleys raking past both flanks, 0.5 s flare
+   C.mv(0.35);
+   let S=e.pgB; if(e.atkT===0||!S) S=e.pgB={st:'wind',t:0.5,a:0};
+   S.t-=C.dt;
+   if(S.st==='wind'){ S.a=C.aim;
+    if(S.t<=0){ S.st='cool'; S.t=1.8;
+     const a=S.a, nx=-Math.sin(a), ny=Math.cos(a);
+     for(const sd of [-1,1]) for(let k=0;k<4;k++){ const ox=e.x+nx*sd*e.r, oy=e.y+ny*sd*e.r;
+      eshotAt(e,ox,oy,a+sd*0.02*k,230+k*20,5,0.75,3.4); }
      SFX.eshoot(); } }
-   else if(e.burstT<=0){ e.burstT=C.enrage?1.5:2.1; e.aimT=0.5; e.side=C.aim; } }
- }),
- draw(e,g){ // a long hull of parallelograms with bay notches
-  const R=g.R; ctx.save(); ctx.rotate(e.aimT>0?e.side:Math.atan2(player?player.y-e.y:0,player?player.x-e.x:1));
-  ctx.fillStyle=g.body; ctx.strokeStyle=g.col; ctx.lineWidth=g.lw;
-  polyPts([[R,-R*0.3],[R*0.2,-R*0.62],[-R,-R*0.62],[-R*0.7,-R*0.1],[-R*0.7,R*0.1],[-R,R*0.62],[R*0.2,R*0.62],[R,R*0.3]]); ctx.fill(); ctx.stroke();
-  ctx.strokeStyle=g.dim; ctx.lineWidth=1; for(const sd of [-1,1]) for(let k=0;k<2;k++){ ctx.strokeRect(-R*0.6+k*R*0.55,sd*R*0.62-(sd>0?R*0.2:0),R*0.35,R*0.2); }
-  if(e.aimT>0){ ctx.strokeStyle=K.red; ctx.lineWidth=1.5; line(-R,-R*0.7,R,-R*0.7,K.red,1.5); line(-R,R*0.7,R,R*0.7,K.red,1.5); }
+   else if(S.st==='cool'&&S.t<=0){ S.st='wind'; S.t=0.5; } },
+  minefield(e,C){ // the living bays drop mines astern
+   C.mv(0.35);
+   let S=e.pgM; if(e.atkT===0||!S) S=e.pgM={st:'wind',t:0.6};
+   S.t-=C.dt;
+   if(S.st==='wind'&&S.t<=0){ S.st='cool'; S.t=2.2;
+    const fx=e.pg.face, sx=Math.cos(fx+Math.PI), sy=Math.sin(fx+Math.PI), src=srcOf(e,'MINEFIELD');
+    const bays=pgBays(e), n=e.ph>=3&&!e.summoned?4:3;
+    for(let k=0;k<n&&hazards.length<CAP.haz;k++){ const q=bays.length?bays[k%bays.length]:null;
+     const bx=q?q.x:e.x, by=q?q.y:e.y;
+     hazards.push({x:clamp(bx+sx*(40+k*55)+(Math.random()-0.5)*30,PX0+60,PX1-60),
+      y:clamp(by+sy*(40+k*55)+(Math.random()-0.5)*30,PY0+60,PY1-60),
+      r:48,t:0,life:6,dmg:Math.round(e.dmg*0.4),tick:0,warn:0.55,src}); }
+    SFX.click(); }
+   else if(S.st==='cool'&&S.t<=0){ S.st='wind'; S.t=0.6; } },
+  recall(e,C){ // tow every damaged fighter in reach home and repair it
+   C.mv(0.3);
+   e.pg.tow=[];
+   for(const m of enemies){ if(m.type!=='fighter'||m.dead||m.hp>=m.maxhp) continue;
+    if(Math.hypot(m.x-e.x,m.y-e.y)>520) continue;
+    e.pg.tow.push(m.uid);
+    const dx=e.x-m.x, dy=e.y-m.y, l=Math.hypot(dx,dy)||1, v=320*C.dt;
+    m.x+=dx/l*Math.min(v,l); m.y+=dy/l*Math.min(v,l);
+    if(l<e.r+50){ m.hp=Math.min(m.maxhp,m.hp+m.maxhp*0.25);
+     spawnBurst(m.x,m.y,6,pigOf(e).c,150,0.3,2); } } }
+ },
+ signature(e,C){ // the bays keep launching: bigger squadrons from P2
+  e.pg.launchT-=C.dt;
+  if(e.pg.launchT<=0){ const big=e.ph>=2&&!e.summoned;
+   e.pg.launchT=(C.enrage?3.0:4.5)*(big?0.75:1);
+   if(pgBays(e).length) pgLaunch(e,big?2:1); } },
+ onPartBreak(e,q){
+  if(q&&q.kind==='bay') addFloater(q.x,q.y-20,'BAY DESTROYED',K.gold); },
+ // DOCKING: the brood comes home; every fighter that lands mends 1.5%.
+ // Kill them in transit — a fighter killed on the way home mends nothing.
+ recover:{ at:[0.55,0.30], pool:0.08, label:'DOCKING', hold:false, max:12,
+  start(e){ e.pg.dock=[]; e.pg.docked=0;
+   for(const m of enemies){ if(m.type==='fighter'&&!m.dead&&e.pg.dock.length<6) e.pg.dock.push(m.uid); }
+   addFloater(e.x,calloutY(e),'PROGENITOR DOCKS ITS BROOD · kill them in transit',K.red); SFX.alarm(); },
+  update(e,C){ const dock=(e.pg.dock||[]).map(u=>enemies.find(m=>m.uid===u&&!m.dead)).filter(Boolean);
+   e.pg.dockTow=dock.map(m=>m.uid);
+   const bays=pgBays(e);
+   for(const m of dock){
+    const q=bays.length?bays.reduce((a2,b2)=>Math.hypot(m.x-a2.x,m.y-a2.y)<Math.hypot(m.x-b2.x,m.y-b2.y)?a2:b2):null;
+    const tx=q?q.x:e.x, ty=q?q.y:e.y, dx=tx-m.x, dy=ty-m.y, l=Math.hypot(dx,dy)||1, v=(m.sp*1.3+60)*C.dt;
+    m.x+=dx/l*Math.min(v,l); m.y+=dy/l*Math.min(v,l);
+    if(Math.hypot(tx-m.x,ty-m.y)<30){ m.dead=true; enemies.splice(enemies.indexOf(m),1);
+     spawnBurst(tx,ty,8,pigOf(e).c,180,0.4,3); bossHeal(e,e.maxhp*0.015); e.pg.docked++;
+     addFloater(tx,ty-20,'DOCKED',K.red); } }
+   e.pg.dock=(e.pg.dock||[]).filter(u=>enemies.some(m=>m.uid===u&&!m.dead));
+   if(!e.pg.dock.length) return e.pg.docked>0?'mended':'broken';
+   if(e.healPool<=0) return 'mended';
+   return false; },
+  end(e,why){ e.pg.dock=null; e.pg.dockTow=null;
+   addFloater(e.x,calloutY(e),why==='broken'?'DOCKING BROKEN':'BROOD DOCKED',why==='broken'?K.gold:K.red); } },
+ label(e){ if(e.atk==='broadside') return 'BROADSIDE'; if(e.atk==='minefield') return 'MINEFIELD';
+  if(e.atk==='recall') return 'RECALL BEAM'; return null; },
+ post(e,dt){
+  const p=player;
+  if(p) e.pg.face=turnTo(e.pg.face,Math.atan2(p.y-e.y,p.x-e.x),1.4*dt);
+  e.partRot=e.pg.face; // the bays ride the hull
+  if(e.ph>=3&&!e.summoned) e.pg.split=Math.min(1,(e.pg.split||0)+dt*0.5); },
+ under(e){
+  const B=e.pgB, p=player;
+  if(e.atk==='broadside'&&B&&B.st==='wind'&&p){ const a=B.a;
+   ctx.save(); ctx.globalAlpha=0.85;
+   for(const sd of [-1,1]){ const ox=e.x+(-Math.sin(a))*sd*e.r, oy=e.y+Math.cos(a)*sd*e.r;
+    tickedLine(ox,oy,ox+Math.cos(a)*500,oy+Math.sin(a)*500,K.red,1,24,3); }
+   ctx.restore(); }
+  const tow=(e.pg.tow||[]).concat(e.pg.dockTow||[]);
+  if(tow.length){ ctx.save(); ctx.globalAlpha=0.85;
+   for(const u of tow){ const m=enemies.find(m=>m.uid===u&&!m.dead); if(!m) continue;
+    tickedLine(e.x,e.y,m.x,m.y,K.red,1,18,3); }
+   ctx.restore(); } },
+ draw(e,g){ // a long hull of parallelograms with bay notches; split but tethered in P3
+  const R=g.R, sp=e.pg?e.pg.split||0:0, off=sp*R*0.45;
+  ctx.save(); ctx.rotate(e.pg?e.pg.face:0);
+  for(const s of [-1,1]){ ctx.save(); ctx.translate(0,s*off);
+   polyPts([[R*1.05,-R*0.08],[R*0.3,-R*0.5],[-R*0.95,-R*0.5],[-R*0.7,-R*0.08]]);
+   ctx.fillStyle=g.body; ctx.fill();
+   ctx.strokeStyle=(e.pgB&&e.pgB.st==='wind'&&e.atk==='broadside')?K.redHi:g.col;
+   ctx.lineWidth=g.lw; ctx.stroke();
+   ctx.strokeStyle=g.dim; ctx.lineWidth=1;
+   for(const bx of [-0.45,0.45]){ ctx.strokeRect(bx*R-R*0.14,s>0?-R*0.5:-R*0.28,R*0.28,R*0.22); }
+   ctx.restore(); }
+  if(sp>0.02){ ctx.save(); ctx.strokeStyle=K.redDim; ctx.lineWidth=1; ctx.setLineDash([4,4]);
+   for(const bx of [-0.6,0,0.6]){ ctx.beginPath(); ctx.moveTo(bx*R,-off); ctx.lineTo(bx*R,off); ctx.stroke(); }
+   ctx.setLineDash([]); ctx.restore(); }
+  ctx.fillStyle=g.col; ctx.beginPath(); ctx.arc(0,0,3.5,0,6.283); ctx.fill();
   ctx.restore();
- }
+ },
+ drawPart(e,q,g){ // a launch bay: an open notch with its HP as an engraved arc
+  ctx.fillStyle=q.flash>0?g.P.flash:g.body; ctx.strokeStyle=g.col; ctx.lineWidth=1.5;
+  ctx.strokeRect(-q.r,-q.r*0.7,q.r*2,q.r*1.4);
+  ctx.fillStyle=e.pg&&e.pg.launchT<0.5?K.redHi:g.dim; ctx.fillRect(-q.r*0.6,-q.r*0.35,q.r*1.2,q.r*0.7);
+  const f=clamp(q.hp/(q.maxhp||q.hp||1),0,1);
+  ctx.strokeStyle=g.dim; ctx.lineWidth=1.5; ctx.beginPath(); ctx.arc(0,0,q.r*0.55,-1.5708,-1.5708+f*6.283); ctx.stroke(); },
+ // the long hull reaches past the core circle fore and aft
+ hitParts:{ rot:e=>e.pg?e.pg.face:0, c:[[0.75,0,0.32],[-0.75,0,0.32],[0,0,0.35]] }
 };
 // ===== END BOSS: PROGENITOR =====
 
@@ -4920,7 +5037,7 @@ function update(dt){
    const sF=e.slowT>0?0.55:1; if(e.slowT>0)e.slowT-=dt;
    const dx=p.x-e.x, dy=p.y-e.y, d=len(dx,dy), nx=dx/d, ny=dy/d;
    for(const o of enemies){ if(o===e) continue; const d2=dist2(e.x,e.y,o.x,o.y); const rr=e.r+o.r; if(d2<rr*rr&&d2>0.01){ const dd=Math.sqrt(d2); const push=(rr-dd)*0.4; e.x+=(e.x-o.x)/dd*push*0.5; e.y+=(e.y-o.y)/dd*push*0.5; } }
-   if(e.type==='drone'||e.type==='mite'){ e.wob+=dt*4; const burst=d<160?1.25:1; const ms=e.sp*sF*burst; const sv=steer(e,nx,ny); e.x+=(sv[0]*ms+Math.cos(e.wob)*45)*dt; e.y+=(sv[1]*ms+Math.sin(e.wob)*45)*dt; }
+   if(e.type==='drone'||e.type==='mite'||e.type==='fighter'){ e.wob+=dt*4; const burst=d<160?1.25:1; const ms=e.sp*sF*burst; const sv=steer(e,nx,ny); e.x+=(sv[0]*ms+Math.cos(e.wob)*45)*dt; e.y+=(sv[1]*ms+Math.sin(e.wob)*45)*dt; }
    else if(e.type==='stalker'){
      if(e.dashState===0){ // strafe orbit then commit
       e.strafeT-=dt; const ox=-ny*e.strafeDir, oy=nx*e.strafeDir;
@@ -6000,6 +6117,9 @@ function drawEnemy(e){
   ctx.fillStyle=body; ctx.strokeStyle=hot?K.redHi:col; ctx.lineWidth=1.5; poly(6,10,e.t*0.5); ctx.fill(); ctx.stroke();
   ctx.fillStyle=hot?K.redHi:col; ctx.beginPath(); ctx.arc(0,0,2.5,0,6.283); ctx.fill(); }
  else if(e.type==='mite'){ ctx.rotate(e.wob); ctx.fillStyle=body; ctx.strokeStyle=col; ctx.lineWidth=1.25; ctx.beginPath(); ctx.moveTo(9,0); ctx.lineTo(-7,-7); ctx.lineTo(-7,7); ctx.closePath(); ctx.fill(); ctx.stroke(); line(-7,0,-2,0,col,1); }
+ else if(e.type==='fighter'){ ctx.rotate(player?Math.atan2(player.y-e.y,player.x-e.x):0);
+  ctx.fillStyle=body; ctx.strokeStyle=col; ctx.lineWidth=1.25; ctx.beginPath(); ctx.moveTo(11,0); ctx.lineTo(-7,-6); ctx.lineTo(-4,0); ctx.lineTo(-7,6); ctx.closePath(); ctx.fill(); ctx.stroke();
+  ctx.fillStyle=col; ctx.beginPath(); ctx.arc(2,0,1.8,0,6.283); ctx.fill(); }
  else if(e.type==='tempest'){ const hot=e.aimT>0; ctx.save(); ctx.rotate(e.t*1.8); for(let k=0;k<3;k++){ ctx.rotate(2.094); ctx.fillStyle=hot?K.red:body; ctx.strokeStyle=hot?K.redHi:col; ctx.lineWidth=1.25;
    ctx.beginPath(); ctx.moveTo(17,0); ctx.lineTo(8,-3.5); ctx.lineTo(8,3.5); ctx.closePath(); ctx.fill(); ctx.stroke(); } ctx.restore();
   ctx.fillStyle=body; ctx.strokeStyle=hot?K.redHi:col; ctx.lineWidth=1.5; ctx.beginPath(); ctx.arc(0,0,7,0,6.283); ctx.fill(); ctx.stroke();

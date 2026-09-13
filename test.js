@@ -4251,6 +4251,132 @@ function suiteKits3() {
   s = a.enemies.filter(e => e.summoned);
   ok('and again at 35%', s.length === 1 && s[0].kind === 'colossus');
  }
+
+ // ---------------- PROGENITOR ----------------
+ basics('progenitor');
+ const pgBays = b => b.parts.filter(q => q.kind === 'bay');
+ const pgFighters = a => a.enemies.filter(e => e.type === 'fighter');
+ const keepBrood = a => { for (const e of a.enemies.slice()) if (e.type !== 'boss' && e.type !== 'fighter') a.enemies.splice(a.enemies.indexOf(e), 1); };
+ const pgSpawn = (a, x, y, hpFrac) => { a.spawnEnemy('fighter', { x, y }); const m = a.enemies[a.enemies.length - 1]; m.spawnT = 0; if (hpFrac != null) m.hp = m.maxhp * hpFrac; return m; };
+ {
+  const { a, p, b } = kitRoom('progenitor', 64);
+  kitRun(a, 0.05, () => keepBrood(a));
+  const bays = pgBays(b);
+  eq('LAUNCH BAYS: four bays', bays.length, 4);
+  ok('each with its own HP (4% of the hull)', bays.every(q => Math.abs(q.hp - b.maxhp * 0.04) < 1e-6));
+  ok('the bays draw', !kitRenders(a));
+  b.forcedAttack = 'broadside'; b.pgB = { st: 'wind', t: 99, a: 0 };
+  const q = bays[0], qh = q.hp, h0 = b.hp;
+  const qdx = q.x - b.x, qdy = q.y - b.y, ql = Math.hypot(qdx, qdy) || 1;
+  const r = mkRound({ x: q.x + qdx / ql * 60, y: q.y + qdy / ql * 60, vx: -qdx / ql * 640, vy: -qdy / ql * 640, dmg: 30 });
+  a.bullets.push(r);
+  kitRun(a, 0.3, () => keepBrood(a));
+  ok('a round into a bay breaks on the bay, not the hull', q.hp < qh && b.hp === h0, 'bay ' + qh.toFixed(0) + ' -> ' + q.hp.toFixed(0));
+ }
+ {
+  const a = boot(); seedRandom(a, 4242); a.startRun(); a.loadSector(0); a.forceState('playing');
+  const m = pgSpawn(a, 400, 400);
+  const d = pgSpawn(a, 500, 500); d.type = 'drone';
+  ok('FIGHTER: a fast new chaff type', m.type === 'fighter' && m.sp > 150 && m.r < 10);
+  const x0 = m.x;
+  a.player.autoFire = false;
+  seconds(a, 1.0);
+  ok('that chases', Math.abs(m.x - x0) > 20);
+  ok('and draws', !kitRenders(a));
+ }
+ {
+  const { a, p, b } = kitRoom('progenitor', 64);
+  b.forcedAttack = 'broadside'; b.pgB = { st: 'wind', t: 99, a: 0 }; b.sumLeft = [];
+  kitRun(a, 6.0, () => keepBrood(a));
+  const f1 = pgFighters(a).length;
+  atLeast('the bays launch fighters on their own clock', f1, 3);
+  ok('fast ones, closing on the ship', pgFighters(a).every(m => m.sp > 150));
+  for (const q of pgBays(b).slice()) a.breakPart(b, q);
+  for (const e of pgFighters(a).slice()) a.killEnemy(a.enemies.indexOf(e));
+  b.pg.launchT = 0.01;
+  kitRun(a, 1.0, () => keepBrood(a));
+  eq('no bays, no launches', pgFighters(a).length, 0);
+ }
+ {
+  const { a, p, b } = kitRoom('progenitor', 64);
+  b.forcedAttack = 'broadside'; b.sumLeft = []; b.pg.launchT = 99; const pin = pinAt(p, p.x, p.y);
+  kitRun(a, 0.3, () => { pin(); keepBrood(a); });
+  ok('BROADSIDE: the flank lines draw while they flare', !kitRenders(a));
+  kitRun(a, 0.5, () => { pin(); keepBrood(a); });
+  const D = roundsBy(a, 'BROADSIDE');
+  atLeast('paired lines off both flanks', D.length, 8);
+  const p2 = kitRoom('progenitor', 64); p2.b.forcedAttack = 'broadside'; p2.b.sumLeft = []; p2.b.pg.launchT = 99;
+  p2.b.hp = p2.b.hpSeen = p2.b.maxhp * 0.65;
+  kitRun(p2.a, 1.0, () => keepBrood(p2.a));
+  ok('PHASE II at 66%', p2.b.ph === 2);
+  for (const e of pgFighters(p2.a).slice()) p2.a.killEnemy(p2.a.enemies.indexOf(e));
+  p2.b.pg.launchT = 0.01;
+  kitRun(p2.a, 1.0, () => keepBrood(p2.a));
+  atLeast('Phase II: bigger squadrons — two per bay', pgFighters(p2.a).length, 6);
+ }
+ {
+  const { a, p, b } = kitRoom('progenitor', 64);
+  b.forcedAttack = 'minefield'; b.sumLeft = []; b.pg.launchT = 99; const pin = pinAt(p, p.x, p.y);
+  kitRun(a, 1.0, () => { pin(); keepBrood(a); });
+  const mines = a.hazards.filter(h => h.src && h.src.what === 'MINEFIELD');
+  atLeast('MINEFIELD: mines astern', mines.length, 3);
+  const fx = b.pg.face, sx = Math.cos(fx + Math.PI), sy = Math.sin(fx + Math.PI);
+  ok('behind the hull, telegraphed first', mines.every(h => (h.x - b.x) * sx + (h.y - b.y) * sy > 0 && h.warn >= 0.5));
+ }
+ {
+  const { a, p, b } = kitRoom('progenitor', 64, { dx: 300 });
+  b.forcedAttack = 'recall'; b.sumLeft = []; b.pg.launchT = 99;
+  const m1 = pgSpawn(a, b.x - 200, b.y, 0.4), m2 = pgSpawn(a, b.x - 260, b.y + 60, 0.5);
+  const d0 = Math.hypot(m1.x - b.x, m1.y - b.y) + Math.hypot(m2.x - b.x, m2.y - b.y), h0 = m1.hp + m2.hp;
+  kitRun(a, 1.5, () => keepBrood(a));
+  const d1 = Math.hypot(m1.x - b.x, m1.y - b.y) + Math.hypot(m2.x - b.x, m2.y - b.y);
+  ok('RECALL BEAM: damaged fighters are towed home', d1 < d0 - 150, d0.toFixed(0) + ' -> ' + d1.toFixed(0));
+  ok('and repaired on arrival', m1.hp + m2.hp > h0);
+  ok('the tow-lines draw', !kitRenders(a));
+ }
+ {
+  const { a, p, b } = kitRoom('progenitor', 64);
+  b.forcedAttack = 'broadside'; b.sumLeft = []; b.pg.launchT = 99;
+  kitRun(a, 0.05, () => keepBrood(a));
+  b.hp = b.hpSeen = b.maxhp * 0.32; kitRun(a, 2.0, () => keepBrood(a));
+  ok('PHASE III at 33%', b.ph === 3);
+  kitRun(a, 2.0, () => keepBrood(a));
+  ok('the hull splits — visually only', (b.pg.split || 0) > 0.5 && a.enemies.filter(e => e.type === 'boss').length === 1);
+  ok('one hull, one shared bar, and it draws', !kitRenders(a));
+  const s = kitRoom('progenitor', 64, { summoned: true }); kitRun(s.a, 0.05, () => keepBrood(s.a));
+  s.b.hp = s.b.hpSeen = s.b.maxhp * 0.2; kitRun(s.a, 1.0, () => keepBrood(s.a));
+  ok('a summoned PROGENITOR never splits or upsizes squadrons (Phase I kit only)', s.b.ph === 1 && (s.b.pg.split || 0) === 0);
+ }
+ {
+  const { a, p, b } = kitRoom('progenitor', 64, { dx: 260 });
+  b.forcedAttack = 'broadside'; b.sumLeft = []; b.pg.launchT = 99; b.fightT = 20;
+  for (let k = 0; k < 3; k++) pgSpawn(a, b.x - 120 - k * 50, b.y + 40 * k);
+  b.hp = b.hpSeen = b.maxhp * 0.54;
+  kitRun(a, 1.2, () => keepBrood(a));
+  ok('at 55% PROGENITOR DOCKS ITS BROOD', b.mode === 'recover' && a.bossLabel(b) === 'DOCKING' && (b.pg.dock || []).length === 3);
+  const h0 = b.hp; kitRun(a, 3.0, () => keepBrood(a));
+  ok('every fighter that lands mends it 1.5%', (b.hp - h0) / b.maxhp > 0.014, ((b.hp - h0) / b.maxhp * 100).toFixed(2) + '%');
+  ok('the brood is consumed by the docking', pgFighters(a).length === 0 && b.mode !== 'recover');
+  const r2 = kitRoom('progenitor', 64, { dx: 260 });
+  r2.b.forcedAttack = 'broadside'; r2.b.sumLeft = []; r2.b.pg.launchT = 99; r2.b.fightT = 20;
+  const f1 = pgSpawn(r2.a, r2.b.x - 150, r2.b.y), f2 = pgSpawn(r2.a, r2.b.x - 200, r2.b.y + 50);
+  r2.b.hp = r2.b.hpSeen = r2.b.maxhp * 0.54;
+  kitRun(r2.a, 1.2, () => keepBrood(r2.a));
+  ok('DOCKING with brood in transit', r2.b.mode === 'recover');
+  const hh = r2.b.hp;
+  r2.a.killEnemy(r2.a.enemies.indexOf(f1)); r2.a.killEnemy(r2.a.enemies.indexOf(f2));
+  kitRun(r2.a, 0.3, () => keepBrood(r2.a));
+  ok('killing them in transit breaks the docking with nothing mended', r2.b.mode !== 'recover' && r2.b.hp - hh < r2.b.maxhp * 0.001);
+ }
+ {
+  const { a, b } = kitRoom('progenitor', 64);
+  b.hp = b.hpSeen = b.maxhp * 0.69; kitRun(a, 0.5);
+  let s = a.enemies.filter(e => e.summoned);
+  ok('at 70% PROGENITOR calls BASILISK', s.length === 1 && s[0].kind === 'basilisk', s.map(e => e.kind).join(','));
+  a.killEnemy(a.enemies.indexOf(s[0])); b.hp = b.hpSeen = b.maxhp * 0.34; kitRun(a, 1.5);
+  s = a.enemies.filter(e => e.summoned);
+  ok('and again at 35%', s.length === 1 && s[0].kind === 'basilisk');
+ }
  return null;
 }
 
