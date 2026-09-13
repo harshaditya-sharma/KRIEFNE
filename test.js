@@ -3000,7 +3000,110 @@ function suiteFuzz() {
  return null;
 }
 
+// ======================================================================
+//  SUITE 8b1 -- wave-2 kits, group 1: OVERLORD, WARDEN, PHANTOM, REVENANT, LEVIATHAN
+// ======================================================================
+// A clean room at the god's nest: no cover, no chaff, the god `dx` px right of
+// the ship. The ship soaks everything (hp refilled every frame) and kitRun
+// counts what landed by the blow's name, so a test can ask "did the STOMP hit".
+function kitRoom(kind, sector, o) {
+ o = o || {};
+ const a = boot(); seedRandom(a, o.seed || (7700 + sector));
+ a.startRun(); a.loadSector(sector); a.forceState('playing');
+ a.arena.obs.length = 0; a.enemies.length = 0; a.queue.length = 0;
+ const p = a.player; p.autoFire = false; a.mouse.down = false;
+ const w = a.sectorWorld(sector); p.x = w.w / 2; p.y = w.h / 2;
+ const b = o.summoned ? a.mkSummoned(kind, p.x + (o.dx || 260), p.y + (o.dy || 0), sector, 1) : a.mkBoss(kind, p.x + (o.dx || 260), p.y + (o.dy || 0), sector);
+ b.spawnT = 0; b.lead = !o.summoned; a.enemies.push(b);
+ p.hp = p.maxhp = 1e6; p.invuln = 0;
+ return { a, p, b, w };
+}
+function kitRun(a, secs, f) {
+ const p = a.player, seen = {}; let last = p.hp;
+ seconds(a, secs, i => {
+  if (p.hp < last && p.lastSrc) seen[p.lastSrc.what] = (seen[p.lastSrc.what] || 0) + 1;
+  p.hp = p.maxhp; last = p.hp; p.invuln = 0;
+  if (f) f(i);
+  a.mouse.down = false; if (a.state !== 'playing') a.forceState('playing');
+ });
+ return seen;
+}
+function kitRenders(a) { let threw = null; try { a.render(); } catch (e) { threw = e; } return threw; }
+function chaffIn(a) { return a.enemies.filter(e => e.type !== 'boss'); }
+function suiteKits1() {
+ section('kits: S5-S25 (OVERLORD, WARDEN, PHANTOM, REVENANT, LEVIATHAN)');
+ const api0 = boot(), KITS = api0.bossKits;
+ const RADIAL = ['burst', 'spiral', 'spiralwall'];
+ const basics = k => {
+  const kit = KITS[k];
+  ok(k + ': no radial burst, spiral or spiralwall in its kit', RADIAL.every(r => !kit.attacks[r] && kit.cycle.indexOf(r) < 0));
+  ok(k + ': a non-circular silhouette declares hitParts', !!(kit.hitParts && kit.hitParts.c.length));
+  const s = api0.mkSummoned(k, 500, 500, api0.bossdefs[k].debut - 1, 1);
+  ok(k + ': summoned at 85% size, with no recovery and no phases', Math.abs(s.r - kit.def.r * 0.85) < 1e-9 && s.recLeft.length === 0 && s.phAt.length === 0);
+ };
+
+ // ---------------- OVERLORD ----------------
+ {
+  basics('overlord');
+  ok('OVERLORD never recovers', !KITS.overlord.recover);
+  const { a, p, b } = kitRoom('overlord', 4);
+  b.forcedAttack = 'charge';
+  let windT = 0, moved = 0, ranAt = -1, x0 = null;
+  const px = p.x, py = p.y;
+  const hits = kitRun(a, 1.4, i => { const S = b.olC; if (S && S.st === 'wind') { windT += 1 / 60; if (x0 === null) x0 = b.x; moved = Math.max(moved, Math.abs(b.x - x0)); } if (S && S.st === 'run' && ranAt < 0) ranAt = i / 60; p.x = px; p.y = py; });
+  range('the Berserk Charge line is held 0.5-0.7s before it commits', windT, 0.5, 0.7);
+  atMost('it holds still while the line is up', moved, 2);
+  ok('then it charges down the line and the hull strikes the ship', ranAt > 0 && (hits.CHARGE || 0) >= 1, JSON.stringify(hits));
+  ok('the charge line draws', !kitRenders(a));
+ }
+ {
+  const { a, p, b, w } = kitRoom('overlord', 4);
+  p.x = 24 + 260; b.x = p.x + 240; b.y = p.y; b.hp = b.maxhp * 0.6; b.forcedAttack = 'charge';
+  let stoppedAt = null;
+  kitRun(a, 2.2, () => { p.x = 24 + 260 + 0; p.y = b.y + 120; const S = b.olC; if (S && S.st === 'rest' && S.run > 0 && !stoppedAt) stoppedAt = { x: b.x, bounced: S.bounced }; });
+  ok('calm, the charge stops at the wall', !!stoppedAt && !stoppedAt.bounced && stoppedAt.x < 24 + b.r + 40, JSON.stringify(stoppedAt));
+  const r2 = kitRoom('overlord', 4); const A = r2.a, P = r2.p, B = r2.b;
+  P.x = 24 + 260; B.x = P.x + 240; B.y = P.y; B.hp = B.maxhp * 0.25; B.cried = true; B.forcedAttack = 'charge';
+  let bounced = false, minX = 1e9, after = 0;
+  kitRun(A, 2.2, () => { P.x = 24 + 260; P.y = B.y + 120; const S = B.olC; if (S && S.bounced) { bounced = true; after = Math.max(after, B.x - minX); } minX = Math.min(minX, B.x); });
+  ok('enraged, it rebounds off the wall once and charges on', bounced && after > 40, 'bounced ' + bounced + ' back ' + after.toFixed(0));
+ }
+ {
+  const { a, p, b } = kitRoom('overlord', 4);
+  b.forcedAttack = 'cleave';
+  let early = 0, maxN = 0, spread = 0;
+  kitRun(a, 1.35, i => { const S = b.olK; if (S && S.st === 'wind' && a.ebullets.length) early++;
+   if (a.ebullets.length > maxN) { maxN = a.ebullets.length; const a0 = Math.atan2(a.ebullets[0].vy, a.ebullets[0].vx), ang = a.ebullets.map(r => wrapA(Math.atan2(r.vy, r.vx) - a0)); spread = Math.max(...ang) - Math.min(...ang); }
+   if (i === 30) ok('the cleave wedge draws while it winds', !kitRenders(a)); });
+  eq('no cleave round flies while its wedge is up', early, 0);
+  atLeast('then a fan is swept across the wedge', maxN, 10);
+  range('the sweep covers the wedge (~1.9 rad)', spread, 1.6, 2.0);
+ }
+ {
+  const { a, p, b } = kitRoom('overlord', 4, { dx: 120 });
+  b.forcedAttack = 'stomp';
+  let ring = null;
+  const hits = kitRun(a, 1.4, () => { p.x = b.x - 110; p.y = b.y; ring = ring || a.rings.find(g => g.owner === b && g.src && g.src.what === 'STOMP'); });
+  ok('the stomp plants a ring at its feet with a >=0.5s preview', !!ring && ring.maxR >= 150);
+  ok('and the ring lands on a ship in range', (hits.STOMP || 0) >= 1, JSON.stringify(hits));
+ }
+ {
+  const { a, p, b } = kitRoom('overlord', 4);
+  kitRun(a, 0.2);
+  const c0 = chaffIn(a).length;
+  b.hp = b.maxhp * 0.49; kitRun(a, 0.1);
+  ok('at half strength OVERLORD cries WAR CRY once: a pack rallies to it', b.cried && chaffIn(a).length - c0 >= 3 && chaffIn(a).every(e => e.type === 'drone' || e.type === 'stalker'));
+  ok('and it speeds up for two seconds', b.cryT > 1.5 && b.cryT <= 2);
+  const c1 = chaffIn(a).length; b.hp = b.maxhp * 0.3; kitRun(a, 0.5);
+  eq('the war cry comes once only', chaffIn(a).length, c1);
+  const s = kitRoom('overlord', 9, { summoned: true }); s.b.hp = s.b.maxhp * 0.4; kitRun(s.a, 0.3);
+  ok('a summoned OVERLORD never cries for help', !s.b.cried && chaffIn(s.a).length === 0);
+ }
+ return null;
+}
+
 const SUITES = [
+ ['kits1', suiteKits1],
  ['xp', suiteXp],
  ['boot', suiteBoot],
  ['sectors', suiteSectors],

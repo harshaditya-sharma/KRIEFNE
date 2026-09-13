@@ -1868,8 +1868,11 @@ function bossThink(e,C){
   name=cyc[e.phase]; }
  // A charge, ram or gaze cut off by the slot change is dropped, not carried
  // over: a stale gaze would keep drawing its cone through other attacks.
- if(name!==e.atk){ e.chargeOn=false; e.ramLx=undefined; e.gaze=null; e.atk=name; }
+ // e.atkT: seconds this attack's slot has run (0 on its first frame), so a
+ // kit attack can tell a fresh slot from a continuing one.
+ if(name!==e.atk){ e.chargeOn=false; e.ramLx=undefined; e.gaze=null; e.atk=name; e.atkT=0; }
  const fn=kit.attacks[name]; if(fn) fn(e,C);
+ e.atkT=(e.atkT||0)+dt;
  if(e.wave2){ e.burstT-=dt; if(e.burstT<=0){ e.wave2=false; rings.push({x:e.x,y:e.y,r:20,maxR:200,spd:340,dmg:e.dmg,hit:false,heavy:true}); SFX.ring(); } }
 }
 // One god, one frame, from the enemy loop in update().
@@ -2128,6 +2131,8 @@ function statusTags(p){ const S=p&&p.status, t=[]; if(!S) return t;
 // it) its beams, marks, discs, zones, currents, grasps and boulders go too.
 // Pool names `marks`, `discs` and `bossBeams` are the DevX overlay's.
 let bossBeams=[], marks=[], discs=[], bossZones=[], bossCurrents=[], bossGrasps=[];
+// Turn angle `cur` toward `want` by at most `max` radians (a heading that swings, never snaps).
+function turnTo(cur,want,max){ return cur+clamp(angDiff(want,cur),-max,max); }
 function angDiff(a,b){ let d=(a-b)%6.283185; if(d>Math.PI) d-=6.283185; if(d<-Math.PI) d+=6.283185; return d; }
 function ownerGone(o){ return !!(o&&(o.dead||o.hp<=0)); }
 function hzRoom(){ return hazards.length+discs.length<CAP.haz; }
@@ -2495,23 +2500,97 @@ function nestChaff(dt){
 // Wave 2 fills these kits in; each group edits only its own blocks.
 
 // ===== BOSS: OVERLORD =====
+// The Berserk (spec §5). Signature BERSERK CHARGE: a ruled line held 0.6 s,
+// then a straight charge that stops at a wall or cover (enraged, it rebounds
+// off one wall once). CLEAVE: a wedge that tracks you while it winds, then a
+// sweeping fan across it. STOMP: it closes, plants, and a ring rolls out from
+// its feet. WAR CRY, once, at 50%: two seconds of speed while a pack of drones
+// and stalkers rallies to it. No radial burst, no recovery: it teaches the
+// fight, not the escape. One phase plus enrage (faster cadence).
+const OL_CRY=0.5, OL_CRY_T=2, OL_CRY_MUL=1.45;
+function olRun(e,C,S,v){ // one frame of a committed charge; true when it has stopped
+ const step=v*C.dt, stuck=S.lx!==undefined&&Math.hypot(e.x-S.lx,e.y-S.ly)<step*0.25;
+ S.lx=e.x; S.ly=e.y; e.x+=S.dx*step; e.y+=S.dy*step; e.intent+=step; e.charging=true; S.run+=C.dt;
+ const wx=e.x<=PX0+e.r+1||e.x>=PX1-e.r-1, wy=e.y<=PY0+e.r+1||e.y>=PY1-e.r-1;
+ if((wx||wy)&&C.enrage&&!S.bounced){ // enraged: one rebound off the wall, then on
+  S.bounced=true; if(wx) S.dx=-S.dx; if(wy) S.dy=-S.dy; S.lx=undefined;
+  spawnBurst(e.x,e.y,12,K.red,220,0.45,3); if(settings.shake) shake=Math.min(10,shake+4); SFX.ring(); return false; }
+ if(wx||wy||stuck||S.run>1.5){ spawnBurst(e.x,e.y,10,K.metal,200,0.4,3); if(settings.shake) shake=Math.min(10,shake+3); SFX.brk(); return true; }
+ return false; }
 BOSS_KITS.overlord={
- def:{name:'OVERLORD',epithet:'the Berserk',tier:1,hp:985,r:30,spd:1.00,shape:'octa',pt:3.0,sig:null,chaff:['drone','stalker']},
+ def:{name:'OVERLORD',epithet:'the Berserk',tier:1,hp:985,r:30,spd:1.00,shape:'prow',pt:3.0,sig:'charge',chaff:['drone','stalker']},
  lore:'AN ENFORCER BARS THE TRAIL — OVERLORD, the Berserk, has never yielded a holmgang. End the saga.',
  codex:{role:'Brawler', threat:'Never recovers',
-  tell:'Cycles BURST / SUMMON / CHARGE / SWEEP on a three-second clock.',
-  counter:'Pure aggression with no escape. Learn the cycle and out-damage it.',
+  tell:'A ruled red line off its prow is the CHARGE. A red wedge that follows you is a CLEAVE; a dashed ring at its feet, a STOMP.',
+  counter:'Step sideways off the charge line, never back along it. Leave the wedge before it swings. At half strength it calls a pack: thin it, then press.',
   lore:'The Berserk. The youngest of the gods, which out here means a few hundred million years old. Its makers built it to win rather than to hold, and it has never yielded a holmgang. They called this discipline. There is no one left to call it anything.'},
- cycle:['burst','summon','charge','sweep'],
- attacks:atk('burst','summon','charge','sweep'),
- draw(e,g){ // the Berserk: dashed ring, eight-sided core
-  const R=g.R;
-  ctx.save(); ctx.rotate(e.t*0.6); ctx.strokeStyle=g.dim; ctx.lineWidth=3; ctx.setLineDash([18,10]); ctx.beginPath(); ctx.arc(0,0,R+4,0,6.283); ctx.stroke(); ctx.setLineDash([]); ctx.restore();
-  ctx.fillStyle=g.body; ctx.strokeStyle=g.col; ctx.lineWidth=g.lw; poly(8,R-4,-e.t*0.4); ctx.fill(); ctx.stroke();
-  ctx.strokeStyle=g.dim; ctx.lineWidth=1; poly(8,R*0.5,-e.t*0.4); ctx.stroke();
-  ctx.fillStyle=g.col; ctx.beginPath(); ctx.arc(0,0,5,0,6.283); ctx.fill();
-  if(g.enrage){ ctx.fillStyle=g.col; for(let k=0;k<4;k++){ const a=e.t*3+k*1.57; ctx.beginPath(); ctx.moveTo(Math.cos(a)*(R+2),Math.sin(a)*(R+2)); ctx.lineTo(Math.cos(a+0.2)*(R+12),Math.sin(a+0.2)*(R+12)); ctx.lineTo(Math.cos(a-0.2)*(R+12),Math.sin(a-0.2)*(R+12)); ctx.closePath(); ctx.fill(); } }
- }
+ cycle:['charge','cleave','stomp','charge','cleave'],
+ vmax:520,
+ attacks:{
+  charge(e,C){ // BERSERK CHARGE: a 0.6 s line, then the commit
+   let S=e.olC; if(e.atkT===0||!S) S=e.olC={st:'rest',t:0.15};
+   S.t-=C.dt;
+   if(S.st==='rest'){ C.mv(0.35);
+    if(S.t<=0){ S.st='wind'; S.t=0.6; S.dx=C.nx; S.dy=C.ny; S.L=Math.max(e.r,rayObs(e.x,e.y,S.dx,S.dy,900)-e.r); S.bounced=false; S.run=0; S.lx=undefined;
+     addFloater(e.x,calloutY(e),'BERSERK CHARGE',K.red); SFX.alarm(); } }
+   else if(S.st==='wind'){ if(S.t<=0){ S.st='run'; SFX.dash(); } }
+   else if(S.st==='run'){ const v=(C.enrage?440:400)*(e.cryT>0?1.15:1);
+    if(olRun(e,C,S,v)){ S.st='rest'; S.t=C.enrage?0.45:0.8; } } },
+  cleave(e,C){ // a tracking wedge, then a fan swept across it
+   let S=e.olK; if(e.atkT===0||!S) S=e.olK={st:'rest',t:0.2};
+   S.t-=C.dt;
+   if(S.st==='rest'){ C.mv(0.55); if(S.t<=0){ S.st='wind'; S.t=C.enrage?0.5:0.6; S.a=C.aim; S.side=Math.random()<0.5?1:-1; } }
+   else if(S.st==='wind'){ C.mv(0.2); S.a=turnTo(S.a,C.aim,2.4*C.dt); if(S.t<=0){ S.st='swing'; S.t=0.5; S.k=0; } }
+   else if(S.st==='swing'){ C.mv(0.1); const n=11, due=Math.min(n,Math.floor((0.5-S.t)/0.5*n)+1);
+    while(S.k<due){ const f=S.k/(n-1); eshot(e,S.a+S.side*(f*2-1)*0.95,270,5,0.8,2.6); S.k++; if(S.k%3===1) SFX.eshoot(); }
+    if(S.t<=0){ S.st='rest'; S.t=C.enrage?0.35:0.7; } } },
+  stomp(e,C){ // close, plant, a ring from its feet
+   let S=e.olS; if(e.atkT===0||!S) S=e.olS={st:'close',t:0};
+   S.t-=C.dt;
+   if(S.st==='close'){ C.mv(0.9); if(C.d<190&&S.t<=0){ S.st='plant'; S.t=0.6;
+    shockwave(e,e.x,e.y,{maxR:175,spd:340,dmg:e.dmg,warn:0.6,w:16,what:'STOMP'}); } }
+   else if(S.st==='plant'&&S.t<=0){ S.st='close'; S.t=C.enrage?0.6:1.1; spawnBurst(e.x,e.y,14,K.metal,220,0.5,3); if(settings.shake) shake=Math.min(10,shake+4); SFX.ring(); } }
+ },
+ signature(e,C){
+  // WAR CRY, once, at half strength: a burst of speed and a pack rallying to it
+  if(!e.summoned&&!e.cried&&e.hp<=e.maxhp*OL_CRY){ e.cried=true; e.cryT=OL_CRY_T;
+   const kinds=['drone','stalker','drone','stalker']; let n=0;
+   for(const k of kinds){ if(enemies.length>=Math.min(14,CAP.enemies)) break;
+    const s2=nearSpot(e.x,e.y,70,150,24), m=mkEnemy(k,s2.x,s2.y,arenaIdx); m.spawnT=0.9; enemies.push(m); n++; }
+   rings.push({x:e.x,y:e.y,r:e.r,maxR:e.r+170,spd:320,dmg:0,hit:true});
+   addFloater(e.x,calloutY(e),'OVERLORD — WAR CRY'+(n?' · '+n+' RALLY':''),K.red); SFX.alarm(); }
+  if(e.cryT>0){ e.cryT-=C.dt; const mv=C.mv, ob=C.orbit; C.mv=f=>mv(f*OL_CRY_MUL); C.orbit=f=>ob(f*OL_CRY_MUL); }
+ },
+ post(e,dt){ // the prow swings to its work; locked along a charge
+  const S=e.olC, lock=e.atk==='charge'&&S&&(S.st==='wind'||S.st==='run');
+  const want=lock?Math.atan2(S.dy,S.dx):(player?Math.atan2(player.y-e.y,player.x-e.x):0);
+  e.prow=e.prow==null?want:turnTo(e.prow,want,(lock?14:5)*dt); },
+ under(e){ // the telegraphs, in world space beneath the hull
+  const C=e.olC, K2=e.olK;
+  if(e.atk==='charge'&&C&&C.st==='wind'){ const ex=e.x+C.dx*(C.L+e.r), ey=e.y+C.dy*(C.L+e.r);
+   ctx.save(); ctx.globalAlpha=0.85; tickedLine(e.x,e.y,ex,ey,K.red,1.5,22,5); ctx.restore();
+   const nx=-C.dy*e.r, ny=C.dx*e.r; line(e.x+nx,e.y+ny,ex+nx,ey+ny,K.redDim,1,[6,6]); line(e.x-nx,e.y-ny,ex-nx,ey-ny,K.redDim,1,[6,6]); }
+  if(e.atk==='cleave'&&K2&&K2.st==='wind'){ const a=K2.a, w=0.95, r=270;
+   ctx.save(); ctx.beginPath(); ctx.moveTo(e.x,e.y); ctx.arc(e.x,e.y,r,a-w,a+w); ctx.closePath(); ctx.clip();
+   ctx.strokeStyle=K.redDim; ctx.lineWidth=1; ctx.beginPath(); for(let rr=e.r+20;rr<r;rr+=30){ ctx.moveTo(e.x+Math.cos(a-w)*rr,e.y+Math.sin(a-w)*rr); ctx.arc(e.x,e.y,rr,a-w,a+w); } ctx.stroke(); ctx.restore();
+   ctx.strokeStyle=K.red; ctx.lineWidth=1.5; ctx.beginPath(); ctx.moveTo(e.x,e.y); ctx.arc(e.x,e.y,r,a-w,a+w); ctx.closePath(); ctx.stroke();
+   // the sweep's direction: a tick at the edge it starts from
+   const s0=a-K2.side*w; line(e.x+Math.cos(s0)*(r-18),e.y+Math.sin(s0)*(r-18),e.x+Math.cos(s0)*(r+14),e.y+Math.sin(s0)*(r+14),K.redHi,2); }
+ },
+ draw(e,g){ // a war-prow chevron over an octagon core
+  const R=g.R, a=e.prow!=null?e.prow:(e.facing||0);
+  ctx.fillStyle=g.body; ctx.strokeStyle=g.col; ctx.lineWidth=g.lw; poly(8,R*0.8,a+0.3927); ctx.fill(); ctx.stroke();
+  ctx.strokeStyle=g.dim; ctx.lineWidth=1; poly(8,R*0.46,a+0.3927); ctx.stroke();
+  ctx.save(); ctx.rotate(a);
+  polyPts([[R*1.34,0],[R*0.12,-R*1.0],[-R*0.24,-R*0.8],[R*0.74,0],[-R*0.24,R*0.8],[R*0.12,R*1.0]]);
+  ctx.fillStyle=g.body; ctx.fill(); ctx.strokeStyle=g.col; ctx.lineWidth=g.lw; ctx.stroke();
+  ctx.strokeStyle=g.dim; ctx.lineWidth=1; ctx.beginPath(); ctx.moveTo(R*1.08,0); ctx.lineTo(R*0.12,-R*0.8); ctx.moveTo(R*1.08,0); ctx.lineTo(R*0.12,R*0.8); ctx.stroke();
+  if(e.cryT>0&&!REDUCED){ ctx.strokeStyle=g.col; ctx.lineWidth=1; for(let k=1;k<=2;k++){ ctx.beginPath(); ctx.arc(R*0.2,0,R*(1.1+0.22*k+0.15*Math.sin(e.t*12)),-1.1,1.1); ctx.stroke(); } }
+  ctx.restore();
+  ctx.fillStyle=g.col; ctx.beginPath(); ctx.arc(0,0,4,0,6.283); ctx.fill();
+ },
+ // the prow reaches past the core's circle
+ hitParts:{ rot:e=>e.prow!=null?e.prow:(e.facing||0), c:[[1.1,0,0.26],[0.18,-0.9,0.16],[0.18,0.9,0.16]] }
 };
 // ===== END BOSS: OVERLORD =====
 
