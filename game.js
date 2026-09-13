@@ -4274,13 +4274,13 @@ BOSS_KITS.progenitor={
  draw(e,g){ // a long hull of parallelograms with bay notches; split but tethered in P3
   const R=g.R, sp=e.pg?e.pg.split||0:0, off=sp*R*0.45;
   ctx.save(); ctx.rotate(e.pg?e.pg.face:0);
-  for(const s of [-1,1]){ ctx.save(); ctx.translate(0,s*off);
-   polyPts([[R*1.05,-R*0.08],[R*0.3,-R*0.5],[-R*0.95,-R*0.5],[-R*0.7,-R*0.08]]);
+  for(const s of [-1,1]){ ctx.save(); ctx.translate(0,s*off); ctx.scale(1,s);
+   polyPts([[R*1.05,R*0.08],[R*0.3,R*0.5],[-R*0.95,R*0.5],[-R*0.7,R*0.08]]);
    ctx.fillStyle=g.body; ctx.fill();
    ctx.strokeStyle=(e.pgB&&e.pgB.st==='wind'&&e.atk==='broadside')?K.redHi:g.col;
    ctx.lineWidth=g.lw; ctx.stroke();
    ctx.strokeStyle=g.dim; ctx.lineWidth=1;
-   for(const bx of [-0.45,0.45]){ ctx.strokeRect(bx*R-R*0.14,s>0?-R*0.5:-R*0.28,R*0.28,R*0.22); }
+   for(const bx of [-0.45,0.45]){ ctx.strokeRect(bx*R-R*0.14,R*0.28,R*0.28,R*0.22); }
    ctx.restore(); }
   if(sp>0.02){ ctx.save(); ctx.strokeStyle=K.redDim; ctx.lineWidth=1; ctx.setLineDash([4,4]);
    for(const bx of [-0.6,0,0.6]){ ctx.beginPath(); ctx.moveTo(bx*R,-off); ctx.lineTo(bx*R,off); ctx.stroke(); }
