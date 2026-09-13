@@ -882,13 +882,16 @@ Headless Chrome needs `window.__kriefne.forceState('playing')`. Kill stray serve
 Plan, in order:
 - [x] 1. Engine (d314d49): `THRALL` knobs, `thrallKinds`/`thrallCap`/`thrallCount`/`thrallKit`, `mkThrall` through `bossCore(…,thrall)` + `thrallShape`, `thrallUpdate` (no RELENTLESS/desperation/recovery/phase/call, never enraged), `type:'thrall'` in the enemy loop, `bossPost`, `under`, `bossDied`, `srcOf` ("OVERLORD THRALL"), `killEnemy` (no codex unlock, 4 gems), `canBlink` (thralls: 'always' kinds only), lab `godLike`.
 - [x] 2. Per-kit `thrall:{sig,sec,signature,attacks,init,armor}` for the 17 eligible gods, `thrall:false` on the last three; kit guards (REVENANT pod, HYDRA regrow/phase, KRAKEN regrow, JUGGERNAUT wreck wake, ECLIPSE moon reform).
-- [x] 3. Director (d314d49): `compFor` = `compTotal − thrallCount×THRALL.cost`; thralls spliced into `spawnQueue` from its second fifth on (never the opening wave, never in map-gen types); the wave director skips a thrall over `thrallCap`; `nestChaff` packs bring one at `THRALL.nestP`.
+- [x] 3. Director (d314d49, 7a3075d): `compFor` = `compTotal − thrallCount×thrallSlots` (slots = HP-worth × `slotK`, XP = those slots' XP); thralls spliced into `spawnQueue` over `THRALL.q` of it (never the opening wave, never in map-gen types); the wave director skips a thrall over `thrallCap`; `nestChaff` packs bring one at `THRALL.nestP`.
 - [x] 4. Draw: `drawBossShape` hairline (`g.lw` 1), no rank rings/enrage ticks, telegraphs kept; 30 px pip with a pigment diamond; no name/label/tracker.
-- [ ] 5. Pigment rule + test for kinds that can now co-occur.
-- [ ] 6. `suiteThralls` + the 60 s per-kind run; fightsim run in progress (first run after d314d49).
+- [x] 5. Pigment (7a3075d): full-scale pairs keep ≥ 0.09; new floors any two gods ≥ 0.05, thrall-bearing god vs any servitor ≥ 0.03; PROGENITOR 177 → 198 (was 0.013 from the brute). Past the floors, silhouette + hairline carry identity (comment in `PIGMENT_DEF` and `suitePigment`).
+- [~] 6. `suiteThralls` (7a3075d, 179 asserts incl. the 60 s run per kind) green; `node test.js` 2441 green. **Now: fitting thralls to the fightsim §7 bands** (see gotchas).
 - [ ] 7. Visual check, then the end-of-step handoff.
 
-Gotchas: `node test.js` was green (2256) right after d314d49. The cycle is `[sig,'hunt',sec,'hunt']` (`thrallHunt` closes to 260 px, then circles); `bossLabel` shows 'CONTACT' for 'hunt'. Part radii are scaled ×0.6 once after `kit.init`, so kits must not re-add parts for a thrall (every regrow path is guarded).
+Gotchas:
+- The cycle is `[sig,'hunt',sec,'hunt']` (`thrallHunt` closes to 260 px, then circles); `bossLabel` shows 'CONTACT' for 'hunt'. Part radii are scaled ×0.6 once after `kit.init`, so a kit must not re-add parts for a thrall (every regrow path is guarded).
+- Fightsim with thralls, first cut (`hp [6,10]`, 4 slots each, 2→6 per sector): Hose S31 138 s, S46 164, S61 179, S81 257, S99 280 (bands 75–100 / 100–130; baseline without thralls 94/85/109/111/118). Causes: a single small target eats the hose's spread (thrall TTK 60–110 s while chaff streams), late thralls held by the cap trail the stream alone (quiet ≥ 15%), and the SENTINEL thrall's mirror out-turned the circling pilot (230 s TTK; now fixed at 45% turn).
+- Knobs now live on `THRALL` (`hp`, `count`, `cap`, `slotK`, `q`, `nestP`); `a.thrallCfg` is the live object, so a sim `tune` hook can `Object.assign` it. Scratch sweep scripts are in the session scratchpad (`sweep.js`, `ttk.js`), not in the repo. Two sim seeds are very noisy with random kinds (±30 s deep).
 
 Representation (decided at step start): a **new `type:'thrall'`** with `kind` = the parent and `e.thrall=true`, built by `bossCore`. Every "must not" (bonus bank, lead/nest head, boss XP/heal/draft, boss bar, tracker, `bossesIn` in the tests, SINGULARITY's lead check) is gated on `type==='boss'` today, so a new type is excluded from all of them by default; the "should" list (update/post dispatch, `under`/draw, `bossDied` cleanup, srcOf naming, lab) is short and enumerable. A flag on `type:'boss'` would have needed an opt-out at ~20 sites and in every test that loops `type==='boss'`.
 
