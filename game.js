@@ -2815,29 +2815,141 @@ BOSS_KITS.phantom={
 // ===== END BOSS: PHANTOM =====
 
 // ===== BOSS: REVENANT =====
-// Placeholder kit (wave 2 builds the full one, spec §5): Rime Bolts only.
+// The Cold-Sleeper (spec §5). Signature RIME BOLTS: three slow pale rounds
+// down your line after a 0.35 s aim; one that lands freezes (1.0 s). FROST
+// LANE: a ruled line of five marked points, then drifting frost mines on them
+// that freeze on touch. SHATTER DASH: a ruled line, a short dash, and six
+// shards off its end at the ship. COLD SNAP: for 4 s a ship that stands still
+// for 0.8 s is frozen, so keep moving. Recovery SLEEPER POD: a cryo pod (a
+// part) planted near a wall at the start; at 55% it walks back, docks beside
+// it and mends 2.5%/s. Destroying the pod, or dealing 6% of its HP while it is
+// docked, forces it out. Calls PHANTOM at 50%. One phase plus enrage.
+const RV_LABEL={frostlane:'FROST LANE',shatter:'SHATTER DASH',coldsnap:'COLD SNAP'};
+const RV_POD_HP=0.05, RV_DOCK_HEAL=0.025, RV_FORCE=0.06, RV_SNAP_STILL=0.8, RV_SNAP_T=4;
+function rvPlant(e){ // the sleeper pod, near the wall closest to where it woke
+ if(!arena||!arena.obs||!player) return;
+ const d=[e.x-PX0,PX1-e.x,e.y-PY0,PY1-e.y], i=d.indexOf(Math.min.apply(null,d)), inset=100;
+ let x=e.x, y=e.y, nx=0, ny=0;
+ if(i===0){ x=PX0+inset; nx=1; } else if(i===1){ x=PX1-inset; nx=-1; } else if(i===2){ y=PY0+inset; ny=1; } else { y=PY1-inset; ny=-1; }
+ if(pointBlocked(x,y,e.r+26,arena.obs)){ const q=nearSpot(x,y,40,200,e.r+26); x=q.x; y=q.y; }
+ const q=addPart(e,{id:'pod',r:18,hp:e.maxhp*RV_POD_HP,kind:'pod'}); if(!q) return;
+ q.lx=undefined; q.x=x; q.y=y; q.nx=nx; q.ny=ny; e.rvPod=q; }
+function rvPodLive(e){ const q=e.rvPod; return q&&!q.dead&&q.hp>0?q:null; }
+function rvDockAt(e,q){ return {x:clamp(q.x+q.nx*(e.r+q.r+4),PX0+e.r,PX1-e.r),y:clamp(q.y+q.ny*(e.r+q.r+4),PY0+e.r,PY1-e.r)}; }
 BOSS_KITS.revenant={
  def:{name:'REVENANT',epithet:'the Cold-Sleeper',tier:2,hp:900,r:28,spd:0.95,shape:'pods',pt:3.4,sig:'rime',chaff:['drone','mite']},
  lore:'A CAPTAIN WHO SLEPT THROUGH THE COLD — REVENANT wakes for you, and only you.',
- codex:{role:'Cryo skirmisher', threat:'Slow rounds that bite',
-  tell:'Its pods pale before a volley of three slow RIME BOLTS down your line.',
-  counter:'Slow rounds are easy to sidestep. Keep moving across the volley, never along it.',
-  lore:'The Cold-Sleeper. A sleeper ship whose crew never woke, and whose pods decided, somewhere in the dark, to keep the ship instead. It wakes only for a visitor. The cold it carries is not a weapon, exactly; it is simply what the inside of the pods is like.'},
- cycle:['rime','fan'],
- attacks:Object.assign(atk('fan'),{
-  rime(e,C){ // three slow pale rounds down your line, 0.35s aimed tell
-   C.mv(0.45); e.burstT-=C.dt;
-   if(e.aimT>0){ e.aimT-=C.dt; if(e.aimT<=0){ for(let k=-1;k<=1;k++){ const b=eshot(e,C.aim+k*0.12,150,7,0.9,5); if(b) b.freeze=1.0; } SFX.eshoot(); } }
-   else if(e.burstT<=0){ e.burstT=C.enrage?1.3:1.9; e.aimT=0.35; } }
- }),
- draw(e,g){ // three overlapping cryo capsules in a Y
-  const R=g.R;
-  for(let k=0;k<3;k++){ ctx.save(); ctx.rotate(-1.5708+k*2.094+e.t*0.15);
-   const L=R*0.95, w=R*0.34; polyPts([[w*0.2,-w],[L-w,-w],[L,0],[L-w,w],[w*0.2,w],[-w*0.4,0]]);
+ codex:{role:'Cryo skirmisher', threat:'Sleeper Pod, once',
+  tell:'Pale RIME BOLTS freeze on a hit. A ruled line of dashed circles is a FROST LANE; a ruled line off its hull, a SHATTER DASH. A ring round your hull is a COLD SNAP.',
+  counter:'Cross the bolts, never ride them. Keep moving through a cold snap. Shoot its pod early, or hit it hard once it docks: 6% of its strength forces it out.',
+  lore:'The Cold-Sleeper. A sleeper ship whose crew never woke, and whose pods decided, somewhere in the dark, to keep the ship instead. It wakes only for a visitor, and it leaves one pod by the wall when it does. The pod is not a lifeboat. It is where it means to go back to sleep.'},
+ cycle:['frostlane','shatter','coldsnap','frostlane','shatter'],
+ vmax:560,
+ init(e){ if(!e.summoned) try{ rvPlant(e); }catch(_){} },
+ attacks:{
+  frostlane(e,C){ // five marked points down its aim, then drifting frost mines
+   C.mv(0.4); let S=e.rvL; if(e.atkT===0||!S) S=e.rvL={st:'rest',t:0.2};
+   S.t-=C.dt;
+   if(S.st==='rest'&&S.t<=0){ S.st='wind'; S.t=0.55; S.a=C.aim; S.pts=[];
+    for(let k=0;k<5;k++){ const d=90+k*80; S.pts.push({x:e.x+Math.cos(S.a)*d,y:e.y+Math.sin(S.a)*d}); } SFX.click(); }
+   else if(S.st==='wind'&&S.t<=0){ const p=C.p, src=srcOf(e,'FROST MINE');
+    for(const q of S.pts){ if(q.x<PX0+9||q.x>PX1-9||q.y<PY0+9||q.y>PY1-9||Math.hypot(p.x-q.x,p.y-q.y)<p.r+17) continue;
+     const b=eshotAt(e,q.x,q.y,S.a+(Math.random()-0.5)*0.3,22,9,0.5,7); if(b){ b.freeze=1.0; b.mine=true; b.rvOwn=e.uid; b.src=src; } }
+    S.st='rest'; S.t=C.enrage?0.9:1.4; SFX.eshoot(); } },
+  shatter(e,C){ // a ruled line, a short dash, shards off its end
+   let S=e.rvS; if(e.atkT===0||!S) S=e.rvS={st:'rest',t:0.25};
+   S.t-=C.dt;
+   if(S.st==='rest'){ C.mv(0.5);
+    if(S.t<=0){ S.st='wind'; S.t=0.55; S.dx=C.nx; S.dy=C.ny; S.L=clamp(rayObs(e.x,e.y,S.dx,S.dy,400)-e.r,40,280); S.go=0; S.lx=undefined; SFX.click(); } }
+   else if(S.st==='wind'){ if(S.t<=0){ S.st='dash'; SFX.dash(); } }
+   else if(S.st==='dash'){ const step=540*C.dt, stuck=S.lx!==undefined&&Math.hypot(e.x-S.lx,e.y-S.ly)<step*0.25;
+    S.lx=e.x; S.ly=e.y; e.x+=S.dx*step; e.y+=S.dy*step; S.go+=step; e.intent+=step; e.charging=true;
+    const wall=e.x<=PX0+e.r+1||e.x>=PX1-e.r-1||e.y<=PY0+e.r+1||e.y>=PY1-e.r-1;
+    if(S.go>=S.L||wall||stuck){ const a=Math.atan2(C.p.y-e.y,C.p.x-e.x), src=srcOf(e,'SHATTER');
+     for(let k=0;k<6;k++){ const b=eshot(e,a+(k-2.5)*0.2,290,5,0.8,2.6); if(b) b.src=src; }
+     spawnBurst(e.x,e.y,16,pigOf(e).hi,240,0.5,3); SFX.brk(); S.st='rest'; S.t=C.enrage?0.7:1.1; } } },
+  coldsnap(e,C){ // for 4 s, standing still freezes the ship
+   C.orbit(0.7);
+   if(!e.rvC){ e.rvC={t:0,warn:0.6,end:0.6+RV_SNAP_T,still:0}; rings.push({x:C.p.x,y:C.p.y,r:12,maxR:140,spd:260,dmg:0,hit:true});
+    addFloater(C.p.x,C.p.y-40,'COLD SNAP — keep moving',K.red); SFX.alarm(); } }
+ },
+ signature(e,C){ // RIME BOLTS on their own clock, never mid-dash
+  if(e.rvR===undefined) e.rvR=1.6;
+  if(e.rvAim>0){ e.rvAim-=C.dt;
+   if(e.rvAim<=0){ const src=e.rvBsrc||(e.rvBsrc=srcOf(e,'RIME BOLT'));
+    for(let k=-1;k<=1;k++){ const b=eshot(e,C.aim+k*0.14,150,7,0.9,5); if(b){ b.freeze=1.0; b.rime=true; b.rvOwn=e.uid; b.src=src; } } SFX.eshoot(); } }
+  else { e.rvR-=C.dt; const dashing=e.atk==='shatter'&&e.rvS&&e.rvS.st!=='rest';
+   if(e.rvR<=0&&!dashing){ e.rvR=C.enrage?1.8:2.6; e.rvAim=0.35; } } },
+ // SLEEPER POD: back to the pod, dock, mend. Pod broken, or 6% dealt while docked, forces it out.
+ recover:{ at:[0.55], pool:0.08, label:'SLEEPER POD', hold:true, max:12,
+  start(e){ e.rvDock=false; e.rvAim=0;
+   if(!rvPodLive(e)){ e.rvNoPod=true; return; }
+   addFloater(e.x,calloutY(e),'REVENANT RETURNS TO ITS POD · break the pod',K.red); SFX.alarm(); },
+  update(e,C){ const q=rvPodLive(e); if(!q) return e.rvNoPod?'nopod':'broken';
+   if(!e.rvDock){ const t=rvDockAt(e,q), dx=t.x-e.x, dy=t.y-e.y, d=Math.hypot(dx,dy);
+    if(d<6){ e.rvDock=true; e.rvRef=e.hp; e.rvTaken=0; rings.push({x:q.x,y:q.y,r:q.r,maxR:q.r+60,spd:200,dmg:0,hit:true});
+     addFloater(e.x,calloutY(e),'DOCKED · hit it hard to force it out',K.red); }
+    else { const sv=steer(e,dx/d,dy/d), v=Math.min(d,e.sp*2.1*C.sF*C.dt); e.x+=sv[0]*v; e.y+=sv[1]*v; e.intent+=v; }
+    return false; }
+   e.rvTaken+=Math.max(0,e.rvRef-e.hp); if(e.rvTaken>=e.maxhp*RV_FORCE) return 'forced';
+   bossHeal(e,e.maxhp*RV_DOCK_HEAL*C.dt); e.rvRef=e.hp;
+   return e.healPool<=0?'mended':false; },
+  end(e,why){ e.rvDock=false; e.rvNoPod=false;
+   const q=rvPodLive(e); if(q){ const i=e.parts.indexOf(q); if(i>=0) e.parts.splice(i,1); q.dead=true; } // the pod is spent either way
+   if(why!=='nopod') addFloater(e.x,calloutY(e),why==='forced'?'FORCED OUT OF THE POD':why==='broken'?'POD SHATTERED':'REVENANT WAKES',(why==='forced'||why==='broken')?K.gold:K.red); }
+ },
+ onPartBreak(e,q){ if(q.kind==='pod'&&!e.rec) addFloater(q.x,q.y-30,'POD SHATTERED',K.gold); },
+ post(e,dt){ // COLD SNAP keeps its own time, whatever slot follows
+  const S=e.rvC; if(!S) return; S.t+=dt; const p=player;
+  if(p&&S.t>=S.warn&&S.t<S.end){ const st=p.status, sp=Math.hypot(p.mvx||0,p.mvy||0);
+   if(st&&st.freeze>0) S.still=0; else if(sp<30) S.still+=dt; else S.still=Math.max(0,S.still-dt*2);
+   if(S.still>=RV_SNAP_STILL){ S.still=0; if(applyStatus('freeze',1.0)) hurtPlayer(Math.round(e.dmg*0.4),false,srcOf(e,'COLD SNAP')); } }
+  if(S.t>=S.end) e.rvC=null; },
+ label(e){ return e.atk?RV_LABEL[e.atk]:null; },
+ under(e){ const P=pigOf(e), p=player;
+  // the sleeper pod: a capsule by the wall, its HP ruled along it
+  const q=rvPodLive(e);
+  if(q){ const a=Math.atan2(q.ny,q.nx)+1.5708;
+   if(e.rec&&!e.rvDock){ line(e.x,e.y,q.x,q.y,P.dim,1,[5,6]); }
+   if(e.rvDock){ line(e.x,e.y,q.x,q.y,P.c,2); }
+   ctx.save(); ctx.translate(q.x,q.y); ctx.rotate(a); const L=q.r, w=q.r*0.62;
+   ctx.beginPath(); ctx.moveTo(-L+w,-w); ctx.lineTo(L-w,-w); ctx.arc(L-w,0,w,-1.5708,1.5708); ctx.lineTo(-L+w,w); ctx.arc(-L+w,0,w,1.5708,4.712); ctx.closePath();
+   ctx.fillStyle=q.flash>0?P.flash:P.body; ctx.fill(); ctx.strokeStyle=e.rvDock?P.hi:P.c; ctx.lineWidth=1.5; ctx.stroke();
+   ctx.strokeStyle=P.dim; ctx.lineWidth=1; ctx.strokeRect(-L*0.45,-w*0.45,L*0.9,w*0.9);
+   const f=clamp(q.hp/(q.maxhp||1),0,1); ctx.strokeStyle=P.c; ctx.lineWidth=2; ctx.beginPath(); ctx.moveTo(-L*0.7,w+4); ctx.lineTo(-L*0.7+L*1.4*f,w+4); ctx.stroke();
+   ctx.restore(); }
+  // rime bolts and frost mines carry a frost rim over the red round
+  for(const b of ebullets){ if(b.rvOwn!==e.uid) continue;
+   ctx.strokeStyle=K.red; ctx.lineWidth=1; ctx.beginPath();
+   const n=b.mine?6:4, r1=b.r+3, r2=b.r+(b.mine?9:6), sp=REDUCED?0:e.t*(b.mine?0.8:2);
+   for(let k=0;k<n;k++){ const a=sp+k*6.283/n; ctx.moveTo(b.x+Math.cos(a)*r1,b.y+Math.sin(a)*r1); ctx.lineTo(b.x+Math.cos(a)*r2,b.y+Math.sin(a)*r2); }
+   ctx.stroke(); if(b.mine){ ctx.beginPath(); ctx.arc(b.x,b.y,b.r+3,0,6.283); ctx.stroke(); } }
+  // telegraphs: the rime aim, a frost lane's marked points, a shatter dash's line
+  if(e.rvAim>0&&p){ ctx.save(); ctx.globalAlpha=0.8; tickedLine(e.x,e.y,p.x,p.y,K.red,1,24,3); ctx.restore(); }
+  const L=e.rvL; if(e.atk==='frostlane'&&L&&L.st==='wind'){ const q0=L.pts[0], q1=L.pts[L.pts.length-1];
+   ctx.save(); ctx.globalAlpha=0.85; tickedLine(q0.x,q0.y,q1.x,q1.y,K.red,1,20,3);
+   ctx.strokeStyle=K.red; ctx.lineWidth=1; ctx.setLineDash([4,4]); for(const q2 of L.pts){ ctx.beginPath(); ctx.arc(q2.x,q2.y,12,0,6.283); ctx.stroke(); } ctx.setLineDash([]); ctx.restore(); }
+  const S=e.rvS; if(e.atk==='shatter'&&S&&S.st==='wind'){ const ex=e.x+S.dx*(S.L+e.r), ey=e.y+S.dy*(S.L+e.r);
+   ctx.save(); ctx.globalAlpha=0.85; tickedLine(e.x,e.y,ex,ey,K.red,1.5,20,4); ctx.strokeStyle=K.red; ctx.lineWidth=1; ctx.beginPath(); ctx.arc(ex,ey,e.r,0,6.283); ctx.stroke(); ctx.restore(); }
+  // COLD SNAP: arming, a ring closing on the hull; live, a gauge of how long it has stood still
+  const Cs=e.rvC; if(Cs&&p){ ctx.save(); ctx.strokeStyle=K.red; ctx.lineWidth=1;
+   if(Cs.t<Cs.warn){ ctx.setLineDash([5,5]); ctx.beginPath(); ctx.arc(p.x,p.y,p.r+14+80*(1-Cs.t/Cs.warn),0,6.283); ctx.stroke(); ctx.setLineDash([]); }
+   else if(Cs.t<Cs.end){ const R=p.r+14; ctx.globalAlpha=0.8; ctx.setLineDash([2,4]); ctx.beginPath(); ctx.arc(p.x,p.y,R,0,6.283); ctx.stroke(); ctx.setLineDash([]);
+    ctx.globalAlpha=1; ctx.lineWidth=2.5; ctx.beginPath(); ctx.arc(p.x,p.y,R,-1.5708,-1.5708+6.283*clamp(Cs.still/RV_SNAP_STILL,0,1)); ctx.stroke(); }
+   ctx.restore(); }
+ },
+ draw(e,g){ // three overlapping cryo capsules in a Y, a hub where they meet
+  const R=g.R, spin=REDUCED?0:e.t*0.15;
+  for(let k=0;k<3;k++){ ctx.save(); ctx.rotate(-1.5708+k*2.094+spin);
+   const x0=-R*0.05, x1=R*1.2, w=R*0.33;
+   ctx.beginPath(); ctx.moveTo(x0+w,-w); ctx.lineTo(x1-w,-w); ctx.arc(x1-w,0,w,-1.5708,1.5708); ctx.lineTo(x0+w,w); ctx.arc(x0+w,0,w,1.5708,4.712); ctx.closePath();
    ctx.fillStyle=g.body; ctx.fill(); ctx.strokeStyle=g.col; ctx.lineWidth=g.lw; ctx.stroke();
-   ctx.strokeStyle=g.dim; ctx.lineWidth=1; ctx.beginPath(); ctx.moveTo(R*0.3,0); ctx.lineTo(L-w,0); ctx.stroke(); ctx.restore(); }
-  ctx.fillStyle=e.aimT>0?K.redHi:g.col; ctx.beginPath(); ctx.arc(0,0,4,0,6.283); ctx.fill();
- }
+   ctx.strokeStyle=g.dim; ctx.lineWidth=1; ctx.strokeRect(R*0.42,-w*0.45,R*0.5,w*0.9); ctx.restore(); }
+  ctx.fillStyle=g.body; ctx.strokeStyle=g.col; ctx.lineWidth=g.lw; poly(6,R*0.3,spin); ctx.fill(); ctx.stroke();
+  ctx.fillStyle=e.rvAim>0?K.redHi:g.col; ctx.beginPath(); ctx.arc(0,0,4,0,6.283); ctx.fill();
+ },
+ // the capsule ends reach past the hull circle
+ hitParts:{ rot:e=>REDUCED?0:e.t*0.15, c:[[0,-0.87,0.34],[0.753,0.435,0.34],[-0.753,0.435,0.34]] }
 };
 // ===== END BOSS: REVENANT =====
 

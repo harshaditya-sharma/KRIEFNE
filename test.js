@@ -3253,6 +3253,103 @@ function suiteKits1() {
   const s = a.enemies.filter(e => e.summoned);
   ok('at 50% PHANTOM calls WARDEN', s.length === 1 && s[0].kind === 'warden', s.map(e => e.kind).join(','));
  }
+
+ // ---------------- REVENANT ----------------
+ basics('revenant');
+ {
+  const { a, p, b, w } = kitRoom('revenant', 19);
+  const q = b.rvPod;
+  ok('SLEEPER POD: a cryo pod is planted at the start of the fight', !!q && q.kind === 'pod' && b.parts.indexOf(q) >= 0);
+  atMost('near a wall', Math.min(q.x - 24, w.w - 24 - q.x, q.y - 80, w.h - 24 - q.y), 140);
+  ok('a summoned REVENANT plants none', !a.mkSummoned('revenant', 500, 500, 19, 1).rvPod);
+  b.rvR = 0.01; b.forcedAttack = 'coldsnap'; b.rvC = { t: 99, warn: 0, end: 0, still: 0 };
+  const px = p.x, py = p.y, pin = () => { p.x = px; p.y = py; if (b.rvC && b.rvC.end > 0) b.rvC = { t: 99, warn: 0, end: 0, still: 0 }; };
+  kitRun(a, 0.3, pin);
+  ok('RIME BOLTS: a 0.35s aim first, nothing yet', a.ebullets.filter(r => r.rime).length === 0 && b.rvAim > 0);
+  ok('the aim draws', !kitRenders(a));
+  kitRun(a, 0.1, pin);
+  const bolts = a.ebullets.filter(r => r.rime);
+  ok('then three slow pale bolts that carry a freeze', bolts.length === 3 && bolts.every(r => r.freeze === 1.0 && Math.hypot(r.vx, r.vy) < 200));
+  let froze = false; kitRun(a, 2.0, () => { pin(); if (p.status.freeze > 0) froze = true; });
+  ok('a bolt that lands freezes the ship', froze);
+ }
+ {
+  const { a, p, b } = kitRoom('revenant', 19);
+  b.rvR = 99; b.forcedAttack = 'frostlane'; const px = p.x, py = p.y + 200, pin = () => { p.x = px; p.y = py; };
+  kitRun(a, 0.45, pin);
+  ok('FROST LANE: five points ruled down its aim first', b.rvL && b.rvL.st === 'wind' && b.rvL.pts.length === 5 && a.ebullets.length === 0);
+  ok('the lane draws', !kitRenders(a));
+  kitRun(a, 0.4, pin);
+  const mines = a.ebullets.filter(r => r.mine);
+  atLeast('then frost mines on them', mines.length, 4);
+  ok('drifting, and freezing on touch', mines.every(r => Math.hypot(r.vx, r.vy) < 30 && r.freeze === 1.0 && r.life > 5));
+  const m = mines[0]; let froze = false;
+  kitRun(a, 0.3, () => { p.x = m.x; p.y = m.y; if (p.status.freeze > 0) froze = true; });
+  ok('a ship that touches a mine is frozen', froze);
+  const r2 = kitRoom('revenant', 19, { dx: 250 }); r2.b.rvR = 99; r2.b.forcedAttack = 'frostlane';
+  const sx = r2.p.x, sy = r2.p.y; let onShip = 0;
+  kitRun(r2.a, 1.2, () => { r2.p.x = sx; r2.p.y = sy; for (const r of r2.a.ebullets) if (r.mine && Math.hypot(r.x - sx, r.y - sy) < r2.p.r + r.r) onShip++; });
+  eq('no mine ever appears on the ship', onShip, 0);
+ }
+ {
+  const { a, p, b } = kitRoom('revenant', 19);
+  b.rvR = 99; b.forcedAttack = 'shatter'; const px = p.x, py = p.y + 160, pin = () => { p.x = px; p.y = py; };
+  let wind = 0, x0 = null, moved = 0, go = 0;
+  const hits = kitRun(a, 1.4, () => { pin(); const S = b.rvS; if (S && S.st === 'wind') { wind += 1 / 60; if (x0 === null) x0 = { x: b.x, y: b.y }; moved = Math.max(moved, Math.hypot(b.x - x0.x, b.y - x0.y)); } if (S) go = Math.max(go, S.go || 0); });
+  range('SHATTER DASH: its line is held 0.5-0.6s', wind, 0.5, 0.62);
+  atMost('still while the line is up', moved, 2);
+  range('then a short dash', go, 40, 300);
+  ok('ending in shards at the ship', a.ebullets.filter(r => r.src && r.src.what === 'SHATTER').length >= 5 || (hits.SHATTER || 0) >= 1, JSON.stringify(hits));
+ }
+ {
+  const { a, p, b } = kitRoom('revenant', 19);
+  b.rvR = 99; b.forcedAttack = 'coldsnap'; const px = p.x, py = p.y; const freezes = []; let lastF = 0;
+  kitRun(a, 0.3, () => { p.x = px; p.y = py; });
+  ok('COLD SNAP arms with a ring closing on the hull (no freeze yet)', !!b.rvC && p.status.freeze <= 0);
+  ok('the snap gauge draws', !kitRenders(a));
+  kitRun(a, 4.3, i => { p.x = px; p.y = py; if (p.status.freeze > 0 && lastF <= 0) freezes.push(a.time); lastF = p.status.freeze; });
+  ok('a ship that stands still is frozen by it', freezes.length >= 1 && freezes[0] - (a.time - 4.6) >= 1.3, freezes.map(t => t.toFixed(2)).join(','));
+  ok('never chained: every freeze clears the 1.5s immunity first', freezes.every((t, i) => !i || t - freezes[i - 1] >= 2.2), freezes.map(t => t.toFixed(2)).join(','));
+  const r2 = kitRoom('revenant', 19); r2.b.rvR = 99; r2.b.forcedAttack = 'coldsnap'; let mf = false;
+  kitRun(r2.a, 4.8, i => { const ph = Math.floor(i / 20) % 4; r2.a.keys.KeyD = ph === 0; r2.a.keys.KeyS = ph === 1; r2.a.keys.KeyA = ph === 2; r2.a.keys.KeyW = ph === 3; if (r2.p.status.freeze > 0) mf = true; });
+  for (const k of ['KeyW', 'KeyA', 'KeyS', 'KeyD']) r2.a.keys[k] = false;
+  ok('a ship that keeps moving is never frozen by it', !mf);
+ }
+ {
+  const { a, p, b } = kitRoom('revenant', 19);
+  const q = b.rvPod, dk = { x: q.x + q.nx * 150, y: q.y + q.ny * 150 };
+  b.x = dk.x + 120 * (q.ny ? 1 : 0); b.y = dk.y + 120 * (q.nx ? 1 : 0);
+  b.fightT = 20; b.hp = b.hpSeen = b.maxhp * 0.54; b.rvR = 99; b.forcedAttack = 'frostlane';
+  kitRun(a, 0.05);
+  ok('at 55% REVENANT goes back to its SLEEPER POD', b.mode === 'recover' && a.bossLabel(b) === 'SLEEPER POD');
+  const d0 = Math.hypot(b.x - q.x, b.y - q.y); let docked = -1;
+  for (let i = 0; i < 360 && !b.rvDock; i++) kitRun(a, 1 / 60); docked = b.rvDock ? 1 : -1;
+  ok('it walks back and docks beside the pod', docked > 0 && Math.hypot(b.x - q.x, b.y - q.y) < d0 && Math.hypot(b.x - q.x, b.y - q.y) < b.r + q.r + 12, 'docked at ' + docked);
+  ok('the dock draws', !kitRenders(a));
+  const h0 = b.hp; kitRun(a, 0.5); const rate = (b.hp - h0) / b.maxhp / 0.5;
+  range('docked, it mends 2.5% a second', rate, 0.02, 0.026);
+  b.hp -= b.maxhp * 0.065; kitRun(a, 0.05);
+  ok('dealing 6% while it is docked forces it out', b.mode === 'hunt' && !b.rvDock);
+  const h1 = b.hp; kitRun(a, 1); atMost('and the mending stops', b.hp - h1, 1e-6);
+ }
+ {
+  const { a, p, b } = kitRoom('revenant', 19);
+  b.fightT = 20; b.hp = b.hpSeen = b.maxhp * 0.54; b.rvR = 99; b.forcedAttack = 'frostlane';
+  kitRun(a, 0.2); const h0 = b.hp;
+  a.breakPart(b, b.rvPod); kitRun(a, 0.05);
+  ok('destroying the pod forces it out', b.mode === 'hunt' && !b.rvPod.hp);
+  atMost('with nothing mended', b.hp - h0, 1e-6);
+  const r2 = kitRoom('revenant', 19); r2.a.breakPart(r2.b, r2.b.rvPod);
+  r2.b.fightT = 20; r2.b.hp = r2.b.hpSeen = r2.b.maxhp * 0.5; const h2 = r2.b.hp; let rec = 0;
+  kitRun(r2.a, 2, () => { if (r2.b.mode === 'recover') rec++; });
+  ok('a pod shot down early leaves it no recovery at all', rec <= 1 && r2.b.hp <= h2 + 1e-6);
+ }
+ {
+  const { a, b } = kitRoom('revenant', 19);
+  b.hp = b.maxhp * 0.49; kitRun(a, 0.5);
+  const s = a.enemies.filter(e => e.summoned);
+  ok('at 50% REVENANT calls PHANTOM', s.length === 1 && s[0].kind === 'phantom', s.map(e => e.kind).join(','));
+ }
  return null;
 }
 
