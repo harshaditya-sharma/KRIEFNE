@@ -4606,13 +4606,166 @@ function suiteKits3() {
   s = a.enemies.filter(e => e.summoned);
   ok('and again at 35%', s.length === 1 && s[0].kind === 'harbinger');
  }
- return null;
+  return null;
+}
+
+// ======================================================================
+//  SUITE 8b4 -- wave-2 kits, group 4: JUGGERNAUT, ECLIPSE, NULLIFIER, CHORUS, SINGULARITY
+// ======================================================================
+function suiteKits4() {
+ section('kits: S80-S100 (JUGGERNAUT, ECLIPSE, NULLIFIER, CHORUS, SINGULARITY)');
+ const api0 = boot(), KITS = api0.bossKits;
+ const RADIAL = ['burst', 'spiral', 'spiralwall'];
+ const basics = (k, radialOk) => {
+  const kit = KITS[k];
+  if (!radialOk) ok(k + ': no radial burst, spiral or spiralwall in its kit', RADIAL.every(r => !kit.attacks[r] && kit.cycle.indexOf(r) < 0));
+  ok(k + ': every cycle slot is one of its own attacks', kit.cycle.every(n => typeof kit.attacks[n] === 'function'));
+  ok(k + ': a non-circular silhouette declares hitParts', !!(kit.hitParts && kit.hitParts.c.length));
+  const s = api0.mkSummoned(k, 500, 500, api0.bossdefs[k].debut - 1, 1);
+  ok(k + ': summoned at 85% size, with no recovery and no phases', Math.abs(s.r - kit.def.r * 0.85) < 1e-9 && s.recLeft.length === 0 && s.phAt.length === 0);
+  ok(k + ': a codex field note, tells and counter, and a debut line naming its rank', !!(kit.codex.lore && kit.codex.tell && kit.codex.counter && kit.lore.indexOf(api0.tierNames[kit.def.tier]) >= 0));
+ };
+ const pinAt = (p, x, y) => () => { p.x = x; p.y = y; };
+ const shoot = (a, x, y, vx, vy, dmg) => { const r = mkRound({ x, y, vx, vy, dmg: dmg || 20 }); a.bullets.push(r); return r; };
+
+ // ---------------- JUGGERNAUT ----------------
+ basics('juggernaut');
+ {
+  const { a, p, b } = kitRoom('juggernaut', 79);
+  b.forcedAttack = 'ram'; b.sumLeft = [];
+  const px = p.x, py = p.y;
+  let wind = 0, ranAt = -1, lockFace = null, slip = 0, drew = false;
+  kitRun(a, 3.0, i => { p.x = px; p.y = py; noChaff(a);
+   const S = b.jgR;
+   if (S && S.st === 'wind') { wind += 1 / 60; if (!drew) { drew = true; ok('the ram line draws', !kitRenders(a)); } }
+   if (S && S.st === 'run' && ranAt < 0) { ranAt = i / 60; lockFace = b.facing; }
+   if (S && S.st === 'run' && lockFace !== null) slip = Math.max(slip, Math.abs(wrapA(b.facing - lockFace))); });
+  range('RAM: a ruled line held 0.6s before it commits', wind, 0.55, 0.65);
+  ok('then it commits down the line', ranAt > 0);
+  atMost('and the facing LOCKS mid-ram', slip, 1e-6);
+ }
+ {
+  // short northward runs: the boss below the ship, the wall close above
+  const { a, p, b } = kitRoom('juggernaut', 79);
+  b.x = 1200; b.y = 560; p.x = 1200; p.y = 210;
+  b.forcedAttack = 'ram'; b.sumLeft = []; b.jgR = null; b.atk = null; b.atkT = 0; b.ramT = 0.01;
+  kitRun(a, 0.2, () => noChaff(a));
+  const px = p.x, py = p.y;
+  let quakes = 0, wake = 0, plume = 0;
+  kitRun(a, 4.0, () => { p.x = px; p.y = py; noChaff(a);
+   quakes = Math.max(quakes, a.rings.filter(g => g.owner === b && g.src && g.src.what === 'WALL QUAKE').length);
+   wake = Math.max(wake, a.arena.obs.filter(o => o.temp && o.owner === b).length);
+   plume = Math.max(plume, a.discs.filter(d => d.owner === b && d.src && d.src.what === 'EXHAUST PLUME').length); });
+  atLeast('WALL QUAKE: a ring on wall impact', quakes, 1);
+  atLeast('WRECK WAKE: the ram drops debris as temporary cover', wake, 1);
+  atLeast('EXHAUST PLUME trails the ram', plume, 1);
+  const rocks = a.arena.obs.filter(o => o.temp && o.owner === b);
+  ok('every wreck is clear of the ship, the exit and its siblings', rocks.every(o => Math.hypot(o.x - p.x, o.y - p.y) - o.r >= 120 - 1e-6));
+  ok('the ram line draws', !kitRenders(a));
+ }
+ {
+  const { a, p, b } = kitRoom('juggernaut', 79, { dx: 200 });
+  b.forcedAttack = 'plume'; b.sumLeft = [];
+  p.x = b.x + 90; p.y = b.y; // close astern, in the vent cone
+  const px = p.x, py = p.y, pin = () => { p.x = px; p.y = py; };
+  kitRun(a, 0.3, () => { pin(); noChaff(a); });
+  ok('EXHAUST PLUME: the ruled cone draws while it aims its rear', !kitRenders(a));
+  let rear = 0;
+  const hits = kitRun(a, 3.5, () => { pin(); noChaff(a);
+   if (b.jgP && b.jgP.st === 'wind') { const da = Math.abs(wrapA((b.facing || 0) - (Math.atan2(p.y - b.y, p.x - b.x) + Math.PI))); if (da < 0.5) rear++; } });
+  ok('it turns its rear on the ship to vent', rear > 6);
+  atLeast('the plume burns a ship astern of it', hits['EXHAUST PLUME'] || 0, 1);
+ }
+ {
+  const { a, p, b } = kitRoom('juggernaut', 79, { dx: 150 });
+  b.forcedAttack = 'quake'; b.sumLeft = []; const pin = pinAt(p, p.x, p.y);
+  let windRing = null, drewQ = false;
+  const hits = kitRun(a, 2.5, () => { pin(); noChaff(a);
+   const g = a.rings.find(g => g.owner === b && g.src && g.src.what === 'WALL QUAKE');
+   if (g && !windRing) { windRing = { delay: g.delay }; if (!drewQ) { drewQ = true; ok('WALL QUAKE: the ruled ring draws first', !kitRenders(a)); } } });
+  ok('WALL QUAKE: a ring is planted', !!windRing);
+  atLeast('then the ground answers on a ship in range', hits['WALL QUAKE'] || 0, 1);
+ }
+ {
+  const { a, p, b } = kitRoom('juggernaut', 79);
+  b.x = 1200; b.y = 560; p.x = 1200; p.y = 210;
+  b.forcedAttack = 'ram'; b.sumLeft = [];
+  kitRun(a, 0.05, () => noChaff(a));
+  b.sumLeft = [];
+  b.hp = b.hpSeen = b.maxhp * 0.65; kitRun(a, 1.6, () => noChaff(a));
+  ok('PHASE II at 66%', b.ph === 2);
+  b.jgR = { st: 'rest', t: 0.01, dx: 0, dy: 0, reb: 0, wake: 0, plume: 0 };
+  const px = p.x, py = p.y;
+  let rebounds = 0, impacts = 0; const seenQ = new Set();
+  kitRun(a, 15.0, () => { p.x = px; p.y = py; noChaff(a);
+   rebounds = Math.max(rebounds, (b.jgR && b.jgR.reb) || 0);
+   for (const g of a.rings) if (g.owner === b && g.src && g.src.what === 'WALL QUAKE' && !seenQ.has(g)) { seenQ.add(g); impacts++; } });
+  eq('Phase II: the ram rebounds and chains twice', rebounds, 2);
+  atLeast('three quakes from one wind', impacts, 3);
+  const s = kitRoom('juggernaut', 79, { summoned: true }); kitRun(s.a, 0.05, () => noChaff(s.a));
+  s.b.hp = s.b.hpSeen = s.b.maxhp * 0.2; kitRun(s.a, 1.0, () => noChaff(s.a));
+  ok('a summoned JUGGERNAUT never phases (Phase I kit only)', s.b.ph === 1);
+ }
+ {
+  const { a, p, b } = kitRoom('juggernaut', 79);
+  b.x = 1200; b.y = 560; p.x = 1200; p.y = 210;
+  b.forcedAttack = 'ram'; b.sumLeft = [];
+  kitRun(a, 0.05, () => noChaff(a));
+  b.sumLeft = [];
+  b.hp = b.hpSeen = b.maxhp * 0.32; kitRun(a, 1.6, () => noChaff(a));
+  ok('PHASE III at 33%', b.ph === 3);
+  b.jgR = { st: 'rest', t: 0.01, dx: 0, dy: 0, reb: 0, wake: 0, plume: 0 };
+  const px = p.x, py = p.y;
+  let winds = 0, prev = 'rest';
+  kitRun(a, 9.0, () => { p.x = px; p.y = py; noChaff(a);
+   const st = (b.jgR && b.jgR.st) || '?';
+   if (st === 'wind' && prev !== 'wind') winds++;
+   prev = st; });
+  atLeast('RUNAWAY: near-continuous ram winds', winds, 3);
+ }
+ {
+  const { a, p, b } = kitRoom('juggernaut', 79);
+  b.forcedAttack = 'quake'; b.jgQ = { st: 'cool', t: 99 }; b.sumLeft = []; b.fightT = 20;
+  b.hp = b.hpSeen = b.maxhp * 0.54;
+  kitRun(a, 1.5, () => noChaff(a));
+  ok('at 55% JUGGERNAUT stops for VENT PURGE', b.mode === 'recover' && a.bossLabel(b) === 'VENT PURGE');
+  const hx = b.x, hy = b.y;
+  const h0 = b.hp; kitRun(a, 1.0, () => noChaff(a));
+  atMost('it holds still while purging', Math.hypot(b.x - hx, b.y - hy), 4);
+  ok('it mends from its pool', b.hp > h0);
+  ok('the purge glows', !kitRenders(a));
+  // vulnerability: flank rounds (neutral vent arc) land 2.5x while purging
+  const fireFlank = () => { const h = b.hp, bx = b.x, by = b.y;
+   shoot(a, bx, by + 400, 0, -640, 40);
+   kitRun(a, 0.7, () => { noChaff(a); b.x = bx; b.y = by; }); // hold the geometry: the hull drifts while hunting
+   return h - b.hp; };
+  b.healPool = 0; // hold the mend while the vulnerability is measured
+  b.hpSeen = b.hp;
+  const purged = fireFlank();
+  kitRun(a, 3.0, () => noChaff(a)); // let the purge end
+  ok('the 4s purge ends on its own', b.mode !== 'recover');
+  p.x = b.x - 400; p.y = b.y; b.facing = Math.PI; // same neutral flank geometry
+  b.hpSeen = b.hp;
+  const calm = fireFlank();
+  range('every side takes 2.5x while purging', purged / Math.max(1, calm), 2.4, 2.6);
+ }
+ {
+  const { a, b } = kitRoom('juggernaut', 79);
+  b.hp = b.hpSeen = b.maxhp * 0.69; kitRun(a, 0.5);
+  let s = a.enemies.filter(e => e.summoned);
+  ok('at 70% JUGGERNAUT calls KRAKEN', s.length === 1 && s[0].kind === 'kraken', s.map(e => e.kind).join(','));
+  a.killEnemy(a.enemies.indexOf(s[0])); b.hp = b.hpSeen = b.maxhp * 0.34; kitRun(a, 1.5);
+  s = a.enemies.filter(e => e.summoned);
+  ok('and again at 35%', s.length === 1 && s[0].kind === 'kraken');
+ }
+  return null;
 }
 
 const SUITES = [
  ['kits1', suiteKits1],
  ['kits2', suiteKits2],
  ['kits3', suiteKits3],
+ ['kits4', suiteKits4],
  ['xp', suiteXp],
  ['boot', suiteBoot],
  ['sectors', suiteSectors],

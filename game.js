@@ -4550,32 +4550,141 @@ BOSS_KITS.kraken={
 // ===== END BOSS: KRAKEN =====
 
 // ===== BOSS: JUGGERNAUT =====
+// The Unsteered (spec §5). Signature RAM plus Vent (kept): an armoured prow
+// and an exposed rear vent (the engine's vent arcs: the prow shrugs rounds
+// off, the vent takes nearly double), with the facing LOCKED mid-ram —
+// flank the charge, never meet it. Secondaries: WRECK WAKE (every ram drops
+// debris as BFS-guarded temporary cover), EXHAUST PLUME (a burning cone
+// astern, as its own attack and trailing every ram) and WALL QUAKE (a ring
+// on every wall impact, and a close slam of its own). P2 at 66%: rams
+// rebound off walls, chaining twice. P3 at 33%: RUNAWAY, a near-continuous
+// ram. Recovery VENT PURGE at 55% and 30%: it stops for 4 s and mends from
+// its pool, but takes 2.5× damage from EVERY side while purging. Calls
+// KRAKEN at 70% and 35% (the rung below). No radial volleys.
+const JG_WIND=0.6, JG_WAKE_R=24, JG_PURGE_MUL=2.5;
+function jgQuake(e,x,y,big){ // a wall impact's payoff: the ring IS the telegraph's end
+ shockwave(e,x,y,{maxR:big?260:210,spd:330,dmg:Math.round(e.dmg*(big?1:0.85)),w:14,warn:0,what:'WALL QUAKE'});
+ if(settings.shake) shake=Math.min(12,shake+6); spawnBurst(x,y,22,K.red,260,0.6,4); SFX.ring(); }
 BOSS_KITS.juggernaut={
  def:{name:'JUGGERNAUT',epithet:'the Unsteered',tier:4,hp:1700,r:38,spd:0.95,shape:'ram',pt:3.0,sig:'vent',chaff:['brute','drone']},
  lore:'A SOVEREIGN THAT CANNOT STEER — JUGGERNAUT commands by momentum alone.',
- codex:{role:'Ram', threat:'Armoured prow',
-  tell:'RAM, then a straight commit, shockwave on impact. Facing LOCKS while charging.',
-  counter:'The prow takes 40%, the REAR VENT takes 190%. Flank every charge.',
-  lore:'The Unsteered. A colony ark built around one engine too large to be steered and too valuable to be wasted. The colonists never boarded. They put armour on the prow and filed the exhaust problem as acceptable.'},
- vmax:420,
- cycle:['ram','slam','debris','ram'],
- attacks:atk('ram','slam','debris'),
- // armoured front, exposed rear: facing locks during a ram (the window to get behind it)
+ codex:{role:'Ram', threat:'Rebounding rams; Vent Purge twice',
+  tell:'A ruled red line off its prow is the RAM — its facing LOCKS once it commits. Debris dropped mid-charge is the WRECK WAKE (cover). A dashed cone astern is the EXHAUST PLUME; a dashed ring at its feet, the WALL QUAKE. In P2 rams REBOUND twice; in P3 it barely stops ramming.',
+  counter:'The prow takes 40%, the REAR VENT takes 190% — flank every charge. Its wake is real cover: shoot from behind it. When it stops to VENT PURGE, every side takes 2.5×: spend everything into it.',
+  lore:'The Unsteered. A colony ark built around one engine too large to be steered and too valuable to be wasted. The colonists never boarded. They put armour on the prow and filed the exhaust problem as acceptable. The purge cycle still runs every watch, and it still cannot defend itself while it does.'},
+ vmax:430,
+ cycle:['ram','plume','quake'],
+ phases:[{},{at:0.66},{at:0.33}],
+ attacks:{
+  ram(e,C){ // a ruled line held 0.6 s, then a locked straight commit
+   let S=e.jgR; if(e.atkT===0||!S) S=e.jgR={st:'rest',t:e.ramT||1,dx:0,dy:0,reb:0,wake:0,plume:0};
+   S.t-=C.dt;
+   if(S.st==='rest'){ C.mv(0.45); // P3 RUNAWAY rests barely at all
+    if(S.t<=0){ S.st='wind'; S.t=JG_WIND; } }
+   else if(S.st==='wind'){ // tracks you while the line is up, then locks
+    e.facing=Math.atan2(C.p.y-e.y,C.p.x-e.x);
+    if(S.t<=0){ S.st='run'; S.dx=Math.cos(e.facing); S.dy=Math.sin(e.facing);
+     e.charging=true; e.chargeOn=true;
+     addFloater(e.x,calloutY(e),'RAM',K.red); SFX.alarm(); } }
+   else { e.charging=true; e.chargeOn=true;
+    const step=(e.ph>=2&&!e.summoned?420:(C.enrage?400:360))*C.dt;
+    const stuck=e.ramLx!==undefined&&Math.hypot(e.x-e.ramLx,e.y-e.ramLy)<step*0.25;
+    e.ramLx=e.x; e.ramLy=e.y;
+    e.x+=S.dx*step; e.y+=S.dy*step; e.intent+=step;
+    // WRECK WAKE: debris astern as guarded temporary cover
+    S.wake-=C.dt;
+    if(S.wake<=0){ S.wake=0.18; placeTempObs(e,e.x-S.dx*70,e.y-S.dy*70,JG_WAKE_R,7); }
+    // EXHAUST PLUME trails every ram: a burning cone astern
+    S.plume-=C.dt;
+    if(S.plume<=0){ S.plume=0.2;
+     dropDisc(e,e.x-S.dx*e.r*1.3+(Math.random()-0.5)*30,e.y-S.dy*e.r*1.3+(Math.random()-0.5)*30,30,
+      {life:2.5,safe:0.25,dmg:Math.round(e.dmg*0.35),what:'EXHAUST PLUME'}); }
+    const hitWall=e.x<=PX0+e.r+1||e.x>=PX1-e.r-1||e.y<=PY0+e.r+1||e.y>=PY1-e.r-1;
+    if(hitWall||stuck){
+     jgQuake(e,e.x,e.y,true);
+     // P2: rebound off the wall and chain, twice
+     if(e.ph>=2&&!e.summoned&&S.reb<2){
+      if(e.x<=PX0+e.r+1||e.x>=PX1-e.r-1) S.dx=-S.dx;
+      else if(e.y<=PY0+e.r+1||e.y>=PY1-e.r-1) S.dy=-S.dy;
+      else { S.dx=-S.dx; S.dy=-S.dy; }
+      const l=Math.hypot(S.dx,S.dy)||1; S.dx/=l; S.dy/=l;
+      e.facing=Math.atan2(S.dy,S.dx); e.ramLx=undefined;
+      S.reb++; S.st='run';
+      addFloater(e.x,calloutY(e),'REBOUND '+S.reb+'/2',K.red); SFX.alarm();
+      return; }
+     e.charging=false; e.chargeOn=false; e.ramLx=undefined;
+     // P3 RUNAWAY: barely stops ramming
+     e.ramT=(e.ph>=3&&!e.summoned)?0.5:(C.enrage?1.4:2.2);
+     S.st='rest'; S.t=e.ramT; } } },
+  plume(e,C){ // it turns its rear on you and vents: a burning cone astern
+   C.mv(0.25);
+   let S=e.jgP; if(e.atkT===0||!S) S=e.jgP={st:'wind',t:0.8,burn:0};
+   S.t-=C.dt;
+   if(S.st==='wind'){ e.facing=turnTo(e.facing,C.aim+Math.PI,4.5*C.dt);
+    if(S.t<=0){ S.st='burn'; S.t=1.6; SFX.eshoot(); } }
+   else { S.burn-=C.dt;
+    if(S.burn<=0){ S.burn=0.15;
+     const bx=e.x-Math.cos(e.facing)*e.r*1.4, by=e.y-Math.sin(e.facing)*e.r*1.4;
+     dropDisc(e,bx+(Math.random()-0.5)*44,by+(Math.random()-0.5)*44,32,
+      {life:2.5,safe:0.25,dmg:Math.round(e.dmg*0.35),what:'EXHAUST PLUME'}); }
+    if(S.t<=0){ S.st='wind'; S.t=C.enrage?1.2:1.8; } } },
+  quake(e,C){ // a close slam: a dashed ring, then the ground answers
+   C.mv(0.5);
+   let S=e.jgQ; if(e.atkT===0||!S) S=e.jgQ={st:'wind',t:0.6};
+   S.t-=C.dt;
+   if(S.st==='wind'&&S.t<=0){ S.st='cool'; S.t=C.enrage?1.6:2.4; jgQuake(e,e.x,e.y,false); }
+   else if(S.st==='cool'&&S.t<=0){ S.st='wind'; S.t=0.6; } }
+ },
+ // armoured front, exposed rear: facing turns while hunting, locks mid-ram
  signature(e,C){ if(!e.charging&&!e.chargeOn) e.facing=Math.atan2(C.p.y-e.y,C.p.x-e.x); },
- draw(e,g){ // armoured prow one end, the vent the other
-  const R=g.R;
+ // VENT PURGE: it stops for 4 s and mends, but every side takes 2.5×.
+ recover:{ at:[0.55,0.30], pool:0.08, label:'VENT PURGE', hold:true, max:4.5,
+  start(e){ e.jgPurge={last:e.hp};
+   rings.push({x:e.x,y:e.y,r:e.r,maxR:e.r+90,spd:260,dmg:0,hit:true});
+   addFloater(e.x,calloutY(e),'VENT PURGE · every side exposed',K.red); SFX.alarm(); },
+  update(e,C){ const P=e.jgPurge;
+   if(P){ const drop=P.last-e.hp; // every blow lands 2.5× while it purges
+    if(drop>0) e.hp-=drop*(JG_PURGE_MUL-1);
+    P.last=e.hp; }
+   bossHeal(e,e.maxhp*0.02*C.dt);
+   return e.rec.t>=4?'purged':false; },
+  end(e,why){ e.jgPurge=null; e.charging=false; e.chargeOn=false; e.ramLx=undefined;
+   addFloater(e.x,calloutY(e),why==='purged'?'PURGE SPENT':'PURGE ENDS',why==='purged'?K.gold:K.red); } },
+ label(e){ if(e.atk==='ram') return 'RAM'; if(e.atk==='plume') return 'EXHAUST PLUME';
+  if(e.atk==='quake') return 'WALL QUAKE'; return null; },
+ under(e){
+  const R=e.jgR, p=player;
+  if(e.atk==='ram'&&R&&R.st==='wind'&&p){ const a=e.facing||0; // the ruled line
+   ctx.save(); ctx.globalAlpha=0.85; tickedLine(e.x,e.y,e.x+Math.cos(a)*560,e.y+Math.sin(a)*560,K.red,1.5,24,3); ctx.restore(); }
+  const P=e.jgP;
+  if(e.atk==='plume'&&P&&p){ const a=e.facing||0, bx=Math.cos(a), by=Math.sin(a), w=0.5, r=e.r*3.4;
+   ctx.save(); ctx.globalAlpha=0.8; ctx.beginPath(); ctx.moveTo(e.x-bx*e.r,e.y-by*e.r);
+   ctx.arc(e.x-bx*e.r,e.y-by*e.r,r,Math.atan2(-by,-bx)-w,Math.atan2(-by,-bx)+w); ctx.closePath();
+   if(P.st==='wind'){ ctx.strokeStyle=K.red; ctx.lineWidth=1.5; ctx.setLineDash([7,6]); ctx.stroke(); ctx.setLineDash([]); }
+   else { ctx.fillStyle=K.redDim; ctx.globalAlpha=0.3; ctx.fill();
+    ctx.globalAlpha=0.8; ctx.strokeStyle=K.red; ctx.lineWidth=1.5; ctx.stroke(); }
+   ctx.restore(); }
+  const Q=e.jgQ;
+  if(e.atk==='quake'&&Q&&Q.st==='wind'){ ctx.save(); ctx.globalAlpha=0.8;
+   ctx.strokeStyle=K.red; ctx.lineWidth=1.5; ctx.setLineDash([8,6]);
+   ctx.beginPath(); ctx.arc(e.x,e.y,260,0,6.283); ctx.stroke(); ctx.setLineDash([]); ctx.restore(); } },
+ post(e,dt){ // a purging god vents hot: the weak point glows
+  if(e.rec&&e.jgPurge) e.flash=Math.max(e.flash||0,0.05); },
+ draw(e,g){ // a sharpened ram prow and armoured block with a vent
+  const R=g.R, purging=!!(e.rec&&e.jgPurge);
   ctx.save(); ctx.rotate(e.facing||0);
-  ctx.fillStyle=g.body; ctx.strokeStyle=g.col; ctx.lineWidth=g.lw;
-  ctx.beginPath(); ctx.moveTo(R,0); ctx.lineTo(R*0.3,-R*0.8); ctx.lineTo(-R*0.85,-R*0.62); ctx.lineTo(-R*0.85,R*0.62); ctx.lineTo(R*0.3,R*0.8); ctx.closePath(); ctx.fill(); ctx.stroke();
+  ctx.fillStyle=g.body; ctx.strokeStyle=purging?K.redHi:g.col; ctx.lineWidth=purging?2:g.lw;
+  ctx.beginPath(); ctx.moveTo(R*1.18,0); ctx.lineTo(R*0.3,-R*0.72); ctx.lineTo(-R*0.85,-R*0.62); ctx.lineTo(-R*0.85,R*0.62); ctx.lineTo(R*0.3,R*0.72); ctx.closePath(); ctx.fill(); ctx.stroke();
   // the prow plate: bare metal, hatched — it shrugs off rounds
   ctx.fillStyle=K.lift; ctx.strokeStyle=K.metal; ctx.lineWidth=1.25;
-  ctx.beginPath(); ctx.moveTo(R*0.98,0); ctx.lineTo(R*0.34,-R*0.66); ctx.lineTo(R*0.34,R*0.66); ctx.closePath(); ctx.fill(); ctx.stroke();
-  ctx.strokeStyle=K.metalDim; ctx.lineWidth=1; ctx.beginPath(); for(let k=1;k<5;k++){ const x=R*0.34+k*R*0.13; ctx.moveTo(x,-R*0.66*(1-(x-R*0.34)/(R*0.64))); ctx.lineTo(x,R*0.66*(1-(x-R*0.34)/(R*0.64))); } ctx.stroke();
-  // the rear vent: the weak point, hot and open
-  ctx.fillStyle=g.col; ctx.fillRect(-R*0.92,-R*0.34,R*0.22,R*0.68);
-  ctx.strokeStyle=K.ground; ctx.lineWidth=1; ctx.beginPath(); for(let k=1;k<4;k++){ const y=-R*0.34+k*R*0.17; ctx.moveTo(-R*0.92,y); ctx.lineTo(-R*0.7,y); } ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(R*1.14,0); ctx.lineTo(R*0.34,-R*0.58); ctx.lineTo(R*0.34,R*0.58); ctx.closePath(); ctx.fill(); ctx.stroke();
+  ctx.strokeStyle=K.metalDim; ctx.lineWidth=1; ctx.beginPath(); for(let k=1;k<5;k++){ const x=R*0.34+k*R*0.14; ctx.moveTo(x,-R*0.58*(1-(x-R*0.34)/(R*0.8))); ctx.lineTo(x,R*0.58*(1-(x-R*0.34)/(R*0.8))); } ctx.stroke();
+  // the rear vent: the weak point, hot and open — hotter while purging
+  ctx.fillStyle=purging?K.redHi:g.col; ctx.fillRect(-R*0.92,-R*0.34,R*0.22,R*0.68);
+  ctx.strokeStyle=purging?K.red:K.ground; ctx.lineWidth=1; ctx.beginPath(); for(let k=1;k<4;k++){ const y=-R*0.34+k*R*0.17; ctx.moveTo(-R*0.92,y); ctx.lineTo(-R*0.7,y); } ctx.stroke();
   ctx.restore();
  }
+ ,hitParts:{ rot:e=>e.facing||0, c:[[1.05,0,0.22],[0.2,-0.8,0.17],[0.2,0.8,0.17],[-0.85,0,0.28]] }
 };
 // ===== END BOSS: JUGGERNAUT =====
 
