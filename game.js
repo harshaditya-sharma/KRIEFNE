@@ -3309,38 +3309,195 @@ BOSS_KITS.hydra={
 // ===== END BOSS: HYDRA =====
 
 // ===== BOSS: WYVERN =====
-// Placeholder kit (wave 2 builds the full one, spec §5): a telegraphed Strafing Run.
+// The Strafing Wing (spec §5). Signature STRAFING RUN: a lane lights 0.9 s,
+// then a high-speed dive down it leaving a fire line (trail discs). Secondaries:
+// WING GUST (a hatched cone that throws you back), TALON (a close double
+// slash) and DIVE BOMB (a marked circle, then a landing shockwave). Phase II
+// at 50%: runs come in crossing pairs (an X) with the gap marked; it dives
+// the first lane, flies round and dives the second. Recovery ROOST at 55%:
+// it lands on the largest obstacle and mends 2.5%/s; 5% of its max HP knocks
+// it off. Calls HYDRA at 60% and 30% (the rung below). Never teleports.
+const WY_DIVE=700, WY_LIT=0.9, WY_ROOST_HEAL=0.025, WY_KNOCK=0.05;
+function wyLaneOff(L,x,y){ return Math.abs((x-L.sx)*L.dy-(y-L.sy)*L.dx); }
+function wyMakeLane(e,px,py,a){ return {sx:e.x,sy:e.y,a,dx:Math.cos(a),dy:Math.sin(a),L:1200,px,py}; }
+function wyBigObs(){
+ let best=null, bs=-1;
+ if(!arena||!arena.obs) return null;
+ for(const o of arena.obs){ if(o.temp) continue; let s=0;
+  if(o.kind==='rect') s=o.w*o.h; else if(o.r>0) s=Math.PI*o.r*o.r; else s=Math.pow(obsRadius(o)*2,2);
+  if(s>bs){ bs=s; best=o; } }
+ return best;
+}
+function wyPerchFor(e,o){
+ const p=player, cx=obsCX(o), cy=obsCY(o);
+ let qx=cx, qy=cy;
+ if(o.kind==='rect'){ qx=clamp(p.x,o.x,o.x+o.w); qy=clamp(p.y,o.y,o.y+o.h); }
+ else { const dx=p.x-cx, dy=p.y-cy, l=Math.hypot(dx,dy)||1, r=o.r||obsRadius(o); qx=cx+dx/l*r; qy=cy+dy/l*r; }
+ let ox=p.x-qx, oy=p.y-qy; const l=Math.hypot(ox,oy)||1; ox/=l; oy/=l;
+ return {o,x:clamp(qx+ox*2,PX0+e.r,PX1-e.r),y:clamp(qy+oy*2,PY0+e.r,PY1-e.r),ox,oy};
+}
 BOSS_KITS.wyvern={
  def:{name:'WYVERN',epithet:'the Strafing Wing',tier:3,hp:1300,r:30,spd:1.15,shape:'delta',pt:3.2,sig:'strafe',chaff:['drone','tempest']},
  lore:'A LORD ON THE WING — WYVERN strafes the lane it lit for you. Leave the lane.',
- codex:{role:'Strafer', threat:'High-speed dives',
-  tell:'A RED LANE lights across the field, then it dives straight down it.',
-  counter:'The lane is the whole attack. Step out of it sideways while it lights.',
+ codex:{role:'Strafer', threat:'Roosts once; two phases',
+  tell:'A RED LANE lights, then it dives down it leaving fire. A hatched cone is the GUST; ruled arcs at close range, the TALON; a dashed circle filling under you, the DIVE BOMB.',
+  counter:'Step out of a lit lane sideways. Leave the gust cone before it blows. When it ROOSTS on the rock, hit it: 5% of its strength knocks it off.',
   lore:'The Strafing Wing. A picket fighter from a war fought at such speed that the pilots were removed to save weight. The wing learned the war by itself. It still lights its run before it makes it, a courtesy from an age when the other side had to see it coming.'},
  vmax:720,
- cycle:['strafe','fan'],
- attacks:Object.assign(atk('fan'),{
-  strafe(e,C){ // lane lights 0.9 s, then a straight dive down it
-   const s=e.run;
-   if(!s){ C.orbit(0.8); e.burstT-=C.dt;
-    if(e.burstT<=0){ e.burstT=C.enrage?1.6:2.4; const a=Math.atan2(C.p.y-e.y,C.p.x-e.x); e.run={t:0,a,x:e.x,y:e.y}; SFX.click(); } return; }
-   s.t+=C.dt;
-   if(s.t<0.9) return; // the lane is lit: hold still and let it read
-   if(s.t<1.8){ const v=700; e.x+=Math.cos(s.a)*v*C.dt; e.y+=Math.sin(s.a)*v*C.dt; e.intent+=v*C.dt; e.charging=true;
-    const hitWall=e.x<=PX0+e.r+1||e.x>=PX1-e.r-1||e.y<=PY0+e.r+1||e.y>=PY1-e.r-1; if(hitWall) s.t=1.8; return; }
-   e.run=null; }
- }),
- label(e){ return e.run&&e.run.t<0.9?'STRAFING RUN':''; },
- drawTop(e,g){ const s=e.run; if(!s||s.t>=0.9) return; const L=900, w=e.r*0.9;
-  ctx.save(); ctx.translate(s.x-e.x,s.y-e.y); ctx.rotate(s.a);
-  ctx.globalAlpha=0.8; tickedLine(0,-w,L,-w,K.red,1,24,3); tickedLine(0,w,L,w,K.red,1,24,3); ctx.restore(); },
+ cycle:['strafe','gust','talon','divebomb'],
+ phases:[{},{at:0.5,enter(e){ e.wy.run=null; }}],
+ init(e){ e.wy={face:0,run:null,runT:1.5}; },
+ attacks:{
+  strafe(e,C){ // a lit lane, then a dive leaving fire; P2 a crossing pair with the gap marked
+   const W=e.wy;
+   if(!W.run){
+    if(e.atkT!==0) return;
+    C.orbit(0.6); W.runT-=C.dt;
+    if(W.runT>0) return;
+    W.runT=C.enrage?2.0:2.8;
+    const px=C.p.x, py=C.p.y, a0=Math.atan2(py-e.y,px-e.x);
+    if(e.ph>=2&&!e.summoned){
+     const a1=a0+(Math.random()<0.5?1:-1)*(Math.PI/2+(Math.random()-0.5)*0.3);
+     const bis=(a0+a1)/2+Math.PI/2, gx=clamp(px+Math.cos(bis)*90,PX0+30,PX1-30), gy=clamp(py+Math.sin(bis)*90,PY0+30,PY1-30);
+     W.run={lanes:[wyMakeLane(e,px,py,a0),wyMakeLane(e,px,py,a1)],i:0,st:'lit',t:0,gap:{x:gx,y:gy}};
+    } else W.run={lanes:[wyMakeLane(e,px,py,a0)],i:0,st:'lit',t:0};
+    SFX.click(); return; }
+   const R=W.run; R.t+=C.dt;
+   if(R.st==='lit'){ if(R.t>=WY_LIT){ R.st='dive'; R.t=0; SFX.dash(); } return; }
+   if(R.st==='turn'){ // flying round to the second lane's start
+    const L=R.lanes[1], tx=L.px-Math.cos(L.a)*420, ty=L.py-Math.sin(L.a)*420;
+    const dx=tx-e.x, dy=ty-e.y, d=Math.hypot(dx,dy);
+    if(d<40){ R.i=1; R.st='dive'; R.t=0; const nl=wyMakeLane(e,L.px,L.py,L.a); R.lanes[1]=nl; SFX.dash(); }
+    else { const sv=steer(e,dx/d,dy/d), v=340*C.sF; e.x+=sv[0]*v*C.dt; e.y+=sv[1]*v*C.dt; e.intent+=v*C.dt;
+     W.face=Math.atan2(dy,dx); }
+    return; }
+   // dive down lane i
+   const L=R.lanes[R.i], v=WY_DIVE;
+   e.x+=L.dx*v*C.dt; e.y+=L.dy*v*C.dt; e.intent+=v*C.dt; e.charging=true; W.face=L.a;
+   const src=e.wyFsrc||(e.wyFsrc=srcOf(e,'FIRE LINE'));
+   dropDisc(e,e.x,e.y,e.r*0.75,{life:3.5,safe:0.25,src,what:'FIRE LINE'});
+   const flown=Math.hypot(e.x-L.sx,e.y-L.sy);
+   const wall=e.x<=PX0+e.r+1||e.x>=PX1-e.r-1||e.y<=PY0+e.r+1||e.y>=PY1-e.r-1;
+   // the dive itself bites anything left in the lane
+   if(C.p.dashT<=0&&wyLaneOff(L,C.p.x,C.p.y)<e.r*0.9+C.p.r&&flown>40) hurtPlayer(Math.round(e.dmg*0.8),true,srcOf(e,'STRAFING RUN'));
+   if(flown>=L.L||wall||R.t>2.2){
+    if(R.lanes.length>1&&R.i===0){ R.st='turn'; R.t=0; }
+    else { W.run=null; W.runT=C.enrage?1.2:1.8; } } },
+  gust(e,C){ // a hatched cone, then a gust that throws you back
+   let S=e.wyG; if(e.atkT===0||!S){ S=e.wyG={st:'wind',t:0.55,a:Math.atan2(C.p.y-e.y,C.p.x-e.x)}; SFX.click(); }
+   S.t-=C.dt;
+   if(S.st==='wind'){ C.mv(0.1);
+    if(S.t<=0){ S.st='done'; S.t=0.4;
+     const p=C.p, dx=p.x-e.x, dy=p.y-e.y, d=Math.hypot(dx,dy);
+     let da=Math.abs(((Math.atan2(dy,dx)-S.a+Math.PI)%6.283)-Math.PI);
+     if(d<300&&da<0.5){ const l=d||1;
+      applyStatus('knockback',0,{x:dx/l*520,y:dy/l*520});
+      hurtPlayer(Math.round(e.dmg*0.7),true,srcOf(e,'WING GUST')); }
+     spawnBurst(e.x+Math.cos(S.a)*40,e.y+Math.sin(S.a)*40,10,K.red,220,0.4,3); SFX.ring(); } } },
+  talon(e,C){ // it closes, two arcs are ruled, then two slashes
+   let S=e.wyT; if(e.atkT===0||!S) S=e.wyT={st:'close',t:0};
+   S.t-=C.dt;
+   if(S.st==='close'){ C.mv(1.0);
+    if(C.d<170){ S.st='wind'; S.t=0.5; S.a=Math.atan2(C.p.y-e.y,C.p.x-e.x); SFX.click(); } }
+   else if(S.st==='wind'){ C.mv(0.15);
+    if(S.t<=0){ S.st='slash'; S.t=0.25; S.k=0; SFX.dash(); } }
+   else if(S.st==='slash'){
+    if(S.k<2){ S.kT=(S.kT||0)-C.dt;
+     if(S.kT<=0){ S.kT=0.2; S.k++;
+      if(Math.hypot(C.p.x-e.x,C.p.y-e.y)<190) hurtPlayer(Math.round(e.dmg*0.7),true,srcOf(e,'TALON')); } }
+    if(S.t<=0){ S.st='close'; S.t=0.5; } } },
+  divebomb(e,C){ // a mark on you, then it lands on it with a shockwave
+   let S=e.wyD; if(e.atkT===0||!S){ S=e.wyD={st:'mark',t:0,mx:C.p.x,my:C.p.y,warn:1.1}; SFX.click(); }
+   S.t+=C.dt;
+   if(S.st==='mark'){
+    if(S.t>=S.warn){ S.st='air'; S.t=0;
+     const dx=S.mx-e.x, dy=S.my-e.y, d=Math.hypot(dx,dy)||1;
+     S.dx=dx/d; S.dy=dy/d; SFX.dash(); } }
+   else if(S.st==='air'){ const v=520;
+    e.x+=S.dx*v*C.dt; e.y+=S.dy*v*C.dt; e.intent+=v*C.dt; e.charging=true; e.wy.face=Math.atan2(S.dy,S.dx);
+    if(Math.hypot(S.mx-e.x,S.my-e.y)<24){ S.st='done'; S.t=0;
+     shockwave(e,S.mx,S.my,{maxR:190,spd:360,dmg:e.dmg,fx:'knockback',kb:520,warn:0,w:16,what:'DIVE BOMB'}); } }
+   else if(S.t>1.2){ e.wyD=null; } }
+ },
+ // ROOST: land on the largest obstacle and mend; 5% dealt knocks it off.
+ recover:{ at:[0.55], pool:0.08, label:'ROOST', hold:true, max:9,
+  start(e){ e.wy.perched=false; e.wy.ref=e.hp;
+   const o=wyBigObs();
+   if(!o){ e.wy.noPerch=true; return; }
+   e.wy.perch=wyPerchFor(e,o); e.wy.noPerch=false;
+   addFloater(e.x,calloutY(e),'WYVERN ROOSTS · knock it off',K.red); SFX.alarm(); },
+  update(e,C){ const W=e.wy, P=C.p;
+   if(W.noPerch) return 'noporch';
+   const T=W.perch;
+   if(!W.perched){ const dx=T.x-e.x, dy=T.y-e.y, d=Math.hypot(dx,dy);
+    if(d<3){ W.perched=true; rings.push({x:e.x,y:e.y,r:10,maxR:90,spd:260,dmg:0,hit:true}); }
+    else { const sv=steer(e,dx/d,dy/d), v=Math.min(d,e.sp*2.2*C.sF*C.dt); e.x+=sv[0]*v; e.y+=sv[1]*v; e.intent+=v; }
+    return false; }
+   if(e.hp<=W.ref-e.maxhp*WY_KNOCK) return 'knocked';
+   bossHeal(e,e.maxhp*WY_ROOST_HEAL*C.dt);
+   return e.healPool<=0?'mended':false; },
+  end(e,why){ const W=e.wy;
+   if(W.perch&&W.perched){ e.x=clamp(W.perch.x+W.perch.ox*(e.r+8),PX0+e.r,PX1-e.r); e.y=clamp(W.perch.y+W.perch.oy*(e.r+8),PY0+e.r,PY1-e.r); }
+   W.perched=false; W.perch=null;
+   addFloater(e.x,calloutY(e),why==='knocked'?'KNOCKED OFF':why==='mended'?'WYVERN TAKES WING':'ROOST ENDS',why==='knocked'?K.gold:K.red); }
+ },
+ label(e){ const W=e.wy;
+  if(W&&W.run) return W.run.st==='lit'?'STRAFING RUN':null;
+  if(e.atk==='gust') return 'WING GUST'; if(e.atk==='talon') return 'TALON'; if(e.atk==='divebomb') return 'DIVE BOMB'; return null; },
+ post(e,dt){
+  const W=e.wy; if(!W) return;
+  // perched: hold the rim exactly (resolveObstacles runs before this, so this wins)
+  if(e.rec&&W.perched&&W.perch){ e.x=W.perch.x; e.y=W.perch.y; }
+  if(!W.run){ const p=player;
+   if(p) W.face=turnTo(W.face||0,Math.atan2(p.y-e.y,p.x-e.x),2*dt); }
+  else if(W.run.st==='lit'){ const L=W.run.lanes[W.run.i]; W.face=turnTo(W.face,L.a,1.2*dt); } },
+ under(e){
+  const W=e.wy; if(!W) return;
+  const R=W.run;
+  if(R&&R.st==='lit'){ ctx.save(); ctx.globalAlpha=0.85;
+   for(const L of R.lanes){ const ex=L.sx+L.dx*L.L, ey=L.sy+L.dy*L.L, w=e.r*0.9;
+    tickedLine(L.sx,L.sy,ex,ey,K.red,1,24,3);
+    line(L.sx-L.dy*w,L.sy+L.dx*w,ex-L.dy*w,ey+L.dx*w,K.redDim,1,[6,6]);
+    line(L.sx+L.dy*w,L.sy-L.dx*w,ex+L.dy*w,ey-L.dx*w,K.redDim,1,[6,6]); }
+   if(R.gap){ ctx.strokeStyle=K.gold; ctx.lineWidth=1.5; ctx.setLineDash([5,4]);
+    ctx.beginPath(); ctx.arc(R.gap.x,R.gap.y,30,0,6.283); ctx.stroke(); ctx.setLineDash([]);
+    inkText('GAP',R.gap.x,R.gap.y-38,K.gold,fD(10)); }
+   ctx.restore(); }
+  const G=W.gy||W.wyG||e.wyG;
+  if(e.atk==='gust'&&e.wyG&&e.wyG.st==='wind'){ const S=e.wyG, a=S.a, r=300, w=0.5;
+   ctx.save(); ctx.beginPath(); ctx.moveTo(e.x,e.y); ctx.arc(e.x,e.y,r,a-w,a+w); ctx.closePath(); ctx.save(); ctx.clip();
+   ctx.strokeStyle=K.redDim; ctx.lineWidth=1; ctx.beginPath(); for(let d=-r;d<r;d+=8){ ctx.moveTo(e.x+d,e.y-r); ctx.lineTo(e.x+d+r,e.y+r); } ctx.stroke(); ctx.restore();
+   ctx.strokeStyle=K.red; ctx.lineWidth=1.5; ctx.beginPath(); ctx.moveTo(e.x,e.y); ctx.arc(e.x,e.y,r,a-w,a+w); ctx.closePath(); ctx.stroke(); ctx.restore(); }
+  const T=e.wyT;
+  if(e.atk==='talon'&&T&&T.st==='wind'){ ctx.save(); ctx.globalAlpha=0.85; ctx.strokeStyle=K.red; ctx.lineWidth=1.5;
+   for(const s of [-0.35,0.35]){ ctx.beginPath(); ctx.arc(e.x,e.y,170,T.a+s-0.3,T.a+s+0.3); ctx.stroke(); }
+   ctx.restore(); }
+  const D=e.wyD;
+  if(D&&(D.st==='mark'||D.st==='air')){ const f=clamp(D.t/D.warn,0,1);
+   ctx.save(); ctx.strokeStyle=K.red; ctx.lineWidth=1.5; ctx.setLineDash([6,5]);
+   ctx.beginPath(); ctx.arc(D.mx,D.my,70,0,6.283); ctx.stroke(); ctx.setLineDash([]);
+   ctx.beginPath(); ctx.arc(D.mx,D.my,Math.max(1,70*f),0,6.283); ctx.save(); ctx.clip();
+   ctx.strokeStyle=K.redDim; ctx.lineWidth=1; ctx.beginPath(); for(let d=-70;d<70;d+=6){ ctx.moveTo(D.mx+d,D.my-70); ctx.lineTo(D.mx+d+70,D.my+70); } ctx.stroke(); ctx.restore();
+   ctx.restore(); }
+  if(e.rec&&W.perch&&!W.perched){ ctx.save(); ctx.globalAlpha=0.7; line(e.x,e.y,W.perch.x,W.perch.y,pigOf(e).dim,1,[5,6]); ctx.restore(); }
+ },
  draw(e,g){ // a swept delta of triangles and parallelograms
-  const R=g.R; ctx.save(); ctx.rotate(e.run?e.run.a:Math.atan2(player?player.y-e.y:0,player?player.x-e.x:1));
+  const R=g.R, W=e.wy, a=W?(W.run&&W.run.st!=='turn'?W.run.lanes[W.run.i].a:W.face):0;
+  ctx.save(); ctx.rotate(a);
   ctx.fillStyle=g.body; ctx.strokeStyle=g.col; ctx.lineWidth=g.lw;
-  polyPts([[R,0],[-R*0.55,-R*0.95],[-R*0.25,0],[-R*0.55,R*0.95]]); ctx.fill(); ctx.stroke();
-  ctx.strokeStyle=g.dim; ctx.lineWidth=1; polyPts([[R*0.55,0],[-R*0.1,-R*0.42],[-R*0.1,R*0.42]]); ctx.stroke();
-  ctx.fillStyle=e.run&&e.run.t<0.9?K.redHi:g.col; ctx.beginPath(); ctx.arc(R*0.2,0,3,0,6.283); ctx.fill(); ctx.restore();
- }
+  polyPts([[R*1.1,0],[-R*0.55,-R*0.95],[-R*0.25,0],[-R*0.55,R*0.95]]); ctx.fill(); ctx.stroke();
+  // parallelogram spars
+  ctx.strokeStyle=g.dim; ctx.lineWidth=1;
+  polyPts([[-R*0.1,-R*0.7],[R*0.5,-R*0.28],[R*0.1,-R*0.1],[-R*0.5,-R*0.5]]);
+  ctx.stroke();
+  polyPts([[-R*0.1,R*0.7],[R*0.5,R*0.28],[R*0.1,R*0.1],[-R*0.5,R*0.5]]);
+  ctx.stroke();
+  ctx.fillStyle=(W&&W.run&&W.run.st==='lit')?K.redHi:g.col; ctx.beginPath(); ctx.arc(R*0.2,0,3,0,6.283); ctx.fill();
+  ctx.restore();
+  if(e.rec&&W&&W.perched){ ctx.strokeStyle=g.col; ctx.lineWidth=1; ctx.setLineDash([3,3]);
+   ctx.beginPath(); ctx.arc(0,0,R+8,0,6.283); ctx.stroke(); ctx.setLineDash([]); }
+ },
+ hitParts:{ rot:e=>e.wy?e.wy.face:0, c:[[-0.78,0.98,0.24],[-0.78,-0.98,0.24],[0.6,0,0.2]] }
 };
 // ===== END BOSS: WYVERN =====
 
