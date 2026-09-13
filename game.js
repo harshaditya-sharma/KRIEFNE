@@ -2268,13 +2268,16 @@ function ringEffect(g,p){ if(p.dashT>0) return;
 // slow:s, applied when it lands.
 function eshotB(e,a,spd,r,dmgMul,life,bounces){ const b=eshot(e,a,spd,r,dmgMul,life||4.5); if(b) b.bounce=bounces||1; return b; }
 
-// REFLECT ARC. e.mirror={arcs:[{a,half}], cap, dmgMul}; the kit turns the arcs.
+// REFLECT ARC. e.mirror={arcs:[{a,half}], cap, dmgMul, reach}; the kit turns the arcs.
 // A ship round striking inside an arc is mirrored off the shield's normal and
 // comes back as an enemy round. At most `cap` rounds a second are returned
 // (default 6); the rest are absorbed, so a 12-barrel build cannot delete
 // itself in a frame. mirror.stored sums what it took (a Riposte's charge).
+// `reach` (px, optional) limits the mirror to strikes that close to the
+// centre, so parts orbiting outside it (anchor nodes) can still be shot.
 function bossDeflect(e,b,hx,hy){
  const m=e&&e.mirror; if(!m||m.off||!m.arcs||!m.arcs.length||e.dead) return false;
+ if(m.reach&&Math.hypot(hx-e.x,hy-e.y)>m.reach) return false;
  const a=Math.atan2(hy-e.y,hx-e.x); let hit=false; for(const q of m.arcs) if(Math.abs(angDiff(a,q.a))<=q.half){ hit=true; break; }
  if(!hit) return false;
  b.dead=true; m.stored=(m.stored||0)+(b.dmg||0);
@@ -3636,29 +3639,134 @@ BOSS_KITS.oracle={
 // ===== END BOSS: ORACLE =====
 
 // ===== BOSS: SENTINEL =====
-// Placeholder kit (wave 2 builds the full one, spec §5): Spear Line only.
+// The Shield-Wall (spec §5). Signature MIRROR SHIELD: a frontal arc (~100°)
+// that reflects your rounds back as enemy rounds, turning toward you at
+// 70°/s — flanking wins. The reflection is capped (3/s, the rest absorbed),
+// so a hose cannot delete itself. Secondaries: BULWARK PUSH (it advances
+// behind the shield and shoves), SPEAR LINE (a straight lance volley) and
+// RIPOSTE (what the mirror stored comes back as a ring when the shield
+// drops). Phase II at 50%: the shield splits into front and rear arcs
+// rotating opposite ways; shoot through the gaps. Recovery SHIELD-WALL at
+// 55%: the mirror closes 360° for up to 5 s while it heals; three anchor
+// nodes orbit outside it — break them to drop the wall (and eat the Riposte).
+// Calls ORACLE at 60% and 30%; a summoned ORACLE has no Call. No radials.
+const SN_HALF=50*Math.PI/180, SN_TURN=70*Math.PI/180;
+function snSetP1(e,face){ const a=face!=null?face:(e.sn?e.sn.face:0);
+ e.mirror.arcs=[{a,half:SN_HALF}]; e.mirror.reach=0; e.mirror.off=false; }
+function snSetP2(e){ const f=e.sn?e.sn.face:0;
+ e.mirror.arcs=[{a:f,half:SN_HALF},{a:f+Math.PI,half:SN_HALF}]; e.mirror.reach=0; e.mirror.off=false; }
 BOSS_KITS.sentinel={
  def:{name:'SENTINEL',epithet:'the Shield-Wall',tier:3,hp:1400,r:32,spd:0.80,shape:'shield',pt:3.4,sig:'mirror',chaff:['stalker','sniper']},
  lore:'A LORD BEHIND A MIRROR — SENTINEL has held its wall for longer than walls.',
- codex:{role:'Shield-bearer', threat:'Lances in a line',
-  tell:'The shield lowers and a SPEAR LINE of rounds runs straight at you, one behind another.',
-  counter:'A line is narrow. Step off it and circle toward its flank.',
+ codex:{role:'Shield-bearer', threat:'Shield-Wall, once; two phases',
+  tell:'A MIRROR arc before it turns to face you and throws your rounds back. Two ruled lines ahead are the PUSH; one ruled line, the SPEAR; when the plate lowers, the RIPOSTE ring.',
+  counter:'Flank the mirror: it turns at 70° a second. Shoot through the Phase II gaps. When it closes its WALL, break the three anchors outside it.',
   lore:'The Shield-Wall. A gatehouse given engines, from a people who believed a wall that could follow you was a kinder thing than a gun. It has never started a fight. It has also never let one end on any terms but its own.'},
- cycle:['spearline','slam'],
- attacks:Object.assign(atk('slam'),{
-  spearline(e,C){ // a straight lance volley: one line, staggered speeds
-   C.mv(0.35); e.burstT-=C.dt;
-   if(e.aimT>0){ e.aimT-=C.dt; if(e.aimT<=0){ for(let k=0;k<5;k++) eshot(e,e.spear,210+k*38,5,0.8,3.6); SFX.eshoot(); } }
-   else if(e.burstT<=0){ e.burstT=C.enrage?1.2:1.7; e.aimT=0.5; e.spear=C.aim; } }
- }),
- draw(e,g){ // a tall trapezoid shield in front of a square core
-  const R=g.R, a=Math.atan2(player?player.y-e.y:0,player?player.x-e.x:1);
-  ctx.fillStyle=g.body; ctx.strokeStyle=g.col; ctx.lineWidth=g.lw; ctx.save(); ctx.rotate(e.t*0.2); ctx.fillRect(-R*0.5,-R*0.5,R,R); ctx.strokeRect(-R*0.5,-R*0.5,R,R); ctx.restore();
-  ctx.save(); ctx.rotate(a); polyPts([[R*0.55,-R*0.95],[R*0.95,-R*0.6],[R*0.95,R*0.6],[R*0.55,R*0.95]]);
-  ctx.fillStyle=e.aimT>0?K.red:g.body; ctx.fill(); ctx.strokeStyle=g.col; ctx.stroke();
-  ctx.strokeStyle=g.dim; ctx.lineWidth=1; ctx.beginPath(); ctx.moveTo(R*0.75,-R*0.7); ctx.lineTo(R*0.75,R*0.7); ctx.stroke(); ctx.restore();
-  if(e.aimT>0){ tickedLine(0,0,Math.cos(e.spear)*600,Math.sin(e.spear)*600,K.red,1,24,3); }
- }
+ cycle:['bulwark','spear','riposte'],
+ phases:[{},{at:0.5,enter(e){ if(!e.rec) snSetP2(e); }}],
+ init(e){ e.sn={face:Math.atan2(player?player.y-e.y:0,player?player.x-e.x:1)};
+  e.mirror={arcs:[{a:e.sn.face,half:SN_HALF}],cap:3,dmgMul:0.45,stored:0,budget:3}; },
+ attacks:{
+  bulwark(e,C){ // two ruled lines ahead, then it advances and shoves
+   let S=e.snB; if(e.atkT===0||!S) S=e.snB={st:'wind',t:0.6,a:C.aim};
+   S.t-=C.dt;
+   if(S.st==='wind'){ C.mv(0.05);
+    if(S.t<=0){ S.st='push'; S.t=0.8; S.dx=Math.cos(S.a); S.dy=Math.sin(S.a); S.hit=false; SFX.dash(); } }
+   else if(S.st==='push'){ const v=260;
+    e.x+=S.dx*v*C.dt; e.y+=S.dy*v*C.dt; e.intent+=v*C.dt; e.charging=true;
+    if(!S.hit&&Math.hypot(C.p.x-e.x,C.p.y-e.y)<e.r+C.p.r+14){ S.hit=true;
+     const dx=C.p.x-e.x, dy=C.p.y-e.y, l=Math.hypot(dx,dy)||1;
+     applyStatus('knockback',0,{x:dx/l*520,y:dy/l*520});
+     hurtPlayer(Math.round(e.dmg*0.8),true,srcOf(e,'BULWARK PUSH')); }
+    if(S.t<=0){ S.st='wind'; S.t=C.enrage?0.8:1.2; S.a=Math.atan2(C.p.y-e.y,C.p.x-e.x); } } },
+  spear(e,C){ // a ruled line held 0.5 s, then five lances down it (pairs in P2)
+   C.mv(0.35);
+   if(e.atkT===0||!e.snS) e.snS={t:0.5,aim:C.aim,done:false};
+   const S=e.snS; S.t-=C.dt;
+   if(!S.done&&S.t<=0){ S.done=true;
+    const angs=e.ph>=2&&!e.summoned?[S.aim-0.15,S.aim+0.15]:[S.aim];
+    for(const a of angs) for(let k=0;k<5;k++){ const b=eshot(e,a,210+k*38,5,0.8,3.6); if(b) b.src=b.src||srcOf(e,'SPEAR LINE'); }
+    SFX.eshoot(); } },
+  riposte(e,C){ // the plate lowers; what the mirror took comes back as a ring
+   C.mv(0.3);
+   if(e.atkT===0){ const st=e.mirror.stored||0;
+    e.mirror.off=true; e.mirror.stored=0; e.snRip={t:1.0};
+    if(st>e.dmg*0.4){ const dmg=Math.min(Math.round(st*0.5),Math.round(e.dmg*2));
+     shockwave(e,e.x,e.y,{maxR:220,spd:320,dmg,warn:0.4,w:16,what:'RIPOSTE'}); }
+    SFX.ring(); } }
+ },
+ // SHIELD-WALL: the mirror closes all round; three anchors orbit outside it.
+ recover:{ at:[0.55], pool:0.08, label:'SHIELD-WALL', hold:true, max:5,
+  start(e){ e.mirror.arcs=[{a:0,half:Math.PI}]; e.mirror.reach=e.r*1.0; e.mirror.off=false;
+   e.partRot=0;
+   for(let k=0;k<3;k++){ const a=k*2.094;
+    addPart(e,{id:'anchor'+k,lx:Math.cos(a)*e.r*1.6,ly:Math.sin(a)*e.r*1.6,r:12,hp:e.maxhp*0.02,kind:'anchor'}); }
+   addFloater(e.x,calloutY(e),'SHIELD-WALL · break the anchors',K.red); SFX.alarm(); },
+  update(e,C){ e.partRot=(e.partRot||0)+C.dt*0.7;
+   let n=0; for(const q of e.parts) if(q.kind==='anchor'&&!q.dead) n++;
+   if(n===0) return 'broken';
+   bossHeal(e,e.maxhp*0.025*C.dt);
+   return e.healPool<=0?'mended':false; },
+  end(e,why){ e.parts=e.parts.filter(q=>q.kind!=='anchor');
+   if(e.ph>=2) snSetP2(e); else snSetP1(e);
+   if(why==='broken'){ const st=e.mirror.stored||0; e.mirror.stored=0;
+    if(st>0){ const dmg=Math.min(Math.round(st*0.5),Math.round(e.dmg*2));
+     shockwave(e,e.x,e.y,{maxR:220,spd:320,dmg,warn:0.4,w:16,what:'RIPOSTE'}); } }
+   addFloater(e.x,calloutY(e),why==='broken'?'WALL BROKEN':'WALL LOWERS',why==='broken'?K.gold:K.red); }
+ },
+ label(e){ if(e.rec) return 'SHIELD-WALL';
+  if(e.atk==='bulwark') return 'BULWARK PUSH'; if(e.atk==='spear') return 'SPEAR LINE'; if(e.atk==='riposte') return 'RIPOSTE'; return null; },
+ post(e,dt){
+  if(!e.mirror) return;
+  // the riposte lowers the plate for a second
+  if(e.snRip){ e.snRip.t-=dt; if(e.snRip.t<=0){ e.snRip=null; if(!e.rec) e.mirror.off=false; } }
+  if(e.rec) return; // the wall holds its arcs
+  const p=player, want=p?Math.atan2(p.y-e.y,p.x-e.x):0;
+  e.sn.face=e.sn.face==null?want:turnTo(e.sn.face,want,SN_TURN*dt);
+  if(e.ph>=2&&!e.summoned){ e.mirror.arcs[0].a=turnTo(e.mirror.arcs[0].a,want,SN_TURN*dt);
+   e.mirror.arcs[1].a-=SN_TURN*dt; }
+  else if(e.mirror.arcs.length) e.mirror.arcs[0].a=turnTo(e.mirror.arcs[0].a,want,SN_TURN*dt);
+ },
+ under(e){
+  const B=e.snB;
+  if(e.atk==='bulwark'&&B&&B.st==='wind'){ const ex=e.x+Math.cos(B.a)*300, ey=e.y+Math.sin(B.a)*300;
+   ctx.save(); ctx.globalAlpha=0.85;
+   tickedLine(e.x,e.y,ex,ey,K.red,1.5,20,4);
+   const nx=-Math.sin(B.a)*e.r, ny=Math.cos(B.a)*e.r;
+   line(e.x+nx,e.y+ny,ex+nx,ey+ny,K.redDim,1,[6,6]); line(e.x-nx,e.y-ny,ex-nx,ey-ny,K.redDim,1,[6,6]);
+   ctx.restore(); }
+  const S=e.snS;
+  if(e.atk==='spear'&&S&&!S.done){ const angs=e.ph>=2&&!e.summoned?[S.aim-0.15,S.aim+0.15]:[S.aim];
+   ctx.save(); ctx.globalAlpha=0.85;
+   for(const a of angs) tickedLine(e.x,e.y,e.x+Math.cos(a)*600,e.y+Math.sin(a)*600,K.red,1,24,3);
+   ctx.restore(); }
+ },
+ draw(e,g){ // a tall trapezoid shield before a square core; the mirror arcs ride on it
+  const R=g.R, face=e.sn?e.sn.face:0;
+  ctx.fillStyle=g.body; ctx.strokeStyle=g.col; ctx.lineWidth=g.lw;
+  ctx.save(); ctx.rotate(e.t*0.15); ctx.fillRect(-R*0.45,-R*0.45,R*0.9,R*0.9); ctx.strokeRect(-R*0.45,-R*0.45,R*0.9,R*0.9); ctx.restore();
+  ctx.strokeStyle=g.dim; ctx.lineWidth=1; ctx.save(); ctx.rotate(e.t*0.15); ctx.strokeRect(-R*0.25,-R*0.25,R*0.5,R*0.5); ctx.restore();
+  ctx.save(); ctx.rotate(face);
+  const low=e.mirror&&e.mirror.off;
+  polyPts([[R*0.55,-R*0.95],[R*0.95,-R*0.6],[R*0.95,R*0.6],[R*0.55,R*0.95]]);
+  ctx.fillStyle=low?g.body:(e.snS&&!e.snS.done?K.red:g.body);
+  ctx.fill(); ctx.strokeStyle=g.col; ctx.lineWidth=g.lw; ctx.stroke();
+  ctx.strokeStyle=g.dim; ctx.lineWidth=1; ctx.beginPath(); ctx.moveTo(R*0.75,-R*0.7); ctx.lineTo(R*0.75,R*0.7); ctx.stroke();
+  ctx.restore();
+ },
+ drawTop(e,g){ // the mirror arcs: bright where they reflect
+  if(!e.mirror||e.mirror.off) return;
+  const R=g.R;
+  for(const q of e.mirror.arcs){
+   ctx.save(); ctx.rotate(q.a);
+   ctx.strokeStyle=e.rec?K.redHi:g.col; ctx.lineWidth=e.rec?2.5:2;
+   ctx.beginPath(); ctx.arc(0,0,R*1.05,-q.half,q.half); ctx.stroke();
+   ctx.strokeStyle=K.red; ctx.lineWidth=1; ctx.setLineDash([4,4]);
+   ctx.beginPath(); ctx.arc(0,0,R*1.18,-q.half,q.half); ctx.stroke(); ctx.setLineDash([]);
+   ctx.restore(); }
+ },
+ // the shield's tall ends reach past the core circle
+ hitParts:{ rot:e=>e.sn?e.sn.face:0, c:[[0.76,-0.84,0.24],[0.76,0.84,0.24],[0.76,0,0.2]] }
 };
 // ===== END BOSS: SENTINEL =====
 
