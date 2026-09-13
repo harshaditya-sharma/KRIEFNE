@@ -2595,22 +2595,115 @@ BOSS_KITS.overlord={
 // ===== END BOSS: OVERLORD =====
 
 // ===== BOSS: WARDEN =====
+// Bridge-Warden (spec §5). Signature TOLL GATE: three pylons planted round the
+// ship, linked by beams for 4 s; each link is broken in the middle, so the
+// only way out is through a gap. TWINWAVE: two staggered rings (the one radial
+// volley its rank is allowed, §3.9). SLAM: it closes and a knockback ring
+// throws the ship clear. LANE LOCK: two walls of slow rounds either side of
+// the ship close into a narrowing corridor; leave by its ends. Recovery RAISE
+// THE BRIDGE, at 55%: six barrier plates ring it and it mends while three or
+// more stand. Calls OVERLORD at 50%. One phase plus enrage.
+const WD_GATE_R=180, WD_GATE_SPAN=0.37, WD_GATE_WARN=0.9, WD_GATE_LIVE=4;
+function wdGate(e,p){ // plant three pylons round the ship and link them, leaving a gap mid-link
+ const a0=Math.random()*6.283, pts=[];
+ for(let k=0;k<3;k++){ const a=a0+k*2.094; pts.push({x:clamp(p.x+Math.cos(a)*WD_GATE_R,PX0+30,PX1-30),y:clamp(p.y+Math.sin(a)*WD_GATE_R,PY0+30,PY1-30)}); }
+ const src=srcOf(e,'TOLL GATE'), dmg=Math.round(e.dmg*0.4);
+ for(let k=0;k<3;k++){ const A=pts[k], B=pts[(k+1)%3], L=Math.hypot(B.x-A.x,B.y-A.y), ang=Math.atan2(B.y-A.y,B.x-A.x);
+  for(const [P,a] of [[A,ang],[B,ang+Math.PI]]){
+   const b=bossBeam(e,{a,len:L*WD_GATE_SPAN,warn:WD_GATE_WARN,live:WD_GATE_LIVE,w:9,dmg,follow:false,what:'TOLL GATE'});
+   if(b){ b.x=P.x; b.y=P.y; b.src=src; beamEnds(b); } } }
+ e.gate={pts,t:0,end:WD_GATE_WARN+WD_GATE_LIVE};
+ addFloater(e.x,calloutY(e),'TOLL GATE — cross at the gaps',K.red); SFX.alarm(); }
 BOSS_KITS.warden={
- def:{name:'WARDEN',epithet:'Bridge-Warden',tier:2,hp:1250,r:34,spd:0.80,shape:'hex',pt:3.5,sig:null,chaff:['drone','stalker']},
+ def:{name:'WARDEN',epithet:'Bridge-Warden',tier:2,hp:1250,r:34,spd:0.80,shape:'gate',pt:3.5,sig:'tollgate',chaff:['drone','stalker']},
  lore:'A CAPTAIN HOLDS THE BRIDGE — WARDEN guards a lane that leads nowhere now.',
- codex:{role:'Siege fortress', threat:'Retreats once or twice',
-  tell:'Slow. Spirals, guards, seismic slams, twin staggered waves.',
-  counter:'Stay off the rings. When it RETREATS, chase — damage stops its healing.',
+ codex:{role:'Siege fortress', threat:'Raises the Bridge once',
+  tell:'Three pylons land round you and rule red lines between them: the TOLL GATE. Dashed rings are the TWINWAVE and the SLAM; two ruled walls either side of you are a LANE LOCK.',
+  counter:'Leave a toll gate through the gaps mid-link. Take the twinwave between its two rings. Walk a lane lock out by its ends. When it raises the bridge, break four plates and the mending stops.',
   lore:'Bridge-Warden. Lane authority, built to stand at the one crossing between two dead empires. It was never meant to advance, only to make advancing expensive, and it has kept that contract long after the lane stopped leading anywhere.'},
- cycle:['spiral','summon','slam','twinwave'],
- attacks:atk('spiral','summon','slam','twinwave'),
- draw(e,g){ // dashed siege collar, heavy hex core
-  const R=g.R;
-  ctx.save(); ctx.rotate(e.t*0.4); ctx.strokeStyle=g.dim; ctx.lineWidth=3; ctx.setLineDash([14,8]); ctx.beginPath(); ctx.arc(0,0,R+4,0,6.283); ctx.stroke(); ctx.setLineDash([]); ctx.restore();
-  ctx.fillStyle=g.body; ctx.strokeStyle=g.col; ctx.lineWidth=g.lw; poly(6,R-4,e.t*0.25); ctx.fill(); ctx.stroke();
-  ctx.strokeStyle=g.dim; poly(6,R*0.55,e.t*0.25); ctx.stroke();
+ cycle:['twinwave','slam','lanelock','slam'],
+ attacks:{
+  twinwave(e,C){ // two staggered rings from where it stands
+   C.mv(0.35); if(e.atkT===0) e.wdW=0.25; e.wdW-=C.dt;
+   if(e.wdW<=0){ e.wdW=C.enrage?2.0:2.8;
+    shockwave(e,e.x,e.y,{maxR:200,spd:260,dmg:e.dmg,warn:0.6,what:'TWINWAVE'});
+    shockwave(e,e.x,e.y,{maxR:240,spd:260,dmg:e.dmg,warn:1.05,what:'TWINWAVE'}); SFX.ring(); } },
+  slam(e,C){ // close, brace, a ring that throws the ship back
+   let S=e.wdS; if(e.atkT===0||!S) S=e.wdS={st:'close',t:0};
+   S.t-=C.dt;
+   if(S.st==='close'){ C.mv(0.85); if(C.d<200&&S.t<=0){ S.st='brace'; S.t=0.6;
+    shockwave(e,e.x,e.y,{maxR:190,spd:360,dmg:e.dmg,fx:'knockback',kb:520,warn:0.6,w:16,what:'SLAM'}); } }
+   else if(S.st==='brace'&&S.t<=0){ S.st='close'; S.t=C.enrage?0.9:1.5; spawnBurst(e.x,e.y,16,K.metal,240,0.5,3); if(settings.shake) shake=Math.min(10,shake+5); SFX.ring(); } },
+  lanelock(e,C){ // two walls of slow rounds close on the ship's line
+   C.mv(0.25);
+   if(e.atkT===0||!e.wdL){ const ux=C.nx, uy=C.ny; e.wdL={t:0,warn:0.7,done:false,ux,uy,cx:C.p.x,cy:C.p.y}; SFX.click(); }
+   const L=e.wdL; L.t+=C.dt;
+   if(!L.done&&L.t>=L.warn){ L.done=true; const nx=-L.uy, ny=L.ux, src=srcOf(e,'LANE LOCK');
+    for(const s of [-1,1]) for(let k=-9;k<=9;k++){ const x=L.cx+L.ux*k*30+nx*s*150, y=L.cy+L.uy*k*30+ny*s*150;
+     if(x<PX0||x>PX1||y<PY0||y>PY1) continue;
+     const b=eshotAt(e,x,y,Math.atan2(-ny*s,-nx*s),42,6,0.8,3.5); if(b){ b.src=src; } }
+    SFX.eshoot(); }
+   if(L.t>L.warn+3.5) e.wdL=null; }
+ },
+ signature(e,C){ // TOLL GATE on its own clock
+  if(e.wdG===undefined) e.wdG=4;
+  e.wdG-=C.dt;
+  if(e.wdG<=0&&!e.gate&&!(e.wdL&&!e.wdL.done)){ e.wdG=C.enrage?6.5:9; wdGate(e,C.p); } },
+ // RAISE THE BRIDGE: six barrier plates; it mends while three or more stand.
+ recover:{ at:[0.55], pool:0.08, label:'RAISE THE BRIDGE', hold:true, max:9,
+  start(e){ const R=e.r*1.6;
+   for(let k=0;k<6;k++){ const a=k*1.0472; addPart(e,{id:'plate'+k,lx:Math.cos(a)*R,ly:Math.sin(a)*R,r:12,hp:e.maxhp*0.012,kind:'plate'}); }
+   rings.push({x:e.x,y:e.y,r:e.r,maxR:e.r+90,spd:260,dmg:0,hit:true});
+   addFloater(e.x,calloutY(e),'WARDEN RAISES THE BRIDGE · break the plates',K.red); SFX.alarm(); },
+  update(e,C){ e.partRot=(e.partRot||0)+C.dt*0.5;
+   let n=0; for(const q of e.parts) if(q.kind==='plate'&&!q.dead) n++;
+   if(n<3) return 'broken';
+   bossHeal(e,e.maxhp*0.022*C.dt);
+   return e.healPool<=0?'mended':false; },
+  end(e,why){ e.parts=e.parts.filter(q=>q.kind!=='plate');
+   addFloater(e.x,calloutY(e),why==='broken'?'BRIDGE BROKEN':'BRIDGE LOWERED',why==='broken'?K.gold:K.red); }
+ },
+ post(e,dt){ // the gate faces the ship; a planted toll gate keeps its time
+  const want=player?Math.atan2(player.y-e.y,player.x-e.x):0;
+  e.wdFace=e.wdFace==null?want:turnTo(e.wdFace,want,1.6*dt);
+  if(e.gate){ e.gate.t+=dt; if(e.gate.t>=e.gate.end) e.gate=null; } },
+ under(e){ // pylons of a toll gate, and a lane lock's ruled walls
+  const P=pigOf(e);
+  if(e.gate) for(const q of e.gate.pts){ const f=clamp((e.gate.end-e.gate.t)*2,0,1);
+   ctx.save(); ctx.globalAlpha=f; ctx.translate(q.x,q.y);
+   polyPts([[-9,11],[9,11],[6,-12],[-6,-12]]); ctx.fillStyle=P.body; ctx.fill(); ctx.strokeStyle=P.c; ctx.lineWidth=1.5; ctx.stroke();
+   ctx.strokeStyle=P.dim; ctx.lineWidth=1; ctx.beginPath(); ctx.moveTo(-5,4); ctx.lineTo(5,4); ctx.moveTo(-4,-3); ctx.lineTo(4,-3); ctx.stroke();
+   ctx.restore(); }
+  const L=e.wdL;
+  if(L&&!L.done){ const nx=-L.uy, ny=L.ux;
+   ctx.save(); ctx.globalAlpha=0.85;
+   for(const s of [-1,1]){ const ox=nx*s*150, oy=ny*s*150;
+    tickedLine(L.cx+ox-L.ux*270,L.cy+oy-L.uy*270,L.cx+ox+L.ux*270,L.cy+oy+L.uy*270,K.red,1,20,4);
+    line(L.cx+ox*0.8,L.cy+oy*0.8,L.cx+ox*0.55,L.cy+oy*0.55,K.redDim,1); } // which way the wall will close
+   ctx.restore(); }
+ },
+ draw(e,g){ // a hex core inside a gate arch of two trapezoid pylons
+  const R=g.R, a=e.wdFace!=null?e.wdFace:(e.facing||0);
+  ctx.save(); ctx.rotate(a);
+  // the arch: a lintel curving behind the core, pylon to pylon
+  ctx.strokeStyle=g.col; ctx.lineWidth=g.lw+3; ctx.beginPath(); ctx.moveTo(-R*0.62,-R*0.92); ctx.quadraticCurveTo(-R*1.5,0,-R*0.62,R*0.92); ctx.stroke();
+  ctx.strokeStyle=g.body; ctx.lineWidth=g.lw; ctx.beginPath(); ctx.moveTo(-R*0.62,-R*0.92); ctx.quadraticCurveTo(-R*1.5,0,-R*0.62,R*0.92); ctx.stroke();
+  for(const s of [-1,1]){ // the pylons, narrowing outward
+   polyPts([[-R*0.72,s*R*0.66],[R*0.72,s*R*0.66],[R*0.46,s*R*1.12],[-R*0.46,s*R*1.12]]);
+   ctx.fillStyle=g.body; ctx.fill(); ctx.strokeStyle=g.col; ctx.lineWidth=g.lw; ctx.stroke();
+   ctx.strokeStyle=g.dim; ctx.lineWidth=1; ctx.beginPath(); for(const x of [-0.3,0.1,0.5]){ ctx.moveTo(R*x,s*R*0.72); ctx.lineTo(R*x,s*R*1.06); } ctx.stroke(); }
+  ctx.restore();
+  ctx.fillStyle=g.body; ctx.strokeStyle=g.col; ctx.lineWidth=g.lw; poly(6,R*0.62,a); ctx.fill(); ctx.stroke();
+  ctx.strokeStyle=g.dim; ctx.lineWidth=1; poly(6,R*0.34,a); ctx.stroke();
   ctx.fillStyle=g.col; ctx.beginPath(); ctx.arc(0,0,4,0,6.283); ctx.fill();
- }
+ },
+ drawPart(e,q,g){ // a barrier plate, broad face out, its HP as an engraved arc
+  const a=Math.atan2(q.ly,q.lx)+(e.partRot||0), r=q.r;
+  ctx.rotate(a); polyPts([[-r*0.5,-r*0.72],[r*0.5,-r],[r*0.5,r],[-r*0.5,r*0.72]]);
+  ctx.fillStyle=q.flash>0?g.P.flash:g.body; ctx.fill(); ctx.strokeStyle=g.col; ctx.lineWidth=1.5; ctx.stroke();
+  const f=clamp(q.hp/(q.maxhp||1),0,1); ctx.strokeStyle=g.dim; ctx.lineWidth=2; ctx.beginPath(); ctx.moveTo(0,-r*0.6); ctx.lineTo(0,-r*0.6+f*r*1.2); ctx.stroke(); },
+ // the pylons and the arch reach past the core's circle
+ hitParts:{ rot:e=>e.wdFace!=null?e.wdFace:(e.facing||0), c:[[0.3,-0.92,0.3],[-0.3,-0.92,0.3],[0,-0.98,0.26],[0.3,0.92,0.3],[-0.3,0.92,0.3],[0,0.98,0.26],[-1.02,0,0.18],[-0.9,-0.5,0.16],[-0.9,0.5,0.16]] }
 };
 // ===== END BOSS: WARDEN =====
 

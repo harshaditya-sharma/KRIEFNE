@@ -2579,6 +2579,7 @@ function suiteBullets() {
  {
   const lane = (vs, lateral) => {
    const m = bulletRoom('warden', 9);
+   m.boss.kit = Object.assign({}, m.boss.kit, { hitParts: null }); // the core circle alone: WARDEN's pylons are hitParts, tested in kits1
    m.boss.vscale = vs; m.boss.x = m.cx + 120; m.boss.y = m.cy + lateral;
    const b = mkRound({ x: m.cx, y: m.cy, life: 0.4 }); m.api.bullets.push(b);
    const hp0 = m.boss.hp;
@@ -2650,7 +2651,7 @@ function suiteBullets() {
   const m = bulletRoom('warden', 9);
   const b = mkRound({ x: m.cx, y: m.cy, dmg: 10 }); m.api.bullets.push(b);
   const hp0 = m.boss.hp; let back = 0;
-  for (let f = 0; f < 12; f++) { m.boss.x = m.cx + 120; m.boss.y = m.cy; m.boss.mirror = m.boss.mirror || { arcs: [{ a: Math.PI, half: 1 }], cap: 6 }; m.api.update(DT); back = Math.max(back, m.api.ebullets.length); if (m.api.state !== 'playing') m.api.forceState('playing'); }
+  for (let f = 0; f < 12; f++) { m.boss.x = m.cx + 120; m.boss.y = m.cy; m.boss.mirror = m.boss.mirror || { arcs: [{ a: Math.PI, half: 1 }], cap: 6, budget: 6 }; m.api.update(DT); back = Math.max(back, m.api.ebullets.length); if (m.api.state !== 'playing') m.api.forceState('playing'); }
   ok('bossDeflect: a round into the mirror arc does no damage and is removed', m.boss.hp === hp0 && m.api.bullets.indexOf(b) < 0);
   atLeast('and comes back as an enemy round', back, 1);
   // bulletField: a lensing god turns the round away before it moves
@@ -3098,6 +3099,92 @@ function suiteKits1() {
   eq('the war cry comes once only', chaffIn(a).length, c1);
   const s = kitRoom('overlord', 9, { summoned: true }); s.b.hp = s.b.maxhp * 0.4; kitRun(s.a, 0.3);
   ok('a summoned OVERLORD never cries for help', !s.b.cried && chaffIn(s.a).length === 0);
+ }
+
+ // ---------------- WARDEN ----------------
+ basics('warden');
+ {
+  const { a, p, b } = kitRoom('warden', 9);
+  const px = p.x, py = p.y; b.wdG = 0.01; b.forcedAttack = 'lanelock'; b.atk = 'lanelock';
+  kitRun(a, 0.05, () => { p.x = px; p.y = py; });
+  const bm = a.bossBeams.filter(q => q.owner === b);
+  eq('TOLL GATE plants three pylons', (b.gate && b.gate.pts.length) || 0, 3);
+  eq('linked by six beam spans (two per link)', bm.length, 6);
+  ok('every span telegraphs for at least 0.5s', bm.every(q => q.warn >= 0.5 && q.t < q.warn));
+  const P = b.gate.pts, A = P[0], B = P[1], L = Math.hypot(B.x - A.x, B.y - A.y);
+  atLeast('each link leaves a gap of at least 2.2 ship diameters', L - 2 * L * 0.37, 2.2 * 2 * p.r);
+  ok('the gate draws', !kitRenders(a));
+  b.forcedAttack = null; a.__sandbox.window.devAiFreeze = true;
+  const gap = kitRun(a, 1.5, () => { p.x = (A.x + B.x) / 2; p.y = (A.y + B.y) / 2; });
+  eq('a ship in the gap is untouched', gap['TOLL GATE'] || 0, 0);
+  const on = kitRun(a, 1.0, () => { p.x = A.x + (B.x - A.x) * 0.2; p.y = A.y + (B.y - A.y) * 0.2; });
+  atLeast('a ship on a live span is ticked by it', on['TOLL GATE'] || 0, 2);
+  a.__sandbox.window.devAiFreeze = false;
+  kitRun(a, 3);
+  eq('the gate comes down after its four seconds', a.bossBeams.filter(q => q.owner === b).length + (b.gate ? 1 : 0), 0);
+ }
+ {
+  const { a, p, b } = kitRoom('warden', 9, { dx: 150 });
+  b.forcedAttack = 'twinwave'; b.wdG = 99; a.__sandbox.window.devAiFreeze = false;
+  const px = p.x, py = p.y; let rs = [];
+  const hits = kitRun(a, 1.9, () => { p.x = px; p.y = py; for (const g of a.rings) if (g.owner === b && rs.indexOf(g) < 0) rs.push(g); });
+  ok('TWINWAVE rolls two staggered rings, each previewed first', rs.length >= 2 && rs[1].delay - rs[0].delay > 0.3 || (rs.length >= 2 && rs[0].maxR !== rs[1].maxR));
+  atLeast('a ship that stands still takes both', hits.TWINWAVE || 0, 2);
+ }
+ {
+  const { a, p, b } = kitRoom('warden', 9, { dx: 130 });
+  b.forcedAttack = 'slam'; b.wdG = 99;
+  const x0 = p.x;
+  const hits = kitRun(a, 1.2);
+  ok('SLAM lands', (hits.SLAM || 0) >= 1, JSON.stringify(hits));
+  atLeast('and throws the ship back', x0 - p.x, 30);
+ }
+ {
+  const { a, p, b } = kitRoom('warden', 9);
+  b.forcedAttack = 'lanelock'; b.wdG = 99; const px = p.x, py = p.y;
+  kitRun(a, 0.4, () => { p.x = px; p.y = py; });
+  eq('LANE LOCK: nothing flies while the walls are ruled', a.ebullets.length, 0);
+  ok('the lane lock draws', !kitRenders(a));
+  kitRun(a, 0.4, () => { p.x = px; p.y = py; });
+  const w0 = a.ebullets.slice(); atLeast('then two walls of slow rounds', w0.length, 30);
+  const off = r => (r.x - px) * (-b.wdL.uy) + (r.y - py) * b.wdL.ux;
+  const width = () => { const o = a.ebullets.map(off); return Math.max(...o) - Math.min(...o); };
+  const wA = width(); kitRun(a, 1.2, () => { p.x = px; p.y = py; }); const wB = width();
+  ok('that close in: the corridor narrows', wB < wA - 80, wA.toFixed(0) + ' -> ' + wB.toFixed(0));
+  atMost('and the walls are sealed (no round gap a hull can slip)', 30, 2 * (p.r + 6));
+ }
+ {
+  const { a, p, b } = kitRoom('warden', 9);
+  b.fightT = 20; b.hp = b.hpSeen = b.maxhp * 0.54; b.forcedAttack = 'twinwave'; b.wdG = 99;
+  kitRun(a, 0.1);
+  const plates = () => b.parts.filter(q => q.kind === 'plate');
+  ok('at 55% WARDEN RAISES THE BRIDGE: six barrier plates', b.mode === 'recover' && a.bossLabel(b) === 'RAISE THE BRIDGE' && plates().length === 6);
+  ok('the plates draw', !kitRenders(a));
+  const h0 = b.hp; kitRun(a, 1); ok('it mends while the plates stand', b.hp > h0);
+  for (const q of plates().slice(0, 3)) a.breakPart(b, q);
+  kitRun(a, 0.1); ok('three plates down still mends', b.mode === 'recover');
+  a.breakPart(b, plates()[0]); kitRun(a, 0.1);
+  ok('the fourth breaks it: under three standing, the bridge falls', b.mode === 'hunt' && plates().length === 0);
+  const h1 = b.hp; kitRun(a, 1); atMost('and the mending stops', b.hp - h1, 1e-6);
+  b.hp = b.maxhp * 0.3; kitRun(a, 0.5); ok('the bridge is raised once only', b.mode !== 'recover');
+ }
+ {
+  const { a, b } = kitRoom('warden', 9);
+  b.fightT = 20; b.hp = b.hpSeen = b.maxhp * 0.54; b.wdG = 99; let peak = b.hp;
+  kitRun(a, 10, () => { peak = Math.max(peak, b.hp); });
+  ok('left alone, it lowers the bridge when its pool is spent', b.mode === 'hunt');
+  atMost('having mended no more than its 8% pool', (peak - b.maxhp * 0.54) / b.maxhp, 0.08 + 1e-9);
+ }
+ {
+  const { a, b } = kitRoom('warden', 9);
+  b.hp = b.maxhp * 0.49; kitRun(a, 0.5);
+  const s = a.enemies.filter(e => e.summoned);
+  ok('at 50% WARDEN calls OVERLORD', s.length === 1 && s[0].kind === 'overlord' && Math.abs(s[0].r - 30 * 0.85) < 1e-9, s.map(e => e.kind).join(','));
+ }
+ {
+  const { a, b } = kitRoom('warden', 9);
+  kitRun(a, 0.1); const hp = b.hitParts[0], r = b.r * (b.vscale || 1);
+  ok('a round through a pylon, clear of the core circle, strikes the WARDEN', Math.hypot(hp.x - b.x, hp.y - b.y) + hp.r > r && a.enemyHitT(b, hp.x - 60, hp.y, hp.x + 60, hp.y, 3.5) >= 0);
  }
  return null;
 }
