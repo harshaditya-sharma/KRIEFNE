@@ -98,6 +98,20 @@ function give(api, id, n) {
  return u;
 }
 function bossesIn(api) { return api.enemies.filter(e => e.type === 'boss'); }
+// The scripted circling pilot (teleport, fuzz): WASD round a circle of angular
+// rate w, so a god has to chase, turn and route round cover. releaseKeys lets go.
+function circleKeys(a, t, w) { const ang = t * w; a.keys.KeyD = Math.cos(ang) > 0.3; a.keys.KeyA = Math.cos(ang) < -0.3; a.keys.KeyS = Math.sin(ang) > 0.3; a.keys.KeyW = Math.sin(ang) < -0.3; }
+function releaseKeys(a) { for (const k of ['KeyW', 'KeyA', 'KeyS', 'KeyD']) a.keys[k] = false; }
+// Step with the mouse up, pulling any draft or banner straight back into play.
+function hold(a, secs, f) { seconds(a, secs, () => { if (f) f(); a.mouse.down = false; if (a.state !== 'playing') a.forceState('playing'); }); }
+// A live sector as loaded (cover, chaff and all): playing, nothing queued, the
+// ship holding fire and invulnerable.
+function sectorRoom(sector, seed) {
+ const a = boot(); seedRandom(a, seed);
+ a.startRun(); a.loadSector(sector); a.forceState('playing'); a.queue.length = 0;
+ a.player.autoFire = false; immortal(a);
+ return a;
+}
 
 // Fight a nest with the player pinned invulnerable at map centre, auto-firing.
 // Returns heal / recovery telemetry (kits1's recovery economy; also exported).
@@ -588,7 +602,7 @@ function simFight(api, s, order) {
   if (api.enemies.length > r.peak) r.peak = api.enemies.length;
   if (nest ? !api.enemies.some(e => e.uid === leadUid) : api.hostiles() === 0) { r.done = true; break; }
  }
- for (const k of ['KeyW', 'KeyA', 'KeyS', 'KeyD']) api.keys[k] = false;
+ releaseKeys(api);
  r.kills = api.kills - r.kills; r.maxhp = p.maxhp; r.level = p.level; r.left = api.hostiles();
  r.quietFrac = r.qSamp ? r.quiet / r.qSamp : 0;
  return r;
@@ -778,13 +792,10 @@ function suiteHierarchy() {
 
  // -- live: the chain actually holds in play ------------------------------------
  const nest = (n, seed) => {
-  const a = boot(); seedRandom(a, seed || (91000 + n));
-  a.startRun(); a.loadSector(n - 1); a.forceState('playing'); a.queue.length = 0;
-  a.player.autoFire = false; immortal(a);
-  const ld = a.enemies.find(e => e.type === 'boss' && e.lead);
-  return { a, ld };
+  const a = sectorRoom(n - 1, seed || (91000 + n));
+  return { a, ld: a.enemies.find(e => e.type === 'boss' && e.lead) };
  };
- const tick = (a, secs) => seconds(a, secs, () => { immortal(a); a.mouse.down = false; if (a.state === 'levelup') a.forceState('playing'); });
+ const tick = (a, secs) => hold(a, secs, () => immortal(a));
  const summoned = a => a.enemies.filter(e => e.type === 'boss' && e.summoned);
  {
   const { a, ld } = nest(20);
@@ -916,7 +927,7 @@ function suiteTeleport() {
   for (let i = 0; i < 60 * 60; i++) {
    immortal(a); a.mouse.down = false; if (a.state !== 'playing') a.forceState('playing');
    // circle the field so the god has to chase, turn and route round cover
-   const ang = t * 0.6; a.keys.KeyD = Math.cos(ang) > 0.3; a.keys.KeyA = Math.cos(ang) < -0.3; a.keys.KeyS = Math.sin(ang) > 0.3; a.keys.KeyW = Math.sin(ang) < -0.3;
+   circleKeys(a, t, 0.6);
    // walk every god's bar down to 15% over the minute, so every threshold
    // (calls, recoveries, phases, desperation) fires while it is watched
    for (const e of a.enemies) if (e.type === 'boss') e.hp = Math.min(e.hp, e.maxhp * Math.max(0.15, 1 - 0.85 * t / 60));
@@ -934,7 +945,7 @@ function suiteTeleport() {
     if (e.kind === 'leviathan' && e.segs) { let prev = e; for (const g of e.segs) { segGap = Math.max(segGap, Math.hypot(g.x - prev.x, g.y - prev.y) - e.r * 0.82); prev = g; } }
    }
   }
-  for (const k of ['KeyW', 'KeyA', 'KeyS', 'KeyD']) a.keys[k] = false;
+  releaseKeys(a);
  }
  eq('no god jumps further than it can travel (60s in every nest)', bad.length, 0, bad.slice(0, 6).join('; '));
  atLeast('every kind was stepped', seen.size, 20);
@@ -1217,12 +1228,7 @@ function suitePoolExhaustion() {
 // ======================================================================
 function suiteCascades() {
  section('kill cascades / phase hand-off');
- const fresh = (sector) => {
-  const api = boot(); seedRandom(api, 7);
-  api.startRun(); api.loadSector(sector); api.forceState('playing');
-  api.player.autoFire = false; immortal(api); api.queue.length = 0;
-  return api;
- };
+ const fresh = sector => sectorRoom(sector, 7);
  const tryStep = (api) => { try { api.update(DT); return null; } catch (e) { return e; } };
  // A burn kill whose Shrapnel splash kills a LOWER-indexed enemy used to leave
  // the enemy loop reading past the end of the array.
@@ -2597,16 +2603,10 @@ function suiteBullets() {
 // A quiet room: one god frozen in place 300px right of the ship, no cover, no
 // chaff, so each primitive is measured on its own.
 function primRoom(kind, sector) {
- const a = boot(); seedRandom(a, 3030);
- a.startRun(); a.loadSector(sector === undefined ? 29 : sector); a.forceState('playing');
- a.arena.obs.length = 0; a.enemies.length = 0; a.queue.length = 0;
- const p = a.player; p.autoFire = false; a.mouse.down = false;
- const b = a.mkBoss(kind || 'warden', p.x + 300, p.y, sector === undefined ? 29 : sector); b.spawnT = 0; b.lead = true; a.enemies.push(b);
- a.__sandbox.window.devAiFreeze = true;
- p.hp = p.maxhp = 1e6; p.invuln = 0;
- return { a, p, b };
+ const r = kitRoom(kind || 'warden', sector === undefined ? 29 : sector, { seed: 3030, dx: 300, atDrop: true });
+ r.a.__sandbox.window.devAiFreeze = true;
+ return r;
 }
-function hold(a, secs, f) { seconds(a, secs, () => { if (f) f(); a.mouse.down = false; if (a.state !== 'playing') a.forceState('playing'); }); }
 function suitePrims() {
  section('boss primitives, status, phases');
  // -- beam: telegraph, then ticks; cover blocks it
@@ -2899,7 +2899,7 @@ function fuzzOne(kind, summoned, bad) {
  try {
   for (let i = 0; i < 60 * 90; i++) {
    immortal(a); a.mouse.down = false; if (a.state !== 'playing') a.forceState('playing');
-   const ang = t * 0.7; a.keys.KeyD = Math.cos(ang) > 0.3; a.keys.KeyA = Math.cos(ang) < -0.3; a.keys.KeyS = Math.sin(ang) > 0.3; a.keys.KeyW = Math.sin(ang) < -0.3;
+   circleKeys(a, t, 0.7);
    if (p.dashCd <= 0 && (a.marks.some(m => Math.hypot(m.x - p.x, m.y - p.y) < m.r + 20) || a.bossGrasps.length)) a.tryDash();
    for (const e of a.enemies) if (e.type === 'boss') e.hp = Math.min(e.hp, e.maxhp * Math.max(0.05, 1 - 0.95 * t / 80));
    a.update(DT); t += DT;
@@ -2920,7 +2920,7 @@ function fuzzOne(kind, summoned, bad) {
     || a.arena.obs.filter(o => o.temp).length > C.tempObs || a.enemies.length > C.enemies) { bad.push(kind + ': a cap was broken'); return; }
   }
  } catch (err) { bad.push(kind + (summoned ? ' (summoned)' : '') + ' threw: ' + err.message + ' @ ' + (err.stack || '').split('\n')[1]); }
- for (const k of ['KeyW', 'KeyA', 'KeyS', 'KeyD']) a.keys[k] = false;
+ releaseKeys(a);
 }
 function suiteFuzz() {
  section('per-boss fuzz');
@@ -2952,8 +2952,8 @@ function suiteFuzz() {
 // ======================================================================
 //  SUITE 8b1 -- wave-2 kits, group 1: OVERLORD, WARDEN, PHANTOM, REVENANT, LEVIATHAN
 // ======================================================================
-// A clean room at the god's nest: no cover, no chaff, the god `dx` px right of
-// the ship. The ship soaks everything (hp refilled every frame) and kitRun
+// A clean room at the god's nest: no cover, no chaff, the ship mid-field (or at
+// its drop, `atDrop`), the god `dx` px right of it. The ship soaks everything (hp refilled every frame) and kitRun
 // counts what landed by the blow's name, so a test can ask "did the STOMP hit".
 function kitRoom(kind, sector, o) {
  o = o || {};
@@ -2961,7 +2961,7 @@ function kitRoom(kind, sector, o) {
  a.startRun(); a.loadSector(sector); a.forceState('playing');
  a.arena.obs.length = 0; a.enemies.length = 0; a.queue.length = 0;
  const p = a.player; p.autoFire = false; a.mouse.down = false;
- const w = a.sectorWorld(sector); p.x = w.w / 2; p.y = w.h / 2;
+ const w = a.sectorWorld(sector); if (!o.atDrop) { p.x = w.w / 2; p.y = w.h / 2; }
  const dx = o.dx !== undefined ? o.dx : 260, dy = o.dy || 0;
  const b = o.summoned ? a.mkSummoned(kind, p.x + dx, p.y + dy, sector, 1) : a.mkBoss(kind, p.x + dx, p.y + dy, sector);
  b.spawnT = 0; b.lead = !o.summoned; a.enemies.push(b);
@@ -2980,18 +2980,29 @@ function kitRun(a, secs, f) {
 }
 function kitRenders(a) { let threw = null; try { a.render(); } catch (e) { threw = e; } return threw; }
 function chaffIn(a) { return a.enemies.filter(e => e.type !== 'boss'); }
+// The shape every wave-2 kit owes the engine: no radial spam (unless the kit is
+// allowed it), a real attack in every cycle slot, hitParts for a non-circular
+// body, a summoned copy at 85% size with no recovery or phases, and (kits2-4)
+// its codex entry.
+const RADIAL = ['burst', 'spiral', 'spiralwall'];
+function kitBasics(api0, k, o) {
+ o = o || {};
+ const kit = api0.bossKits[k];
+ if (o.radial !== false) ok(k + ': no radial burst, spiral or spiralwall in its kit', RADIAL.every(r => !kit.attacks[r] && kit.cycle.indexOf(r) < 0));
+ ok(k + ': every cycle slot is one of its own attacks', kit.cycle.every(n => typeof kit.attacks[n] === 'function'));
+ ok(k + ': a non-circular silhouette declares hitParts', !!(kit.hitParts && kit.hitParts.c.length));
+ const s = api0.mkSummoned(k, 500, 500, api0.bossdefs[k].debut - 1, 1);
+ ok(k + ': summoned at 85% size, with no recovery and no phases', Math.abs(s.r - kit.def.r * 0.85) < 1e-9 && s.recLeft.length === 0 && s.phAt.length === 0);
+ if (o.codex !== false) ok(k + ': a codex field note, tells and counter, and a debut line naming its rank', !!(kit.codex.lore && kit.codex.tell && kit.codex.counter && kit.lore.indexOf(api0.tierNames[kit.def.tier]) >= 0));
+}
+// Pin the ship where it stands (a kitRun per-frame hook), and fire a hand-made
+// player round into the field.
+const pinAt = (p, x, y) => () => { p.x = x; p.y = y; };
+function shootAt(a, x, y, vx, vy, dmg) { const r = mkRound({ x, y, vx, vy, dmg: dmg || 20 }); a.bullets.push(r); return r; }
 function suiteKits1() {
  section('kits: S5-S25 (OVERLORD, WARDEN, PHANTOM, REVENANT, LEVIATHAN)');
  const api0 = boot(), KITS = api0.bossKits;
- const RADIAL = ['burst', 'spiral', 'spiralwall'];
- const basics = k => {
-  const kit = KITS[k];
-  ok(k + ': no radial burst, spiral or spiralwall in its kit', RADIAL.every(r => !kit.attacks[r] && kit.cycle.indexOf(r) < 0));
-  ok(k + ': every cycle slot is one of its own attacks', kit.cycle.every(n => typeof kit.attacks[n] === 'function'));
-  ok(k + ': a non-circular silhouette declares hitParts', !!(kit.hitParts && kit.hitParts.c.length));
-  const s = api0.mkSummoned(k, 500, 500, api0.bossdefs[k].debut - 1, 1);
-  ok(k + ': summoned at 85% size, with no recovery and no phases', Math.abs(s.r - kit.def.r * 0.85) < 1e-9 && s.recLeft.length === 0 && s.phAt.length === 0);
- };
+ const basics = k => kitBasics(api0, k, { codex: false });
 
  // ---------------- OVERLORD ----------------
  {
@@ -3218,9 +3229,7 @@ function suiteKits1() {
  // GHOST FORM, the reference recovery (spec §3.6), in its own nest with cover
  // and escorts: the opening gate, the pool, the counter, once only, RELENTLESS.
  const ghost = (hpAt, t0) => {
-  const a = boot(); seedRandom(a, 1515);
-  a.startRun(); a.loadSector(14); a.forceState('playing'); a.queue.length = 0;
-  const b = bossesIn(a)[0]; a.player.autoFire = false;
+  const a = sectorRoom(14, 1515), b = bossesIn(a)[0];
   for (const e of a.enemies.slice()) if (e !== b) a.enemies.splice(a.enemies.indexOf(e), 1);
   b.fightT = t0; b.hp = b.hpSeen = b.maxhp * hpAt;
   seconds(a, 0.1, () => { immortal(a); a.mouse.down = false; });
@@ -3308,7 +3317,7 @@ function suiteKits1() {
   ok('never chained: every freeze clears the 1.5s immunity first', freezes.every((t, i) => !i || t - freezes[i - 1] >= 2.2), freezes.map(t => t.toFixed(2)).join(','));
   const r2 = kitRoom('revenant', 19); r2.b.rvR = 99; r2.b.forcedAttack = 'coldsnap'; let mf = false;
   kitRun(r2.a, 4.8, i => { const ph = Math.floor(i / 20) % 4; r2.a.keys.KeyD = ph === 0; r2.a.keys.KeyS = ph === 1; r2.a.keys.KeyA = ph === 2; r2.a.keys.KeyW = ph === 3; if (r2.p.status.freeze > 0) mf = true; });
-  for (const k of ['KeyW', 'KeyA', 'KeyS', 'KeyD']) r2.a.keys[k] = false;
+  releaseKeys(r2.a);
   ok('a ship that keeps moving is never frozen by it', !mf);
  }
  {
@@ -3478,17 +3487,7 @@ function roundsBy(a, what) { return a.ebullets.filter(r => r.src && r.src.what =
 function suiteKits2() {
  section('kits: S30-S50 (HYDRA, WYVERN, ORACLE, SENTINEL, ARCHON)');
  const api0 = boot(), KITS = api0.bossKits;
- const RADIAL = ['burst', 'spiral', 'spiralwall'];
- const basics = k => {
-  const kit = KITS[k];
-  ok(k + ': no radial burst, spiral or spiralwall in its kit', RADIAL.every(r => !kit.attacks[r] && kit.cycle.indexOf(r) < 0));
-  ok(k + ': every cycle slot is one of its own attacks', kit.cycle.every(n => typeof kit.attacks[n] === 'function'));
-  ok(k + ': a non-circular silhouette declares hitParts', !!(kit.hitParts && kit.hitParts.c.length));
-  const s = api0.mkSummoned(k, 500, 500, api0.bossdefs[k].debut - 1, 1);
-  ok(k + ': summoned at 85% size, with no recovery and no phases', Math.abs(s.r - kit.def.r * 0.85) < 1e-9 && s.recLeft.length === 0 && s.phAt.length === 0);
-  ok(k + ': a codex field note, tells and counter, and a debut line naming its rank', !!(kit.codex.lore && kit.codex.tell && kit.codex.counter && kit.lore.indexOf(api0.tierNames[kit.def.tier]) >= 0));
- };
- const pinAt = (p, x, y) => () => { p.x = x; p.y = y; };
+ const basics = k => kitBasics(api0, k);
  const jumpWatch = b => { let last = { x: b.x, y: b.y }, worst = 0; return () => { worst = Math.max(worst, Math.hypot(b.x - last.x, b.y - last.y)); last = { x: b.x, y: b.y }; return worst; }; };
 
  // ---------------- HYDRA ----------------
@@ -3837,7 +3836,6 @@ function suiteKits2() {
 
  // ---------------- SENTINEL ----------------
  basics('sentinel');
- const snShoot = (a, x, y, vx, vy, dmg) => { const r = mkRound({ x, y, vx, vy, dmg: dmg || 20 }); a.bullets.push(r); return r; };
  const snMirror = a => roundsBy(a, 'MIRROR');
  {
   const { a, p, b } = kitRoom('sentinel', 44);
@@ -3848,10 +3846,10 @@ function suiteKits2() {
   range('it turns toward the ship at 70° a second (rad in 1s)', Math.abs(b.mirror.arcs[0].a), 1.15, 1.3);
   kitRun(a, 2.0, () => { p.x = px; p.y = py; noChaff(a); b.snS = { t: 99, aim: 0, done: true }; });
   const h0 = b.hp, s0 = b.mirror.stored || 0;
-  snShoot(a, b.x - 70, b.y, 640, 0, 20);
+  shootAt(a, b.x - 70, b.y, 640, 0, 20);
   kitRun(a, 0.12, () => { p.x = px; p.y = py; noChaff(a); b.snS = { t: 99, aim: 0, done: true }; });
   ok('a round into the plate does no damage and comes back as an enemy round', b.hp === h0 && snMirror(a).length >= 1 && b.mirror.stored > s0);
-  const h1 = b.hp; snShoot(a, b.x + 70, b.y, -640, 0, 20);
+  const h1 = b.hp; shootAt(a, b.x + 70, b.y, -640, 0, 20);
   kitRun(a, 0.12, () => { p.x = px; p.y = py; noChaff(a); b.snS = { t: 99, aim: 0, done: true }; });
   ok('a round from behind strikes the core', h1 - b.hp > 15);
  }
@@ -3891,7 +3889,7 @@ function suiteKits2() {
   kitRun(a, 0.15, () => { noChaff(a); ring = ring || a.rings.find(g => g.owner === b && g.src && g.src.what === 'RIPOSTE'); });
   ok('RIPOSTE: the plate lowers', b.mirror.off === true);
   ok('and what the mirror took comes back as a ring', !!ring && ring.maxR >= 150 && b.mirror.stored === 0);
-  const h0 = b.hp; snShoot(a, b.x - 70, b.y, 640, 0, 20); kitRun(a, 0.12, () => noChaff(a));
+  const h0 = b.hp; shootAt(a, b.x - 70, b.y, 640, 0, 20); kitRun(a, 0.12, () => noChaff(a));
   ok('while it is down a round from the front strikes the core', h0 - b.hp > 15);
   const hits = kitRun(a, 1.0, () => noChaff(a));
   atLeast('the ring lands on a ship in range', hits.RIPOSTE || 0, 1);
@@ -3911,7 +3909,7 @@ function suiteKits2() {
   let g = 0, best = -1;
   for (let t = 0; t < 6.283; t += 0.02) { const m = Math.min(...b.mirror.arcs.map(q => Math.abs(wrapA(t - q.a)) - q.half)); if (m > best) { best = m; g = t; } }
   const h0 = b.hp, gx = Math.cos(g), gy = Math.sin(g);
-  snShoot(a, b.x + gx * 70, b.y + gy * 70, -gx * 640, -gy * 640, 20);
+  shootAt(a, b.x + gx * 70, b.y + gy * 70, -gx * 640, -gy * 640, 20);
   kitRun(a, 0.15, () => { noChaff(a); b.snS = { t: 99, aim: 0, done: true }; });
   ok('a round through a gap strikes the core', h0 - b.hp > 15);
  }
@@ -3927,7 +3925,7 @@ function suiteKits2() {
   ok('it mends behind the wall', b.hp > h0);
   const q = anchors()[0], qh = q.hp;
   const qdx = q.x - b.x, qdy = q.y - b.y, ql = Math.hypot(qdx, qdy) || 1;
-  snShoot(a, q.x + qdx / ql * 60, q.y + qdy / ql * 60, -qdx / ql * 640, -qdy / ql * 640, 20);
+  shootAt(a, q.x + qdx / ql * 60, q.y + qdy / ql * 60, -qdx / ql * 640, -qdy / ql * 640, 20);
   kitRun(a, 0.12, () => noChaff(a));
   ok('a round into an anchor strikes the anchor, it is not mirrored', q.hp < qh || q.dead);
   for (const x of anchors().slice()) a.breakPart(b, x); let ring = null;
@@ -4042,23 +4040,12 @@ function suiteKits2() {
 function suiteKits3() {
  section('kits: S55-S75 (COLOSSUS, BASILISK, PROGENITOR, HARBINGER, KRAKEN)');
  const api0 = boot(), KITS = api0.bossKits;
- const RADIAL = ['burst', 'spiral', 'spiralwall'];
- const basics = k => {
-  const kit = KITS[k];
-  ok(k + ': no radial burst, spiral or spiralwall in its kit', RADIAL.every(r => !kit.attacks[r] && kit.cycle.indexOf(r) < 0));
-  ok(k + ': every cycle slot is one of its own attacks', kit.cycle.every(n => typeof kit.attacks[n] === 'function'));
-  ok(k + ': a non-circular silhouette declares hitParts', !!(kit.hitParts && kit.hitParts.c.length));
-  const s = api0.mkSummoned(k, 500, 500, api0.bossdefs[k].debut - 1, 1);
-  ok(k + ': summoned at 85% size, with no recovery and no phases', Math.abs(s.r - kit.def.r * 0.85) < 1e-9 && s.recLeft.length === 0 && s.phAt.length === 0);
-  ok(k + ': a codex field note, tells and counter, and a debut line naming its rank', !!(kit.codex.lore && kit.codex.tell && kit.codex.counter && kit.lore.indexOf(api0.tierNames[kit.def.tier]) >= 0));
- };
- const pinAt = (p, x, y) => () => { p.x = x; p.y = y; };
+ const basics = k => kitBasics(api0, k);
  const jumpWatch = b => { let last = { x: b.x, y: b.y }, worst = 0; return () => { worst = Math.max(worst, Math.hypot(b.x - last.x, b.y - last.y)); last = { x: b.x, y: b.y }; return worst; }; };
 
  // ---------------- COLOSSUS ----------------
  basics('colossus');
  const coPlates = b => b.parts.filter(q => q.kind === 'plate');
- const coShoot = (a, x, y, vx, vy, dmg) => { const r = mkRound({ x, y, vx, vy, dmg: dmg || 20 }); a.bullets.push(r); return r; };
  {
   const { a, p, b } = kitRoom('colossus', 54);
   kitRun(a, 0.05, () => noChaff(a));
@@ -4068,7 +4055,7 @@ function suiteKits3() {
   ok('the plates draw', !kitRenders(a));
   b.forcedAttack = 'stomp'; b.coS = { st: 'rest', t: 99 };
   const q = ps.find(q => Math.abs(q.x - b.x) < 2 && q.y < b.y), qh = q.hp, h0 = b.hp;
-  coShoot(a, q.x, q.y - 80, 0, 640, 40);
+  shootAt(a, q.x, q.y - 80, 0, 640, 40);
   kitRun(a, 0.3, () => { noChaff(a); });
   ok('a round from its side breaks on the plate, never reaching the hull', q.hp < qh && b.hp === h0, 'plate ' + qh.toFixed(0) + ' -> ' + q.hp.toFixed(0) + ', hull ' + (h0 - b.hp).toFixed(0));
  }
@@ -4395,11 +4382,7 @@ function suiteKits3() {
  {
   const H = KITS.harbinger;
   ok('HARBINGER keeps the rationed spirals, never a plain radial burst', !!H.attacks.ricos && !!H.attacks.echowall && !H.attacks.burst && !H.attacks.fan && H.cycle.every(n => ['burst', 'fan', 'spiralwall', 'spiral'].indexOf(n) < 0));
-  ok('harbinger: every cycle slot is one of its own attacks', H.cycle.every(n => typeof H.attacks[n] === 'function'));
-  ok('harbinger: a non-circular silhouette declares hitParts', !!(H.hitParts && H.hitParts.c.length));
-  const s = api0.mkSummoned('harbinger', 500, 500, api0.bossdefs.harbinger.debut - 1, 1);
-  ok('harbinger: summoned at 85% size, with no recovery and no phases', Math.abs(s.r - H.def.r * 0.85) < 1e-9 && s.recLeft.length === 0 && s.phAt.length === 0);
-  ok('harbinger: a codex field note, tells and counter, and a debut line naming its rank', !!(H.codex.lore && H.codex.tell && H.codex.counter && H.lore.indexOf(api0.tierNames[H.def.tier]) >= 0));
+  kitBasics(api0, 'harbinger', { radial: false }); // its own radial rule is the line above
   ok('HARBINGER never recovers — it announces; it never hides', !H.recover);
  }
  {
@@ -4627,18 +4610,7 @@ function suiteKits3() {
 function suiteKits4() {
  section('kits: S80-S100 (JUGGERNAUT, ECLIPSE, NULLIFIER, CHORUS, SINGULARITY)');
  const api0 = boot(), KITS = api0.bossKits;
- const RADIAL = ['burst', 'spiral', 'spiralwall'];
- const basics = (k, radialOk) => {
-  const kit = KITS[k];
-  if (!radialOk) ok(k + ': no radial burst, spiral or spiralwall in its kit', RADIAL.every(r => !kit.attacks[r] && kit.cycle.indexOf(r) < 0));
-  ok(k + ': every cycle slot is one of its own attacks', kit.cycle.every(n => typeof kit.attacks[n] === 'function'));
-  ok(k + ': a non-circular silhouette declares hitParts', !!(kit.hitParts && kit.hitParts.c.length));
-  const s = api0.mkSummoned(k, 500, 500, api0.bossdefs[k].debut - 1, 1);
-  ok(k + ': summoned at 85% size, with no recovery and no phases', Math.abs(s.r - kit.def.r * 0.85) < 1e-9 && s.recLeft.length === 0 && s.phAt.length === 0);
-  ok(k + ': a codex field note, tells and counter, and a debut line naming its rank', !!(kit.codex.lore && kit.codex.tell && kit.codex.counter && kit.lore.indexOf(api0.tierNames[kit.def.tier]) >= 0));
- };
- const pinAt = (p, x, y) => () => { p.x = x; p.y = y; };
- const shoot = (a, x, y, vx, vy, dmg) => { const r = mkRound({ x, y, vx, vy, dmg: dmg || 20 }); a.bullets.push(r); return r; };
+ const basics = (k, radialOk) => kitBasics(api0, k, { radial: !radialOk });
 
  // ---------------- JUGGERNAUT ----------------
  basics('juggernaut');
@@ -4748,7 +4720,7 @@ function suiteKits4() {
   ok('the purge glows', !kitRenders(a));
   // vulnerability: flank rounds (neutral vent arc) land 2.5x while purging
   const fireFlank = () => { const h = b.hp, bx = b.x, by = b.y;
-   shoot(a, bx, by + 400, 0, -640, 40);
+   shootAt(a, bx, by + 400, 0, -640, 40);
    kitRun(a, 0.7, () => { noChaff(a); b.x = bx; b.y = by; }); // hold the geometry: the hull drifts while hunting
    return h - b.hp; };
   b.healPool = 0; // hold the mend while the vulnerability is measured
@@ -4783,7 +4755,7 @@ function suiteKits4() {
   // a round down the moon's line dies on the moon, never reaching the hull
   const bx = b.x, by = b.y;
   const M = moons()[0], h0 = b.hp, mh0 = M.hp;
-  shoot(a, M.x + 120, M.y, -640, 0, 40); // from outside, so the moon is met first
+  shootAt(a, M.x + 120, M.y, -640, 0, 40); // from outside, so the moon is met first
   kitRun(a, 0.5, () => { noChaff(a); b.x = bx; b.y = by; });
   ok('rounds aimed through the moon break on it', M.hp < mh0 && b.hp === h0, 'moon ' + mh0.toFixed(0) + ' -> ' + M.hp.toFixed(0));
   a.bullets.length = 0;
