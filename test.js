@@ -2350,6 +2350,101 @@ function suiteReplay() {
   }
  }
 }
+function suiteSrMirrors() {
+ section('screen-reader mirrors: settings + codex');
+ // The stub document knows no #settings-sr / #codex-sr and cannot create
+ // elements, so tests graft a minimal fake DOM onto the sandbox. The mirror
+ // code looks its hosts up lazily, exactly so an injected document works.
+ function srHarness(api) {
+  const doc = api.__sandbox.document;
+  function mkBtn() {
+   return { type: '', textContent: '', attrs: {}, handlers: {},
+    setAttribute(k, v) { this.attrs[k] = String(v); },
+    getAttribute(k) { return Object.prototype.hasOwnProperty.call(this.attrs, k) ? this.attrs[k] : null; },
+    removeAttribute(k) { delete this.attrs[k]; },
+    addEventListener(ev, fn) { (this.handlers[ev] = this.handlers[ev] || []).push(fn); },
+    focus() { doc.activeElement = this; (this.handlers.focus || []).forEach(f => f()); },
+    click() { (this.handlers.click || []).forEach(f => f()); } };
+  }
+  function mkHost() {
+   return { kids: [],
+    get firstChild() { return this.kids[0] || null; },
+    get children() { return this.kids; },
+    appendChild(b) { this.kids.push(b); return b; },
+    removeChild(b) { const i = this.kids.indexOf(b); if (i >= 0) this.kids.splice(i, 1); return b; },
+    set innerHTML(v) { this.kids.length = 0; } };
+  }
+  const hosts = { settings: mkHost(), codex: mkHost() };
+  const origGet = doc.getElementById;
+  doc.createElement = tag => mkBtn();
+  doc.activeElement = null;
+  doc.getElementById = id => id === 'settings-sr' ? hosts.settings : id === 'codex-sr' ? hosts.codex : origGet(id);
+  return hosts;
+ }
+ const cur = kids => kids.filter(b => b.getAttribute('aria-current') === 'true');
+ {
+  const api = boot(); const h = srHarness(api);
+  api.forceState('settings'); api.syncSettingsSr();
+  eq('settings mirrors all ten rows, volume rows stepping both ways', h.settings.kids.length, 12);
+  ok('a toggle names its row and value', /^Set SCREEN SHAKE, now (ON|OFF)/.test(h.settings.kids[0].textContent), h.settings.kids[0].textContent);
+  ok('a volume row offers down and up', /MUSIC VOLUME, 80%, down/.test(h.settings.kids[6].textContent) && /MUSIC VOLUME, 80%, up/.test(h.settings.kids[7].textContent), h.settings.kids[6].textContent + ' / ' + h.settings.kids[7].textContent);
+  const shake0 = api.settings.shake; h.settings.kids[0].click();
+  eq('a mirror click drives the same handler as the canvas key', api.settings.shake, !shake0);
+  api.settings.musicVol = 0.5; api.syncSettingsSr();
+  h.settings.kids.filter(b => /MUSIC VOLUME, 50%, down/.test(b.textContent))[0].click();
+  eq('volume down steps down', api.settings.musicVol, 0.4);
+  api.syncSettingsSr();
+  h.settings.kids.filter(b => /MUSIC VOLUME, 40%, up/.test(b.textContent))[0].click();
+  eq('volume up steps back up', api.settings.musicVol, 0.5);
+  api.handleKeyPress('ArrowDown'); api.syncSettingsSr();
+  ok('aria-current tracks the selected row', cur(h.settings.kids).length >= 1 && cur(h.settings.kids).every(b => /^s?\d/.test(b.getAttribute('data-sr') || '')), JSON.stringify(cur(h.settings.kids).map(b => b.getAttribute('data-sr'))));
+  api.forceState('title'); api.syncSettingsSr();
+  eq('leaving settings clears the mirror', h.settings.kids.length, 0);
+ }
+ {
+  // the wipe asks twice through the mirror, like the canvas key
+  const api = boot(); const h = srHarness(api);
+  api.startRun(); api.loadSector(4); api.forceState('playing');
+  for (let i = 0; i < 5; i++) { api.player.invuln = 1; api.update(1 / 60); }
+  ok('meeting OVERLORD opens its entry', api.codexSeen('overlord'));
+  api.forceState('settings'); api.syncSettingsSr();
+  const wipe = h.settings.kids.filter(b => /WIPE RECORDS/.test(b.textContent))[0];
+  wipe.click(); api.syncSettingsSr();
+  ok('the first press arms, and says so', /AGAIN/.test(h.settings.kids.filter(b => /WIPE RECORDS/.test(b.textContent))[0].textContent));
+  h.settings.kids.filter(b => /WIPE RECORDS/.test(b.textContent))[0].click();
+  ok('the second press forgets encounters too', !api.codexSeen('overlord'));
+ }
+ {
+  const api = boot(); const h = srHarness(api);
+  api.forceState('codex'); api.syncCodexSr();
+  const rows = api.codexRows().filter(r => !r.hdr);
+  eq('codex mirrors both tabs plus every selectable entry', h.codex.kids.length, 2 + rows.length);
+  ok('tabs come first and name their lists', /Show bestiary/.test(h.codex.kids[0].textContent) && /Show bosses/.test(h.codex.kids[1].textContent));
+  ok('an unmet god says so', h.codex.kids.some(b => /, not yet met/.test(b.textContent)));
+  const tiers = api.tierNames;
+  ok('rank headers are not mirrored', !h.codex.kids.some(b => tiers.indexOf(b.textContent) >= 0));
+  h.codex.kids[2].click();
+  eq('a mirror click selects the entry', api.codexSel, rows[0].i);
+  api.syncCodexSr();
+  eq('aria-current sits on the active tab and the entry', cur(h.codex.kids).length, 2);
+  h.codex.kids[0].click(); api.syncCodexSr();
+  eq('mirror tabs switch the list', api.codexTab, 'bestiary');
+  eq('the bestiary lists its six foes', h.codex.kids.length, 2 + 6);
+  api.forceState('title'); api.syncCodexSr();
+  eq('leaving the codex clears the mirror', h.codex.kids.length, 0);
+ }
+ {
+  // the document semantics around the canvas
+  const html = fs.readFileSync(path.join(__dirname, 'index.html'), 'utf8');
+  ok('the page has a main landmark', /<main[^>]*id="wrap"/.test(html));
+  ok('an offscreen heading names the game', /<h1 class="sr-only">/.test(html));
+  ok('settings is a labelled mirror group', /id="settings-sr" role="group" aria-label="Settings"/.test(html));
+  ok('codex is a labelled mirror group', /id="codex-sr" role="group" aria-label="Codex"/.test(html));
+  ok('role=application stays a deliberate, commented choice', /role="application" is deliberate/.test(html));
+  const css = fs.readFileSync(path.join(__dirname, 'styles.css'), 'utf8');
+  ok('both mirrors dock on focus like the draft', /#settings-sr:focus-within/.test(css) && /#codex-sr:focus-within/.test(css));
+ }
+}
 function suiteSafety() {
  section('death, input safety, encounters');
  {
@@ -5326,7 +5421,8 @@ const SUITES = [
  ['maps', suiteMaps],
  ['voice', suiteVoice],
  ['safety', suiteSafety],
- ['replay', suiteReplay]
+ ['replay', suiteReplay],
+ ['srmirror', suiteSrMirrors]
 ];
 
 // Importable so ad-hoc diagnostics can drive the same stubs without running the

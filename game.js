@@ -8153,10 +8153,132 @@ function syncDraftSr(){
     }catch(e){}
    });
   }
-  try{
-   const kids=draftSrEl.children||[];
-   for(let k=0;k<kids.length;k++){ try{ if(k===draftSel) kids[k].setAttribute('aria-current','true'); else kids[k].removeAttribute('aria-current'); }catch(e){} }
+   try{
+    const kids=draftSrEl.children||[];
+    for(let k=0;k<kids.length;k++){ try{ if(k===draftSel) kids[k].setAttribute('aria-current','true'); else kids[k].removeAttribute('aria-current'); }catch(e){} }
+   }catch(e){}
   }catch(e){}
+}
+// ---------- settings + codex mirrors ----------
+// The draft pattern, repeated twice: the settings rows and the codex index are
+// mirrored as offscreen DOM buttons so a screen reader can operate them
+// directly, driving the same handlers as the canvas (settingsKey, codexSel).
+// Buttons rebuild only when the values change, never on selection alone, and a
+// rebuild restores focus to the same row so activating a control does not drop
+// the reader back to the top of the page.
+let settingsSrEl=null, settingsSrSig='', codexSrEl=null, codexSrSig='';
+function srHost(which){
+ try{
+  const id=which==='settings'?'settings-sr':'codex-sr';
+  let h=which==='settings'?settingsSrEl:codexSrEl;
+  if((!h||!h.appendChild)&&typeof document!=='undefined'&&document.getElementById) h=document.getElementById(id);
+  if(which==='settings') settingsSrEl=h; else codexSrEl=h;
+  return h||null;
+ }catch(e){ return null; }
+}
+function srClear(host,sig,setSig){
+ if(sig()!==''){ setSig(''); try{ while(host.firstChild) host.removeChild(host.firstChild); }catch(e){ try{ host.innerHTML=''; }catch(_){} } }
+}
+// Which row had DOM focus before a rebuild, so it can be restored after.
+function srFocusKey(){
+ try{ const a=document.activeElement; if(a&&a.getAttribute) return a.getAttribute('data-sr'); }catch(e){}
+ return null;
+}
+function srRestoreFocus(host,key){
+ if(!key) return;
+ try{ const kids=host.children||[]; for(let k=0;k<kids.length;k++){ if(kids[k].getAttribute&&kids[k].getAttribute('data-sr')===key){ if(kids[k].focus) kids[k].focus(); return; } } }catch(e){}
+}
+function srButton(host,text,key,onPick){
+ let b=null;
+ try{ b=document.createElement('button'); }catch(e){ return null; }
+ if(!b) return null;
+ try{
+  b.type='button';
+  b.textContent=text;
+  try{ if(key) b.setAttribute('data-sr',key); }catch(e){}
+  b.addEventListener('click',()=>{ try{ onPick(); }catch(e){} });
+  b.addEventListener('focus',()=>{ try{ onPick(true); }catch(e){} });
+  host.appendChild(b);
+ }catch(e){ return null; }
+ return b;
+}
+function settingsSrText(r){
+ try{
+  if(r[3]===null) return r[1]+', '+r[2];
+  if(r[4]==='danger') return r[1]+', '+r[2];
+  return r[1]+', now '+r[2];
+ }catch(e){ return 'setting'; }
+}
+function syncSettingsSr(){
+ try{
+  const host=srHost('settings');
+  if(!host||!host.appendChild) return;
+  if(state!=='settings'){ srClear(host,()=>settingsSrSig,s=>{ settingsSrSig=s; }); return; }
+  const armed=wipeArmT>performance.now();
+  const armLeft=armed?Math.max(1,Math.ceil((wipeArmT-performance.now())/1000)):0;
+  const rows=settingsRows(armed,armLeft);
+  const sig=rows.map(r=>r[1]+'='+r[2]).join('|');
+  const mark=()=>{
+   try{
+    const kids=host.children||[];
+    for(let k=0;k<kids.length;k++){ try{ const key=kids[k].getAttribute?kids[k].getAttribute('data-sr'):''; const m=/^s?(\d+)/.exec(key||''); const i=m?parseInt(m[1],10):-1; if(i===settingsSel) kids[k].setAttribute('aria-current','true'); else kids[k].removeAttribute('aria-current'); }catch(e){} }
+   }catch(e){}
+  };
+  if(sig===settingsSrSig){ mark(); return; }
+  const fk=srFocusKey();
+  settingsSrSig=sig;
+  try{ while(host.firstChild) host.removeChild(host.firstChild); }catch(e){ try{ host.innerHTML=''; }catch(_){} }
+  rows.forEach((r,i)=>{
+   if(r[3]===null){
+    // Volume rows step both ways, like the canvas halves and ←→.
+    [['down','ArrowLeft'],['up','ArrowRight']].forEach(([lab,code])=>{
+     srButton(host,'Set '+settingsSrText(r)+', '+lab,i+':'+lab,(quiet)=>{
+      if(settingsSel!==i){ settingsSel=i; if(!quiet&&SFX&&SFX.click) SFX.click(); }
+      if(!quiet) settingsKey(code);
+     });
+    });
+    return;
+   }
+   const code=i===9?'Digit0':'Digit'+(i+1);
+   srButton(host,'Set '+settingsSrText(r),'s'+i,(quiet)=>{ if(!quiet) settingsKey(code); else if(settingsSel!==i){ settingsSel=i; if(SFX&&SFX.click) SFX.click(); } });
+  });
+  mark();
+  srRestoreFocus(host,fk);
+ }catch(e){}
+}
+function codexSrText(entry){
+ try{
+  const id=codexId(entry), nm=entry.name||(BOSSDEF[entry.id]&&BOSSDEF[entry.id].name)||id;
+  return nm+(codexSeen(id)?'':', not yet met');
+ }catch(e){ return 'entry'; }
+}
+function syncCodexSr(){
+ try{
+  const host=srHost('codex');
+  if(!host||!host.appendChild) return;
+  if(state!=='codex'){ srClear(host,()=>codexSrSig,s=>{ codexSrSig=s; }); return; }
+  const rows=codexRows().filter(r=>!r.hdr);
+  // Selection is marked, not rebuilt (the draft pattern): the seen-map cannot
+  // change while the codex screen is open, so the entry list is stable.
+  const sig=codexTab+'|'+rows.map(r=>codexId(r.entry)).join(',');
+  const mark=()=>{
+   try{
+    const kids=host.children||[];
+    for(let k=0;k<kids.length;k++){ try{ const key=kids[k].getAttribute?kids[k].getAttribute('data-sr'):''; if(key==='tab:'+codexTab||key==='e'+codexSel) kids[k].setAttribute('aria-current','true'); else kids[k].removeAttribute('aria-current'); }catch(e){} }
+   }catch(e){}
+  };
+  if(sig===codexSrSig){ mark(); return; }
+  const fk=srFocusKey();
+  codexSrSig=sig;
+  try{ while(host.firstChild) host.removeChild(host.firstChild); }catch(e){ try{ host.innerHTML=''; }catch(_){} }
+  CODEX_TABS.forEach(t=>{
+   srButton(host,'Show '+(t==='bosses'?'bosses':'bestiary'),'tab:'+t,(quiet)=>{ if(codexTab!==t){ codexTab=t; codexSel=0; codexPage=0; if(!quiet&&SFX&&SFX.click) SFX.click(); } });
+  });
+  rows.forEach(r=>{
+   srButton(host,codexSrText(r.entry),'e'+r.i,(quiet)=>{ if(codexSel!==r.i){ codexSel=r.i; codexPage=0; if(SFX&&SFX.click) SFX.click(); } });
+  });
+  mark();
+  srRestoreFocus(host,fk);
  }catch(e){}
 }
 function srSummary(){
@@ -8197,7 +8319,7 @@ function srSummary(){
   return 'Hull lost.'+(sr?' Brought down by '+sr.name+', '+sr.what+'.'+(ent?' Tell: '+ent.tell+' Counter: '+ent.counter:''):'')+(endInfo.newBest?' New best.':'')+' Score '+scoreCalc()+'. Reached sector '+(arenaIdx+1)+'. '+nextGodLine()+' R retries, Escape returns to title.'; }
  return '';
 }
-function srTick(now){ try{ syncDraftSr(); }catch(e){} if(!srEl||now-srT<250) return; srT=now; let t=''; try{ t=srSummary(); }catch(e){} if(t&&t!==srLast){ srLast=t; srEl.textContent=t; } }
+function srTick(now){ try{ syncDraftSr(); syncSettingsSr(); syncCodexSr(); }catch(e){} if(!srEl||now-srT<250) return; srT=now; let t=''; try{ t=srSummary(); }catch(e){} if(t&&t!==srLast){ srLast=t; srEl.textContent=t; } }
 
 // ---------- main loop ----------
 let last=performance.now(), acc=0; const STEP=1000/60;
@@ -8223,6 +8345,7 @@ arena={seed:1337, obs:[], theme:THEMES[0], spawns:[], port:{x:800,y:500}, valida
    get pigments(){ return PIGMENT_DEF; }, get pig(){ return PIG; }, get tokens(){ return K; }, get bossDefs(){ return BOSSDEF; }, get themes(){ return THEMES; },
    srSummary,
    syncDraftSr, draftCardText,
+   syncSettingsSr, settingsSrText, syncCodexSr, codexSrText, settingsRows, codexRows,
    get helpTabs(){ return HELP_TABS; }, get codexFoes(){ return CODEX_FOES; }, get codexBosses(){ return CODEX_BOSSES; },
     setHelpTab(t){ helpTab=t; helpPage=0; helpPagerRect=null; },
     openCodex, closeCodex, codexKnown, codexSeen, handleRelease, statDiff, get endInfo(){ return endInfo; }, get restartArm(){ return restartArm; }, get exitArm(){ return exitArm; }, codexProgress, commandLine,
