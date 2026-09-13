@@ -100,7 +100,7 @@ function give(api, id, n) {
 function bossesIn(api) { return api.enemies.filter(e => e.type === 'boss'); }
 
 // Fight a nest with the player pinned invulnerable at map centre, auto-firing.
-// Returns telemetry used by both the bug repros and the balance suite.
+// Returns heal / recovery telemetry (kits1's recovery economy; also exported).
 function fightNest(api, sector, opts) {
  opts = opts || {};
  api.startRun();
@@ -228,124 +228,6 @@ function suiteSweptCollision() {
  api.mouse.x = 480 + 120; api.mouse.y = 320;
  seconds(api, 1.0, () => { immortal(api); e.x = p.x + 120; e.y = p.y; });
  ok('a 4000px/s bullet still registers on a r=18 target', e.hp < hp0, 'hp ' + hp0 + ' -> ' + e.hp);
- return api;
-}
-
-// ======================================================================
-//  SUITE 4 -- BUG REPRO: boss recovery must be bounded
-// ======================================================================
-function suiteBossRecovery() {
- section('boss recovery economy');
- // S10 = the nest the player reported as unkillable.
- for (const sector of [9, 14, 19]) {
-  const api = boot();
-  seedRandom(api, 4242 + sector);
-  const r = fightNest(api, sector, { maxSeconds: 120 });
-  const label = 'S' + (sector + 1);
-  // the lifetime cap is one pool per threshold the kit arms (spec §3.6); a
-  // boss that uses every recovery fully lands exactly on it, so allow float noise
-  const kit = api.bossKits[api.bossKindsFor(sector)[0]], R = kit.recover, cap = R ? R.at.length * (R.pool != null ? R.pool : 0.08) : 0;
-  atMost(label + ' boss never heals past its recovery pools', r.maxHealFrac, cap + 1e-9);
-  atMost(label + ' boss recovers at most once per armed threshold', r.maxRecoveries, R ? R.at.length : 0);
-  atMost(label + ' boss spends <25% of the fight unengageable', r.offFrac, 0.25);
- }
- // RELENTLESS at twice each band's target fight length (spec §3.6, §6)
- {
-  const a = boot();
-  eq('S5-S10 RELENTLESS stays at 180s', a.relentlessFor(10), 180);
-  eq('S15-S20 RELENTLESS at 160s', a.relentlessFor(15), 160);
-  eq('S25-S45 RELENTLESS at 210s', a.relentlessFor(45), 210);
-  eq('S50-S95 RELENTLESS at 300s', a.relentlessFor(50), 300);
-  eq('S100 RELENTLESS at 420s', a.relentlessFor(100), 420);
-  eq('a returned god uses its rung\'s band', a.relentlessFor(115), 160);
- }
- // PHANTOM's Ghost Form, the reference recovery: its counter works
- const ghost = (hpAt, t0) => {
-  const a = boot(); seedRandom(a, 1515);
-  a.startRun(); a.loadSector(14); a.forceState('playing'); a.queue.length = 0;
-  const b = bossesIn(a)[0]; a.player.autoFire = false;
-  for (const e of a.enemies.slice()) if (e !== b) a.enemies.splice(a.enemies.indexOf(e), 1);
-  b.fightT = t0; b.hp = b.hpSeen = b.maxhp * hpAt;
-  seconds(a, 0.1, () => { immortal(a); a.mouse.down = false; });
-  return { a, b };
- };
- {
-  const { b } = ghost(0.5, 5);
-  ok('no recovery in the opening 12s, however wounded', b.mode !== 'recover' && !b.phased);
- }
- {
-  const { a, b } = ghost(0.54, 20);
-  ok('PHANTOM at 55% goes to Ghost Form', b.mode === 'recover' && b.phased && a.bossLabel(b) === 'GHOST FORM');
-  ok('it raises escorts to break it', (b.spawned || []).length >= 2);
-  atMost('its pool is 8% of max HP', b.healPool / b.maxhp, 0.08 + 1e-9);
-  const hp0 = b.hp; seconds(a, 1, () => { immortal(a); a.mouse.down = false; });
-  ok('it mends while the escorts live', b.hp > hp0);
-  for (const u of b.spawned.slice()) { const i = a.enemies.findIndex(e => e.uid === u); if (i >= 0) a.killEnemy(i); }
-  seconds(a, 0.1, () => { immortal(a); a.mouse.down = false; });
-  ok('killing the escorts breaks it', b.mode === 'hunt' && !b.phased);
-  b.hp = b.maxhp * 0.2; seconds(a, 2, () => { immortal(a); a.mouse.down = false; });
-  ok('Ghost Form comes once only', b.mode !== 'recover');
- }
- {
-  const { a, b } = ghost(0.54, 20);
-  ok('a second Ghost Form began', b.mode === 'recover');
-  b.fightT = b.relentlessT + 0.1; seconds(a, 0.1, () => { immortal(a); a.mouse.down = false; });
-  ok('RELENTLESS ends a recovery in progress and bars every later one', b.hardEnrage && b.mode === 'hunt' && b.recLeft.length === 0 && b.healPool === 0);
- }
- {
-  const a = boot(); a.startRun(); a.loadSector(29);
-  const s = a.mkSummoned('phantom', 500, 500, 29, 1);
-  eq('a summoned PHANTOM never recovers', s.recLeft.length, 0);
- }
- return null;
-}
-
-// A boss left completely alone must NOT heal back up (no passive regen loop).
-function suiteNoPassiveRegen() {
- section('no passive out-of-combat regen');
- const api = boot();
- seedRandom(api, 99);
- api.startRun(); api.loadSector(9); api.forceState('playing');
- const b = bossesIn(api)[0];
- if (!b) { ok('boss present', false); return api; }
- b.hp = b.maxhp * 0.5;
- const hp0 = b.hp;
- const p = api.player;
- p.autoFire = false;
- seconds(api, 30, () => { immortal(api); api.mouse.down = false; });
- atMost('an untouched boss regains <=12% max HP over 30s', (b.hp - hp0) / b.maxhp, 0.12);
- return api;
-}
-
-// ======================================================================
-//  SUITE 5 -- BUG REPRO: bosses must not get stuck / corner-camp
-// ======================================================================
-function suiteBossMobility() {
- section('boss placement + mobility');
- for (let s = 0; s < 6; s++) {
-  const sector = 4 + s * 5;
-  const api = boot();
-  seedRandom(api, 20000 + sector);
-  api.startRun(); api.loadSector(sector); api.forceState('playing');
-  const bs = bossesIn(api);
-  atLeast('S' + (sector + 1) + ' nest has a boss', bs.length, 1);
-  const w = api.sectorWorld(sector);
-  for (const b of bs) {
-   const margin = Math.min(b.x - 24, b.y - 80, (w.w - 24) - b.x, (w.h - 24) - b.y);
-   atLeast('S' + (sector + 1) + ' ' + (b.bname || b.kind) + ' spawns clear of walls', margin, 90);
-  }
- }
- // a boss chasing a stationary player must actually close distance
- const api = boot();
- seedRandom(api, 31337);
- api.startRun(); api.loadSector(4); api.forceState('playing');
- const b = bossesIn(api)[0];
- const p = api.player;
- if (b) {
-  let minD = 1e9;
-  seconds(api, 25, () => { immortal(api); api.mouse.down = false; p.autoFire = false; minD = Math.min(minD, Math.hypot(b.x - p.x, b.y - p.y)); });
-  atMost('boss closes to contact range within 25s', minD, 220);
- }
  return api;
 }
 
@@ -811,56 +693,10 @@ function suiteFightsim() {
 }
 
 // ======================================================================
-//  SUITE 8b -- every boss kind actually runs
+//  the roster, bottom rung to Apex (hierarchy, teleport and the fuzz iterate it)
 // ======================================================================
-// HP arithmetic proves nothing about whether an AI works. Spawn each kind
-// alone, fight it for real, and assert it moves, takes damage, dies, and never
-// throws. This is what catches a primitive that references a missing field.
 const ALL_BOSSES = ['overlord', 'warden', 'phantom', 'revenant', 'leviathan', 'hydra', 'wyvern', 'oracle', 'sentinel', 'archon',
  'colossus', 'basilisk', 'progenitor', 'harbinger', 'kraken', 'juggernaut', 'eclipse', 'nullifier', 'chorus', 'singularity'];
-function suiteBossRoster() {
- section('boss roster');
- const api0 = boot();
- eq('roster has twenty kinds', Object.keys(api0.bossdefs).length, 20);
- deepEq('the ladder is the roster, in order', api0.ladder.slice(), ALL_BOSSES);
- for (const k of ALL_BOSSES) ok('roster defines ' + k, !!api0.bossdefs[k]);
- for (const k of ALL_BOSSES) {
-  const kit = api0.bossKits[k];
-  ok(k + ' has a kit with a cycle, attacks and a draw', !!kit && Array.isArray(kit.cycle) && kit.cycle.length > 0 && typeof kit.draw === 'function');
-  ok(k + ' every cycle slot names a real attack', !!kit && kit.cycle.every(n => typeof kit.attacks[n] === 'function'), kit && kit.cycle.join(','));
- }
- deepEq('S5: a lone OVERLORD', api0.bossKindsFor(4), ['overlord']);
- deepEq('S25: LEVIATHAN has moved down from S30', api0.bossKindsFor(24), ['leviathan']);
- deepEq('S50: the first Sovereign alone', api0.bossKindsFor(49), ['archon']);
- deepEq('S100: the Apex alone', api0.bossKindsFor(99), ['singularity']);
- eq('BASILISK is promoted to SOVEREIGN', api0.tierNames[api0.bossdefs.basilisk.tier], 'SOVEREIGN');
- eq('HARBINGER is promoted to SOVEREIGN', api0.tierNames[api0.bossdefs.harbinger.tier], 'SOVEREIGN');
- const byT = {}; for (const k of ALL_BOSSES) { const t = api0.tierNames[api0.bossdefs[k].tier]; byT[t] = (byT[t] || 0) + 1; }
- deepEq('1 ENFORCER, 3 CAPTAINs, 5 LORDs, 10 SOVEREIGNs, 1 APEX', byT, { ENFORCER: 1, CAPTAIN: 3, LORD: 5, SOVEREIGN: 10, APEX: 1 });
- let fall = false; for (let i = 1; i < 20; i++) if (api0.bossdefs[ALL_BOSSES[i]].tier < api0.bossdefs[ALL_BOSSES[i - 1]].tier) fall = true;
- ok('rank never falls going up the ladder', !fall);
- const seen = new Set();
- for (let s = 4; s < 300; s += 5) for (const k of api0.bossKindsFor(s)) seen.add(k);
- eq('every defined boss appears somewhere on the trail', seen.size, 20);
- // the DevX lab's three levers on the dispatcher
- {
-  const a = boot(); seedRandom(a, 4040); a.startRun(); a.loadSector(49); a.forceState('playing'); a.queue.length = 0;
-  const b = bossesIn(a)[0];
-  b.forcedAttack = 'gavel'; seconds(a, 8, () => immortal(a));
-  eq('a forced attack loops that attack past its slot', b.atk, 'gavel');
-  b.forcedAttack = null; b.forcedPhase = 3; seconds(a, 2, () => immortal(a));
-  eq('a forced phase is honoured, one beat per phase', b.ph, 3);
-  b.forcedPhase = 9; seconds(a, 1, () => immortal(a));
-  eq('and clamped to the god\'s own phase count', b.ph, 3);
-  a.__sandbox.window.devAiFreeze = true; const pt = b.phaseT;
-  seconds(a, 1, () => immortal(a));
-  eq('devAiFreeze stops every god thinking', b.phaseT, pt);
-  a.__sandbox.window.devAiFreeze = false;
-  seconds(a, 0.2, () => immortal(a));
-  ok('and lifting it resumes', b.phaseT !== pt);
- }
- return null;
-}
 
 // ======================================================================
 //  SUITE 8a -- the ladder and the chain of command (spec §1, §2, §14)
@@ -872,6 +708,24 @@ function suiteHierarchy() {
  section('hierarchy');
  const api = boot();
  const D = api.bossdefs, L = api.ladder;
+ // -- the roster: twenty gods, the ladder in order, each with a runnable kit
+ eq('roster has twenty kinds', Object.keys(D).length, 20);
+ deepEq('the ladder is the roster, in order', L.slice(), ALL_BOSSES);
+ for (const k of ALL_BOSSES) {
+  const kit = api.bossKits[k];
+  ok(k + ' has a kit with a cycle, attacks and a draw', !!kit && Array.isArray(kit.cycle) && kit.cycle.length > 0 && typeof kit.draw === 'function');
+ }
+ deepEq('S5: a lone OVERLORD', api.bossKindsFor(4), ['overlord']);
+ deepEq('S25: LEVIATHAN has moved down from S30', api.bossKindsFor(24), ['leviathan']);
+ deepEq('S50: the first Sovereign alone', api.bossKindsFor(49), ['archon']);
+ deepEq('S100: the Apex alone', api.bossKindsFor(99), ['singularity']);
+ // -- ranks
+ eq('BASILISK is promoted to SOVEREIGN', api.tierNames[D.basilisk.tier], 'SOVEREIGN');
+ eq('HARBINGER is promoted to SOVEREIGN', api.tierNames[D.harbinger.tier], 'SOVEREIGN');
+ const byT = {}; for (const k of ALL_BOSSES) { const t = api.tierNames[D[k].tier]; byT[t] = (byT[t] || 0) + 1; }
+ deepEq('1 ENFORCER, 3 CAPTAINs, 5 LORDs, 10 SOVEREIGNs, 1 APEX', byT, { ENFORCER: 1, CAPTAIN: 3, LORD: 5, SOVEREIGN: 10, APEX: 1 });
+ let fall = false; for (let i = 1; i < 20; i++) if (D[ALL_BOSSES[i]].tier < D[ALL_BOSSES[i - 1]].tier) fall = true;
+ ok('rank never falls going up the ladder', !fall);
  const debuts = Object.keys(D).map(k => D[k].debut);
  eq('no two bosses share a debut', new Set(debuts).size, debuts.length);
  ok('every debut is a nest sector', debuts.every(n => n % 5 === 0), debuts.join(','));
@@ -997,6 +851,44 @@ function suiteHierarchy() {
  return null;
 }
 
+// Every god spawned alone through the lab's spawnEnemy path at S30 and fought
+// for real, bar untouched, by a fixed deterministic damage build
+// (cards handed over, so a bad draft cannot masquerade as a broken boss): it
+// must take damage, move, die inside 90s and leave no hazards behind.
+function liveOne(kind) {
+ const api = boot();
+ seedRandom(api, 77000 + kind.length * 31);
+ api.startRun();
+ for (const id of ['dmg', 'rate', 'array', 'crit', 'slug', 'pierce', 'seek']) {
+  const u = api.upgrades.find(x => x.id === id);
+  for (let k = 0; k < (u.max || 4); k++) { if (u.req && !u.req(api.player)) break; api.pickUpgrade(u); }
+ }
+ api.loadSector(29); api.forceState('playing');
+ for (const e of api.enemies.slice()) api.enemies.splice(api.enemies.indexOf(e), 1);
+ let threw = null;
+ try { api.spawnEnemy('boss:' + kind); } catch (e) { threw = e; }
+ ok(kind + ' spawns without throwing', !threw, threw && threw.message);
+ const b = bossesIn(api)[0];
+ if (!b) { ok(kind + ' present after spawn', false); return; }
+ const hp0 = b.hp, x0 = b.x, y0 = b.y;
+ let moved = 0, died = false, err = null;
+ api.player.autoFire = true;
+ try {
+  for (let i = 0; i < 60 * 90; i++) {
+   immortal(api);
+   api.update(DT);
+   if (api.state === 'levelup') api.forceState('playing');
+   if (i % 30 === 0) moved = Math.max(moved, Math.hypot(b.x - x0, b.y - y0));
+   if (bossesIn(api).indexOf(b) < 0) { died = true; break; }
+  }
+ } catch (e) { err = e; }
+ ok(kind + ' runs 90s without throwing', !err, err && (err.message + ' @ ' + (err.stack || '').split('\n')[1]));
+ ok(kind + ' takes damage', died || b.hp < hp0, 'hp ' + hp0.toFixed(0) + ' -> ' + b.hp.toFixed(0));
+ ok(kind + ' is killable inside 90s', died, died ? '' : 'left ' + ((b.hp / b.maxhp) * 100).toFixed(0) + '%');
+ ok(kind + ' repositions rather than sitting still', died || moved > 40, 'moved ' + moved.toFixed(0));
+ atMost(kind + ' leaves no hazard leak', api.hazards.length, 40);
+}
+
 // ======================================================================
 //  SUITE 8a2 -- the teleport policy (spec §3.5)
 // ======================================================================
@@ -1004,7 +896,9 @@ function suiteHierarchy() {
 // allow-list for 60 simulated seconds in its own nest, with the ship shooting
 // back so thresholds, summons and recoveries all fire, and assert no
 // frame-to-frame jump beyond its fastest legal travel x dt x 3. Allow-listed
-// gods may jump only when bossBlink stamped the frame.
+// gods may jump only when bossBlink stamped the frame. Then the rest of how
+// gods move: spawn placement clear of walls, pursuit of a still ship, and every
+// god fought alone for 90s (liveOne).
 function suiteTeleport() {
  section('teleport policy');
  const api0 = boot(), OK = api0.teleportOk;
@@ -1053,50 +947,29 @@ function suiteTeleport() {
   ok('ECLIPSE may not blink outside its recovery', !a.bossBlink(ec, 900, 900, 'blink') && ec.x === 600);
   ok('PHANTOM may blink', a.bossBlink(ph, 900, 900, 'blink') && ph.x !== 600 && ph.blinkAt === a.time);
  }
- return null;
-}
-
-// Every boss kind, spawned alone and fought for real.
-function suiteBossLive() {
- section('boss roster live');
-
- for (const kind of ALL_BOSSES) {
-  const api = boot();
-  seedRandom(api, 77000 + kind.length * 31);
-  api.startRun();
-  // Fixed, deterministic damage build. This suite tests whether the AI RUNS,
-  // not whether a draft got lucky — handing the cards over directly keeps a
-  // bad roll from masquerading as a broken boss.
-  for (const id of ['dmg', 'rate', 'array', 'crit', 'slug', 'pierce', 'seek']) {
-   const u = api.upgrades.find(x => x.id === id);
-   for (let k = 0; k < (u.max || 4); k++) { if (u.req && !u.req(api.player)) break; api.pickUpgrade(u); }
+ // -- placement and pursuit: a god spawns clear of the walls, and one chasing
+ // a ship that never moves actually closes on it (no stuck or corner-camping god)
+ for (let s = 0; s < 6; s++) {
+  const sector = 4 + s * 5;
+  const a = boot(); seedRandom(a, 20000 + sector);
+  a.startRun(); a.loadSector(sector); a.forceState('playing');
+  const bs = bossesIn(a);
+  atLeast('S' + (sector + 1) + ' nest has a boss', bs.length, 1);
+  const w = a.sectorWorld(sector);
+  for (const b of bs) {
+   const margin = Math.min(b.x - 24, b.y - 80, (w.w - 24) - b.x, (w.h - 24) - b.y);
+   atLeast('S' + (sector + 1) + ' ' + (b.bname || b.kind) + ' spawns clear of walls', margin, 90);
   }
-  api.loadSector(29); api.forceState('playing');
-  for (const e of api.enemies.slice()) api.enemies.splice(api.enemies.indexOf(e), 1);
-  let threw = null;
-  try { api.spawnEnemy('boss:' + kind); } catch (e) { threw = e; }
-  ok(kind + ' spawns without throwing', !threw, threw && threw.message);
-  const b = bossesIn(api)[0];
-  if (!b) { ok(kind + ' present after spawn', false); continue; }
-  const hp0 = b.hp, x0 = b.x, y0 = b.y;
-  let moved = 0, died = false, err = null;
-  const p = api.player;
-  p.autoFire = true;
-  try {
-   for (let i = 0; i < 60 * 90; i++) {
-    immortal(api);
-    api.update(DT);
-    if (api.state === 'levelup') api.forceState('playing');
-    if (i % 30 === 0) moved = Math.max(moved, Math.hypot(b.x - x0, b.y - y0));
-    if (bossesIn(api).indexOf(b) < 0) { died = true; break; }
-   }
-  } catch (e) { err = e; }
-  ok(kind + ' runs 90s without throwing', !err, err && (err.message + ' @ ' + (err.stack || '').split('\n')[1]));
-  ok(kind + ' takes damage', died || b.hp < hp0, 'hp ' + hp0.toFixed(0) + ' -> ' + b.hp.toFixed(0));
-  ok(kind + ' is killable inside 90s', died, died ? '' : 'left ' + ((b.hp / b.maxhp) * 100).toFixed(0) + '%');
-  ok(kind + ' repositions rather than sitting still', died || moved > 40, 'moved ' + moved.toFixed(0));
-  atMost(kind + ' leaves no hazard leak', api.hazards.length, 40);
  }
+ {
+  const a = boot(); seedRandom(a, 31337);
+  a.startRun(); a.loadSector(4); a.forceState('playing');
+  const b = bossesIn(a)[0], p = a.player;
+  let minD = 1e9;
+  seconds(a, 25, () => { immortal(a); a.mouse.down = false; p.autoFire = false; minD = Math.min(minD, Math.hypot(b.x - p.x, b.y - p.y)); });
+  atMost('boss closes to contact range within 25s', minD, 220);
+ }
+ for (const kind of ALL_BOSSES) liveOne(kind);
  return null;
 }
 
@@ -2953,6 +2826,33 @@ function suitePrims() {
   ok('from Phase II the wake lasts 5s (the phase framework\'s proof)', lv.ph === 2 && a.discs.some(d => d.owner === lv && d.life === 5));
   const s = a.mkSummoned('leviathan', 600, 600, 24, 1); ok('a summoned LEVIATHAN runs its Phase I wake', s.wakeLife === 3.5 && s.phAt.length === 0);
  }
+ // -- RELENTLESS at twice each band's target fight length (spec §3.6, §6)
+ {
+  const a = boot();
+  eq('S5-S10 RELENTLESS stays at 180s', a.relentlessFor(10), 180);
+  eq('S15-S20 RELENTLESS at 160s', a.relentlessFor(15), 160);
+  eq('S25-S45 RELENTLESS at 210s', a.relentlessFor(45), 210);
+  eq('S50-S95 RELENTLESS at 300s', a.relentlessFor(50), 300);
+  eq('S100 RELENTLESS at 420s', a.relentlessFor(100), 420);
+  eq('a returned god uses its rung\'s band', a.relentlessFor(115), 160);
+ }
+ // -- the DevX lab's three levers on the dispatcher
+ {
+  const a = boot(); seedRandom(a, 4040); a.startRun(); a.loadSector(49); a.forceState('playing'); a.queue.length = 0;
+  const b = bossesIn(a)[0];
+  b.forcedAttack = 'gavel'; seconds(a, 8, () => immortal(a));
+  eq('a forced attack loops that attack past its slot', b.atk, 'gavel');
+  b.forcedAttack = null; b.forcedPhase = 3; seconds(a, 2, () => immortal(a));
+  eq('a forced phase is honoured, one beat per phase', b.ph, 3);
+  b.forcedPhase = 9; seconds(a, 1, () => immortal(a));
+  eq('and clamped to the god\'s own phase count', b.ph, 3);
+  a.__sandbox.window.devAiFreeze = true; const pt = b.phaseT;
+  seconds(a, 1, () => immortal(a));
+  eq('devAiFreeze stops every god thinking', b.phaseT, pt);
+  a.__sandbox.window.devAiFreeze = false;
+  seconds(a, 0.2, () => immortal(a));
+  ok('and lifting it resumes', b.phaseT !== pt);
+ }
  // -- HARBINGER's meteor now does something
  {
   const a = boot(); seedRandom(a, 7171); a.startRun(); a.loadSector(69); a.forceState('playing'); a.queue.length = 0;
@@ -3087,6 +2987,7 @@ function suiteKits1() {
  const basics = k => {
   const kit = KITS[k];
   ok(k + ': no radial burst, spiral or spiralwall in its kit', RADIAL.every(r => !kit.attacks[r] && kit.cycle.indexOf(r) < 0));
+  ok(k + ': every cycle slot is one of its own attacks', kit.cycle.every(n => typeof kit.attacks[n] === 'function'));
   ok(k + ': a non-circular silhouette declares hitParts', !!(kit.hitParts && kit.hitParts.c.length));
   const s = api0.mkSummoned(k, 500, 500, api0.bossdefs[k].debut - 1, 1);
   ok(k + ': summoned at 85% size, with no recovery and no phases', Math.abs(s.r - kit.def.r * 0.85) < 1e-9 && s.recLeft.length === 0 && s.phAt.length === 0);
@@ -3225,6 +3126,18 @@ function suiteKits1() {
   atMost('having mended no more than its 8% pool', (peak - b.maxhp * 0.54) / b.maxhp, 0.08 + 1e-9);
  }
  {
+  // No passive out-of-combat regen: a god left completely alone in its own
+  // nest, cover and chaff included, for 30s from half health.
+  const api = boot(); seedRandom(api, 99);
+  api.startRun(); api.loadSector(9); api.forceState('playing');
+  const b = bossesIn(api)[0];
+  b.hp = b.maxhp * 0.5;
+  const hp0 = b.hp;
+  api.player.autoFire = false;
+  seconds(api, 30, () => { immortal(api); api.mouse.down = false; });
+  atMost('an untouched boss regains <=12% max HP over 30s', (b.hp - hp0) / b.maxhp, 0.12);
+ }
+ {
   const { a, b } = kitRoom('warden', 9);
   b.hp = b.maxhp * 0.49; kitRun(a, 0.5);
   const s = a.enemies.filter(e => e.summoned);
@@ -3301,6 +3214,40 @@ function suiteKits1() {
   b.hp = b.maxhp * 0.49; kitRun(a, 0.5);
   const s = a.enemies.filter(e => e.summoned);
   ok('at 50% PHANTOM calls WARDEN', s.length === 1 && s[0].kind === 'warden', s.map(e => e.kind).join(','));
+ }
+ // GHOST FORM, the reference recovery (spec §3.6), in its own nest with cover
+ // and escorts: the opening gate, the pool, the counter, once only, RELENTLESS.
+ const ghost = (hpAt, t0) => {
+  const a = boot(); seedRandom(a, 1515);
+  a.startRun(); a.loadSector(14); a.forceState('playing'); a.queue.length = 0;
+  const b = bossesIn(a)[0]; a.player.autoFire = false;
+  for (const e of a.enemies.slice()) if (e !== b) a.enemies.splice(a.enemies.indexOf(e), 1);
+  b.fightT = t0; b.hp = b.hpSeen = b.maxhp * hpAt;
+  seconds(a, 0.1, () => { immortal(a); a.mouse.down = false; });
+  return { a, b };
+ };
+ {
+  const { b } = ghost(0.5, 5);
+  ok('no recovery in the opening 12s, however wounded', b.mode !== 'recover' && !b.phased);
+ }
+ {
+  const { a, b } = ghost(0.54, 20);
+  ok('PHANTOM at 55% goes to Ghost Form', b.mode === 'recover' && b.phased && a.bossLabel(b) === 'GHOST FORM');
+  ok('it raises escorts to break it', (b.spawned || []).length >= 2);
+  atMost('its pool is 8% of max HP', b.healPool / b.maxhp, 0.08 + 1e-9);
+  const hp0 = b.hp; seconds(a, 1, () => { immortal(a); a.mouse.down = false; });
+  ok('it mends while the escorts live', b.hp > hp0);
+  for (const u of b.spawned.slice()) { const i = a.enemies.findIndex(e => e.uid === u); if (i >= 0) a.killEnemy(i); }
+  seconds(a, 0.1, () => { immortal(a); a.mouse.down = false; });
+  ok('killing the escorts breaks it', b.mode === 'hunt' && !b.phased);
+  b.hp = b.maxhp * 0.2; seconds(a, 2, () => { immortal(a); a.mouse.down = false; });
+  ok('Ghost Form comes once only', b.mode !== 'recover');
+ }
+ {
+  const { a, b } = ghost(0.54, 20);
+  ok('a second Ghost Form began', b.mode === 'recover');
+  b.fightT = b.relentlessT + 0.1; seconds(a, 0.1, () => { immortal(a); a.mouse.down = false; });
+  ok('RELENTLESS ends a recovery in progress and bars every later one', b.hardEnrage && b.mode === 'hunt' && b.recLeft.length === 0 && b.healPool === 0);
  }
 
  // ---------------- REVENANT ----------------
@@ -3502,6 +3449,22 @@ function suiteKits1() {
   atMost('or when the head is shoved hard, frame after frame (knockback, unstick)', gap, 0.5);
   const sm = a.mkSummoned('leviathan', 600, 600, 24, 1); sm.hp = sm.maxhp * 0.4; a.enemies.push(sm); kitRun(a, 3);
   ok('a summoned LEVIATHAN never volleys (Phase I kit only)', !sm.lvV && sm.ph === 1);
+ }
+
+ // ---------------- recovery economy in a real fight ----------------
+ // S10 = the nest the player once reported as unkillable. The ship is pinned
+ // invulnerable at the drop and auto-fires for up to 120s (fightNest).
+ for (const sector of [9, 14, 19]) {
+  const api = boot();
+  seedRandom(api, 4242 + sector);
+  const r = fightNest(api, sector, { maxSeconds: 120 });
+  const label = 'S' + (sector + 1);
+  // the lifetime cap is one pool per threshold the kit arms (spec §3.6); a
+  // boss that uses every recovery fully lands exactly on it, so allow float noise
+  const kit = api.bossKits[api.bossKindsFor(sector)[0]], R = kit.recover, cap = R ? R.at.length * (R.pool != null ? R.pool : 0.08) : 0;
+  atMost(label + ' boss never heals past its recovery pools', r.maxHealFrac, cap + 1e-9);
+  atMost(label + ' boss recovers at most once per armed threshold', r.maxRecoveries, R ? R.at.length : 0);
+  atMost(label + ' boss spends <25% of the fight unengageable', r.offFrac, 0.25);
  }
  return null;
 }
@@ -5284,18 +5247,13 @@ const SUITES = [
  ['sectors', suiteSectors],
  ['bullets', suiteBullets],
  ['swept', suiteSweptCollision],
- ['recovery', suiteBossRecovery],
- ['regen', suiteNoPassiveRegen],
- ['mobility', suiteBossMobility],
  ['procgen', suiteProcgen],
  ['pool', suiteUpgradePool],
  ['fightsim', suiteFightsim],
- ['roster', suiteBossRoster],
  ['hierarchy', suiteHierarchy],
  ['teleport', suiteTeleport],
  ['prims', suitePrims],
  ['fuzz', suiteFuzz],
- ['live', suiteBossLive],
  ['combos', suiteCombos],
  ['codex', suiteCodex],
  ['endless', suitePoolExhaustion],
