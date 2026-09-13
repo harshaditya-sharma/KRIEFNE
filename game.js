@@ -551,8 +551,10 @@ function compTotal(s){ const w=sectorWorld(s); const n=s+1;
  const g=0.72+Math.min(Math.max(0,n-12),9)*0.092+Math.max(0,n-21)*0.045, mid=n<=9?60:(n<=49?87.5:115);
  let t=mid*g; if(n===3) t=Math.min(t,33);
  return Math.round(Math.min(t,w.w*w.h/18000)); }
+// Thralls (spec §8) are carved out of the same total: each takes THRALL.cost
+// slots, so compFor is the ordinary species only and thrallRoster the rest.
 function compFor(s){
- const tot=compTotal(s), out={}, rem=[];
+ const tot=Math.max(0,compTotal(s)-thrallCount(s)*THRALL.cost), out={}, rem=[];
  let wsum=0, used=0;
  for(const k in COMP_W) if(s>=COMP_W[k][0]) wsum+=COMP_W[k][1];
  for(const k in COMP_W){
@@ -613,23 +615,45 @@ function wavePlan(s){
  return (_wavePlans[s]={ initial, pack, every, cap, floor, win });
 }
 function sectorWorld(s){ return { w:Math.min(2400,1200+s*130), h:Math.min(1600,880+s*85) }; }
-// r: rarity 0 common (w10) / 1 uncommon (w5) / 2 rare (w2, RARE tag + jingle); drawn as 1/2/3 rim ticks
+// r: rarity 0 COMMON (w10) / 1 UNCOMMON (w5) / 2 RARE (w2, tag + jingle) /
+// 3 EPIC (w1.2, tag + jingle) / 4 LEGENDARY (w0.7, tag + jingle) /
+// 5 MYTHIC (w0.35, tag + jingle); drawn as 1..6 rim ticks in rarity ink.
+const RARITY=[
+ {name:'COMMON', w:10}, {name:'UNCOMMON', w:5}, {name:'RARE', w:2},
+ {name:'EPIC', w:1.2}, {name:'LEGENDARY', w:0.7}, {name:'MYTHIC', w:0.35}];
+function rarityName(u){ return (RARITY[u.r]||RARITY[0]).name; }
+function rarityCol(u){ const r=u.r||0; return r>=5?K.red:(r===4?K.redHi:(r===3?K.hydro:(r===2?K.gold:K.textDim))); }
+// Overdrive law: every stat stick pays for its gain. Gains stack ADDITIVELY on
+// the base and costs stay small and flat, so a pick is always net-positive but
+// never free; rarity buys efficiency (more gain per cost). Variants of one
+// family share a stack budget, so a higher rarity is a better deal, not extra
+// power on top.
+function odFam(ids){ let n=0; for(const id of ids) n+=upgradeCounts[id]||0; return n; }
+const RATE_FAM=['rate0','rate','rate3'], DMG_FAM=['dmg0','dmg','dmg4'], HP_FAM=['hp0','hp1','hp2','hp'];
 const UPGRADES=[
  // Stack caps on the four core multipliers. Uncapped, `dmg` and `rate` compounded
  // to 126x player DPS by S30 against bosses only 2.4x tougher — every deep nest
  // melted in four seconds. Capped, a single stat line can no longer carry a run;
  // late-game power comes from the ability lines instead, which cap separately.
- // Gains stack ADDITIVELY on the base, penalties stay multiplicative (a "-15%"
- // should really cut 15%). Multiplicative gains compounded to a 147x ceiling;
- // additive gains give a curve that can actually be matched by an enemy curve.
- {id:'rate', name:'Overclock Barrel', desc:'+20% base fire rate', max:8, r:0, apply(p){ p.fireRate+=0.9; }},
- {id:'dmg', name:'AP Rounds', desc:'+30% base damage', max:10, r:0, apply(p){ p.dmgMult+=0.30; }},
- {id:'hp', name:'Nanoweave Plating', desc:'+25 Max HP, heal 25', max:10, r:0, apply(p){ p.maxhp+=25; p.hp=Math.min(p.maxhp,p.hp+25); }},
+ // Gains stack ADDITIVELY on the base and costs stay small and flat (a "-0.2/s"
+ // really cuts 0.2/s), so compounding can never spiral; overdrive families
+ // share a stack budget across rarities, and barrels are gated on hull count.
+ {id:'rate0', name:'Overclock Barrel', desc:'+10% base fire rate, -1% dmg', max:8, r:0, req(p){ return odFam(RATE_FAM)<10; }, apply(p){ p.fireRate+=0.45; p.dmgMult-=0.01; }},
+ {id:'rate', name:'Overclock Cell', desc:'+20% base fire rate, -2% dmg', max:6, r:1, req(p){ return odFam(RATE_FAM)<10; }, apply(p){ p.fireRate+=0.9; p.dmgMult-=0.02; }},
+ {id:'rate3', name:'Overclock Core', desc:'+30% base fire rate, -3% dmg', max:4, r:2, req(p){ return odFam(RATE_FAM)<10; }, apply(p){ p.fireRate+=1.35; p.dmgMult-=0.03; }},
+ {id:'dmg0', name:'AP Rounds', desc:'+15% base damage, -0.1/s rate', max:6, r:0, req(p){ return odFam(DMG_FAM)<10; }, apply(p){ p.dmgMult+=0.15; p.fireRate-=0.08; }},
+ {id:'dmg', name:'AP Core', desc:'+30% base damage, -0.2/s rate', max:10, r:1, req(p){ return odFam(DMG_FAM)<10; }, apply(p){ p.dmgMult+=0.30; p.fireRate-=0.15; }},
+ {id:'dmg4', name:'AP Lance', desc:'EPIC: +40% damage, -0.2/s rate', max:3, r:3, req(p){ return odFam(DMG_FAM)<10; }, apply(p){ p.dmgMult+=0.40; p.fireRate-=0.2; }},
+ {id:'hp0', name:'Nanoweave Mesh', desc:'+5 Max HP, heal 5, heavier', max:6, r:0, req(p){ return odFam(HP_FAM)<12; }, apply(p){ p.maxhp+=5; p.hp=Math.min(p.maxhp,p.hp+5); p.speed-=4; }},
+ {id:'hp1', name:'Nanoweave Weave', desc:'+10 Max HP, heal 10, heavier', max:8, r:1, req(p){ return odFam(HP_FAM)<12; }, apply(p){ p.maxhp+=10; p.hp=Math.min(p.maxhp,p.hp+10); p.speed-=6; }},
+ {id:'hp2', name:'Nanoweave Lattice', desc:'+15 Max HP, heal 15, heavier', max:6, r:2, req(p){ return odFam(HP_FAM)<12; }, apply(p){ p.maxhp+=15; p.hp=Math.min(p.maxhp,p.hp+15); p.speed-=8; }},
+ {id:'hp', name:'Nanoweave Plating', desc:'EPIC: +25 Max HP, heal 25, heavier', max:6, r:3, req(p){ return odFam(HP_FAM)<12; }, apply(p){ p.maxhp+=25; p.hp=Math.min(p.maxhp,p.hp+25); p.speed-=12; }},
  {id:'spd', name:'Ion Thrusters', desc:'UNLOCK dash', max:4, dyn(p){ return p.dashUnlocked?{name:'Ion Thrusters',desc:'-20% dash cooldown'}:null; }, apply(p){ if(!p.dashUnlocked){ p.dashUnlocked=true; p.dashCd=0; } else { p.dashCdMax=Math.max(0.7,p.dashCdMax*0.8); } }},
  {id:'slip', name:'Slipstream Coils', desc:'+10% move speed (needs dash)', max:3, r:1, req(p){ return p.dashUnlocked; }, apply(p){ p.speed*=1.1; }},
- {id:'split', name:'Split Chamber', desc:'RARE: +1 projectile, -15% dmg', max:2, r:2, apply(p){ p.shots+=1; p.dmgMult*=0.85; }},
- {id:'array', name:'Gun Array', desc:'+1 barrel: +1 bullet, no penalty', max:3, r:1, apply(p){ p.shots+=1; }},
- {id:'minigun', name:'Minigun Amps', desc:'+1 barrel, wider spread, damage rebalanced', max:3, r:1, apply(p){ const n=p.shots; p.shots+=1; p.dmgMult*=n/(n+1); p.minigun+=1; }},
+ {id:'split', name:'Split Chamber', desc:'MYTHIC: DOUBLE barrels, HALVE damage', max:1, r:5, req(p){ return p.shots>=2&&p.shots<=6; }, apply(p){ p.shots=Math.min(12,p.shots*2); p.dmgMult*=0.5; }},
+ {id:'array', name:'Gun Array', desc:'+1 barrel, -0.9/s rate', max:3, r:1, req(p){ return p.shots<8; }, apply(p){ p.shots+=1; p.fireRate-=0.9; }},
+ {id:'array2', name:'Gun Array Mk II', desc:'+1 barrel, -0.7/s rate, -2% dmg', max:2, r:2, req(p){ return p.shots<8; }, apply(p){ p.shots+=1; p.fireRate-=0.7; p.dmgMult-=0.02; }},
+ {id:'minigun', name:'Minigun Amps', desc:'+1 barrel, wider spread, damage rebalanced', max:3, r:1, req(p){ return p.shots<8; }, apply(p){ const n=p.shots; p.shots+=1; p.dmgMult*=n/(n+1); p.minigun+=1; }},
  {id:'vamp', name:'Vampire Chip', desc:'Heal 1 HP per kill', max:5, dyn(p){ return p.vamp>0?{name:'Vampire Chip',desc:'Feed harder: +1 HP per kill (now '+p.vamp+')'}:null; }, apply(p){ p.vamp=(p.vamp||0)+1; }},
  {id:'seek', name:'Seeker Rounds', desc:'Bullets home in on foes', max:2, r:1, apply(p){ p.homing+=1; }},
  {id:'rico', name:'Ricochet Core', desc:'Bullets bounce off walls +1', max:2, r:1, apply(p){ p.bounce+=1; }},
@@ -695,7 +719,7 @@ const UPGRADES=[
  {id:'salvage', name:'Salvage Protocol', desc:'Gems mend 1 HP and pay +15% XP', max:2, r:0,
   apply(p){ p.salvage+=1; p.xpBonus*=1.15; }}
 ];
-function rarityW(u){ return u.r===2?2:(u.r===1?5:10); }
+function rarityW(u){ return (RARITY[u.r]||RARITY[0]).w; }
 // Never drafted normally — only used when a capped pool has nothing left to offer.
 const REFIT={id:'refit', name:'Field Refit', desc:'+10 Max HP, full repair', r:0, apply(p){ p.maxhp+=10; p.hp=p.maxhp; }};
 
@@ -1273,7 +1297,7 @@ function phaseAt(kind){ const k=BOSS_KITS[kind];
  if(k&&Array.isArray(k.phases)) return k.phases.slice(1).map(q=>q.at).filter(v=>v>0);
  const d=BOSSDEF[kind]?BOSSDEF[kind].debut:5; return d<=20?[]:d<=45?[0.5]:d<=95?[0.66,0.33]:[]; }
 // One constructor for leads and summoned gods, so the two can never drift.
-function bossCore(kind,x,y,s,chain){
+function bossCore(kind,x,y,s,chain,thrall){
  const kn=BOSS_KITS[kind]?kind:'overlord', kit=BOSS_KITS[kn], d=kit.def;
  const e=mkEnemy('boss',x,y,s);
  e.kind=kn; e.def=d; e.kit=kit; e.bname=d.name; e.r=d.r;
@@ -1306,11 +1330,88 @@ function bossCore(kind,x,y,s,chain){
   e.recLeft=[]; e.phAt=[]; e.hpSeen=e.hp;
   e.sumLeft=(chain<maxChainDepth(s+1)&&summonsOf(kn).length)?[0.5]:[];
  }
+ if(thrall) thrallShape(e,kn,s);
  if(kit.init) kit.init(e);
+ if(thrall){ const T=e.tk; if(T.init) T.init(e); for(const q of e.parts) q.r*=THRALL.size; }
  return e;
 }
 function mkBoss(kind,x,y,s){ return bossCore(kind,x,y,s,0); }
 function mkSummoned(kind,x,y,s,chain){ return bossCore(kind,x,y,s,Math.max(1,chain|0)); }
+// ---------- thralls (spec §8) ----------
+// Small bosses in the common pool: a god's thrall joins ordinary sectors
+// THRALL.after sectors past the god's debut (OVERLORD at S30 ... KRAKEN at
+// S100; past S100 every eligible kind). NULLIFIER, CHORUS and SINGULARITY
+// never have one (their kit says thrall:false).
+// A thrall is its own enemy TYPE ('thrall'), kind = the parent god, built by
+// bossCore so the kit's own code, parts and hit shapes run unchanged. Every
+// god-only rule in the engine (the permanent bonus bank, the nest's lead and
+// chaff stream, boss XP, the heal and the nest draft, the boss bar and the
+// tracker, SINGULARITY's lead check) is gated on type==='boss', so a thrall is
+// left out of all of them by construction. What it shares is opted in by name:
+// the update/post dispatch, `under` and the silhouette, bossDied's cleanup,
+// srcOf naming ("OVERLORD THRALL") and the DevX lab.
+// It runs a reduced kit: its signature (simplified) plus ONE secondary, no
+// summons, no recovery, no phases, no enrage, no desperation. A kit may shape
+// that with an optional `thrall` entry (see the block format below); without
+// one it gets the generic thrall: the kit's signature hook and the first two
+// distinct names of its cycle.
+//   hp   : [lo,hi] brutes' worth at the sector it appears in, on the foe HP
+//          curve; lo for the bottom rung, rising to hi for the top eligible god
+//   dmg  : of a god's damage at that sector
+//   cost : roster slots a thrall takes from the sector's compTotal, so the
+//          sector's HP and pacing budget stays about where the fight sim put it
+//   xp   : base XP (x compXpScale in a normal sector, like every foe); about
+//          what the `cost` slots it displaced were worth, so picks/sector hold
+//   nestP: chance a nest chaff pack brings one along (under the alive cap)
+const THRALL={ after:25, size:0.6, hp:[6,10], dmg:0.75, cost:4, xp:16, nestP:0.3 };
+function thrallEligible(){ return LADDER.filter(k=>BOSS_KITS[k]&&BOSS_KITS[k].thrall!==false); }
+function thrallDebut(kind){ const k=BOSS_KITS[kind]; if(!k||k.thrall===false||!BOSSDEF[kind]) return Infinity; return BOSSDEF[kind].debut+THRALL.after; }
+// Kinds whose thralls may appear at sector n (1-based).
+function thrallKinds(n){ return n>100?thrallEligible():thrallEligible().filter(k=>thrallDebut(k)<=n); }
+// Alive at once: 1 when the first kind unlocks, 2 from S55, 3 from S80.
+function thrallCap(n){ return thrallKinds(n).length?(n<55?1:(n<80?2:3)):0; }
+// How many a normal sector's roster carries: 2 at S31, one more every 20.
+function thrallCount(s){ const n=s+1; if(isBossSector(s)||!thrallKinds(n).length) return 0; return Math.min(6,2+Math.floor((n-31)/20)); }
+function thrallsAlive(){ let c=0; for(const o of enemies) if(o.type==='thrall'&&!o.dead) c++; return c; }
+// The reduced kit a thrall runs, from the kit's optional `thrall` entry:
+//   sig       : the signature. An attack name when the signature is a slot of
+//               the kit's cycle (OVERLORD's 'charge'); otherwise a label for a
+//               signature carried by the hook, parts or post (WARDEN's
+//               'TOLL GATE', SENTINEL's 'MIRROR SHIELD').
+//   sec       : the ONE secondary, an attack name
+//   signature : true (the kit's own hook), false (none) or a thrall's own (e,C)
+//   attacks   : thrall-only versions of attacks, by name (a simplified signature)
+//   init      : (e) after kit.init, to simplify (fewer heads, plates, arms)
+//   armor     : false to drop the kit's armour
+//   pt        : seconds per slot (default the god's)
+// The cycle is [sig, 'hunt', sec, 'hunt'] (or [sec, 'hunt'] when the
+// signature is not a slot): a thrall fights in beats and closes in between,
+// never chaining attack into attack like its god. With no entry at all it gets
+// the generic thrall: the kit's hook and the first two names of its cycle.
+function thrallKit(kind){
+ const kit=BOSS_KITS[kind], T=(kit&&kit.thrall&&typeof kit.thrall==='object')?kit.thrall:{};
+ const attacks=Object.assign({},kit.attacks,T.attacks||{},{hunt:thrallHunt});
+ let sig=T.sig, sec=T.sec;
+ if(!sig&&!sec){ const c=kit.cycle.filter((n,i)=>kit.cycle.indexOf(n)===i); if(kit.signature){ sig='SIGNATURE'; sec=c[0]; } else { sig=c[0]; sec=c[1]||c[0]; } }
+ const cycle=(kit.attacks[sig]?[sig,'hunt']:[]).concat(attacks[sec]?[sec,'hunt']:['hunt']);
+ const hook=T.signature===false?null:(typeof T.signature==='function'?T.signature:(kit.signature||null));
+ return { sig, sec, cycle, attacks, signature:hook, pt:T.pt||kit.def.pt||3, init:T.init||null,
+  armor:T.armor===false?null:(kit.armor||null) };
+}
+// A thrall's between-beats slot: close to working range, then circle there.
+function thrallHunt(e,C){ if(C.d>260) C.mv(0.6); else C.orbit(0.7); }
+function thrallShape(e,kind,s){
+ const d=e.def, i=Math.max(0,thrallEligible().indexOf(kind)), top=Math.max(1,thrallEligible().length-1);
+ const brutes=THRALL.hp[0]+(THRALL.hp[1]-THRALL.hp[0])*i/top;
+ e.type='thrall'; e.thrall=true; e.tk=thrallKit(kind);
+ e.bname=d.name+' THRALL'; e.r=d.r*THRALL.size;
+ e.maxhp=e.hp=EBASE.brute.hp*eHpScaleFoe(s)*brutes; e.hpSeen=e.hp;
+ e.dmg=Math.round(15*eDmgScale(s)*THRALL.dmg);
+ e.xp=THRALL.xp*(isBossSector(s)?1:compXpScale(s));
+ e.recLeft=[]; e.phAt=[]; e.sumLeft=[]; e.lead=false; e.summoned=false; e.depth=0;
+ e.relentlessT=Infinity; e.desperate=true; // no minion surge
+}
+function mkThrall(kind,x,y,s){ if(thrallDebut(kind)===Infinity) return null; return bossCore(kind,x,y,s,0,true); }
 // steering: probe ahead and slide around obstacles instead of face-planting into them
 function steer(e,dx,dy){
  const l=len(dx,dy)||1; dx/=l; dy/=l;
@@ -1526,6 +1627,13 @@ function loadArena(i){
    enemies.push(en);
   } else spawnQueue.push(ty);
  });
+ // Thralls arrive through the stream, never the opening wave: spread evenly
+ // through the queue from its second fifth on, so the first lands a little
+ // way in and the rest follow through the sector (the director holds each to
+ // the alive cap). Kinds are drawn from everything unlocked at this depth.
+ if(!boss){ const tk=thrallKinds(s+1), n=thrallCount(s);
+  for(let k=0;k<n&&tk.length;k++){ const at=Math.round(spawnQueue.length*(0.2+0.75*k/Math.max(1,n)));
+   spawnQueue.splice(Math.min(at,spawnQueue.length),0,'thrall:'+tk[(Math.random()*tk.length)|0]); } }
  if(boss){ bossWarnT=3.2; const kinds=bossKindsFor(s), lead=BOSSDEF[kinds[0]];
    // the arrival names the god and whom it will call, the same line the hub gave
    bossWarnTxt=lead.name+(s+1>100?' RETURNS':'');
@@ -1565,7 +1673,8 @@ function spawnEnemy(type,q){
  q=q||spawnEdgePos(700,1000);
  if(q.pack){ const a=Math.random()*6.283, r=18+Math.random()*44, x=clamp(q.x+Math.cos(a)*r,PX0+36,PX1-36), y=clamp(q.y+Math.sin(a)*r,PY0+36,PY1-36);
   if(!pointBlocked(x,y,20,arena.obs)) q={x,y}; }
- const e=type.indexOf('boss:')===0?mkBoss(type.slice(5),q.x,q.y,arenaIdx):mkEnemy(type,q.x,q.y,arenaIdx);
+ const e=type.indexOf('boss:')===0?mkBoss(type.slice(5),q.x,q.y,arenaIdx):(type.indexOf('thrall:')===0?mkThrall(type.slice(7),q.x,q.y,arenaIdx):mkEnemy(type,q.x,q.y,arenaIdx));
+ if(!e) return;
  e.spawnT=0.9; enemies.push(e);
  rings.push({x:q.x,y:q.y,r:6,maxR:46,spd:220,dmg:0,hit:true}); // harmless spawn ripple
 }
@@ -1666,7 +1775,7 @@ function pickUpgrade(u){
  nestDraftAt=0;
  upgradeCounts[u.id]=(upgradeCounts[u.id]||0)+1; u.apply(player);
  addFloater(player.x,player.y-24,u.name,K.gold);
- if(u.r===2) SFX.rare(); else SFX.upgrade();
+  if(u.r>=2) SFX.rare(); else SFX.upgrade();
  state='playing';
  // A queued nest bonus still opens as the nest draft: disc, with its FALLS header.
  if(pendingNest>0){ pendingNest--; openLevelUp(); nestDraftAt=performance.now(); }
@@ -1748,9 +1857,12 @@ function summonBoss(e,kind){
 // the exceptions: PHANTOM's blink is its kit, ECLIPSE and NULLIFIER may step
 // only inside their own recovery, CHORUS may swap its echoes. Every jump goes
 // through bossBlink, which refuses anything else and stamps the ones it allows,
-// so the no-illegal-jump test can tell a legal blink from a bug.
+// so the no-illegal-jump test can tell a legal blink from a bug. Thralls obey
+// the same list, narrowed: only an 'always' kind (the PHANTOM thrall) blinks.
 const TELEPORT_OK={phantom:'always',eclipse:'recovery',nullifier:'recovery',chorus:'swap'};
-function canBlink(e,why){ const r=TELEPORT_OK[e.kind]; if(!r) return false; if(r==='always') return true;
+// A thrall keeps only an always-on blink (PHANTOM's): it has no recovery to
+// step inside, and no echoes to swap.
+function canBlink(e,why){ const r=TELEPORT_OK[e.kind]; if(!r) return false; if(r==='always') return true; if(e.thrall) return false;
  if(r==='recovery') return e.mode==='recover'; return r==='swap'&&why==='swap'; }
 function bossBlink(e,x,y,why){
  if(!canBlink(e,why)) return false;
@@ -1776,7 +1888,8 @@ function bossWatchdog(e,C){
   const hold=e.mode!=='hunt'; // a recovery beat holds its ground on purpose
   if(!hold&&e.intent>24&&moved<e.intent*0.35) e.stuckT+=0.5; else { e.stuckT=0; e.wedgeT=0; }
   e.intent=0;
-  if(e.surgeT<=0&&!hold&&(e.stuckT>=1.5||C.d>900)) bossSurge(e,C.p);
+  // a thrall is common stock: it walks in from afar like any foe, and surges only when wedged
+  if(e.surgeT<=0&&!hold&&(e.stuckT>=1.5||(C.d>900&&!e.thrall))) bossSurge(e,C.p);
  }
  if(e.stuckT>=4) bossSlide(e,C.dt);
 }
@@ -1907,14 +2020,16 @@ function bossCtx(e,C){
 // cycle, one slot every def.pt seconds. The DevX lab can pin an attack
 // (e.forcedAttack loops it) or freeze all thought (devAiFreeze).
 function bossThink(e,C){
- const kit=e.kit||BOSS_KITS.overlord, dt=C.dt;
+ const kit=e.kit||BOSS_KITS.overlord, dt=C.dt, T=e.thrall?e.tk:null;
  e.charging=false;
- if(kit.signature) kit.signature(e,C);
+ const sig=T?T.signature:kit.signature;
+ if(sig) sig(e,C);
  if(e.surgeT>0){ bossSurgeMove(e,C); return; }
  e.phaseT+=dt;
  let name=null;
- if(e.forcedAttack&&kit.attacks[e.forcedAttack]) name=e.forcedAttack;
- else { const cyc=kit.cycle, pt=kit.def.pt||3;
+ const A=T?T.attacks:kit.attacks;
+ if(e.forcedAttack&&A[e.forcedAttack]) name=e.forcedAttack;
+ else { const cyc=T?T.cycle:kit.cycle, pt=T?T.pt:(kit.def.pt||3);
   e.phase=Math.floor(e.phaseT/pt)%cyc.length;
   if(e.phaseT>=pt*cyc.length) e.phaseT=0;
   name=cyc[e.phase]; }
@@ -1923,7 +2038,7 @@ function bossThink(e,C){
  // e.atkT: seconds this attack's slot has run (0 on its first frame), so a
  // kit attack can tell a fresh slot from a continuing one.
  if(name!==e.atk){ e.chargeOn=false; e.ramLx=undefined; e.gaze=null; e.atk=name; e.atkT=0; }
- const fn=kit.attacks[name]; if(fn) fn(e,C);
+ const fn=A[name]; if(fn) fn(e,C);
  e.atkT=(e.atkT||0)+dt;
  if(e.wave2){ e.burstT-=dt; if(e.burstT<=0){ e.wave2=false; rings.push({x:e.x,y:e.y,r:20,maxR:200,spd:340,dmg:e.dmg,hit:false,heavy:true}); SFX.ring(); } }
 }
@@ -1959,6 +2074,21 @@ function bossUpdate(e,C){
  if(recoveryCheck(e,C)) return;
  bossThink(e,C);
 }
+// One thrall, one frame: the god's think step with everything a god alone has
+// cut away (no RELENTLESS, desperation, recovery, phase or call; never enraged).
+function thrallUpdate(e,C){
+ const dt=C.dt;
+ bossArmour(e);
+ C.enrage=false;
+ if(e.beamT>0) e.beamT-=dt;
+ if(e.surgeT>0) e.surgeT-=dt;
+ e.fightT+=dt;
+ e.hunger=clamp((timeSec-e.lastHit-8)/12,0,1);
+ if(aiFrozen()) return;
+ bossCtx(e,C);
+ bossWatchdog(e,C);
+ bossThink(e,C);
+}
 // After movement and collision: the pieces a kit hangs off the hull follow it
 // exactly (LEVIATHAN's body, parts), the mirror refills its reflect budget, the
 // kit's armour is read, and the world-space hit circles the round sweep reads
@@ -1969,7 +2099,8 @@ function bossPost(e,dt){
  if(kit.post) kit.post(e,dt);
  if(e.parts&&e.parts.length){ placeParts(e); for(const q of e.parts) if(q.flash>0) q.flash-=dt; }
  if(e.mirror){ const cap=e.mirror.cap||6; e.mirror.budget=Math.min(cap,(e.mirror.budget||0)+cap*dt); }
- e.armor=kit.armor?clamp(kit.armor(e),0,1):1;
+ const arm=e.thrall?e.tk.armor:kit.armor;
+ e.armor=arm?clamp(arm(e),0,1):1;
  const h=kit.hitParts;
  if(h){ const a=h.rot?h.rot(e):0, c=Math.cos(a), s=Math.sin(a), R=e.r*(e.vscale||1), out=e.hitParts; out.length=h.c.length;
   for(let i=0;i<h.c.length;i++){ const q=h.c[i], lx=q[0]*R, ly=q[1]*R, o=out[i]||(out[i]={x:0,y:0,r:0}); o.x=e.x+lx*c-ly*s; o.y=e.y+lx*s+ly*c; o.r=q[2]*R; } }
@@ -1982,6 +2113,7 @@ function bossLabel(e){
  const kit=e.kit;
  if(kit&&kit.label){ const l=kit.label(e); if(l) return l; }
  const n=e.atk||(kit&&kit.cycle&&kit.cycle[e.phase]);
+ if(n==='hunt') return 'CONTACT'; // a thrall between beats
  return String(n||e.bname||'BOSS').toUpperCase();
 }
 // ---------- the shared attack library ----------
@@ -2515,7 +2647,9 @@ function nestChaff(dt){
  const c=compFor(arenaIdx), pool=[]; for(const k in c) for(let i=0;i<Math.min(4,c[k]);i++) pool.push(k);
  if(!pool.length) return;
  const q=spawnEdgePos(700,1000);
- for(let k=0;k<pack&&alive<cap&&enemies.length<CAP.enemies;k++){ spawnEnemy(pool[(Math.random()*pool.length)|0],{x:q.x,y:q.y,pack:true}); alive++; }
+ // a pack may bring one thrall from every kind unlocked at this depth (spec §7.4), under the alive cap
+ const tk=thrallKinds(n), thr=tk.length&&thrallsAlive()<thrallCap(n)&&Math.random()<THRALL.nestP;
+ for(let k=0;k<pack&&alive<cap&&enemies.length<CAP.enemies;k++){ spawnEnemy(k===0&&thr?'thrall:'+tk[(Math.random()*tk.length)|0]:pool[(Math.random()*pool.length)|0],{x:q.x,y:q.y,pack:true}); alive++; }
 }
 
 // ========================================================================
@@ -2582,6 +2716,8 @@ BOSS_KITS.overlord={
   counter:'Step sideways off the charge line, never back along it. Leave the wedge before it swings. At half strength it calls a pack: thin it, then press.',
   lore:'The Berserk. The youngest of the gods, which out here means a few hundred million years old. Its makers built it to win rather than to hold, and it has never yielded a holmgang. They called this discipline. There is no one left to call it anything.'},
  cycle:['charge','cleave','stomp','charge','cleave'],
+ // THRALL (spec §8): the charge and the stomp. No War Cry, never enraged, so no rebound.
+ thrall:{ sig:'charge', sec:'stomp', signature:false },
  vmax:520,
  attacks:{
   charge(e,C){ // BERSERK CHARGE: a 0.6 s line, then the commit
@@ -2681,6 +2817,9 @@ BOSS_KITS.warden={
   counter:'Leave a toll gate through the gaps mid-link. Take the twinwave between its two rings. Walk a lane lock out by its ends. When it raises the bridge, break four plates and the mending stops.',
   lore:'Bridge-Warden. Lane authority, built to stand at the one crossing between two dead empires. It was never meant to advance, only to make advancing expensive, and it has kept that contract long after the lane stopped leading anywhere.'},
  cycle:['twinwave','slam','lanelock','slam'],
+ // THRALL: a toll gate on a slow clock, and the slam.
+ thrall:{ sig:'TOLL GATE', sec:'slam',
+  signature(e,C){ if(e.wdG===undefined) e.wdG=5; e.wdG-=C.dt; if(e.wdG<=0&&!e.gate){ e.wdG=12; wdGate(e,C.p); } } },
  attacks:{
   twinwave(e,C){ // two staggered rings from where it stands
    C.mv(0.35); if(e.atkT===0) e.wdW=0.25; e.wdW-=C.dt;
@@ -2805,6 +2944,11 @@ BOSS_KITS.phantom={
   counter:'Step off the line, not along it. An afterimage fires once down the line it shows, so leave that line. In GHOST FORM it still takes 30% damage: kill its escorts to break it.',
   lore:'The Undelivered. A courier that learned its cargo was itself. It crossed eleven thousand years to deliver a reply and arrived at an empty star. The blink hardware was for outrunning interdiction; the beam was improvised later, from the part that did the outrunning.'},
  cycle:['blinkfan','afterimage','crossfire'],
+ // THRALL: the undelivered beam on a slow clock, and the blink fan. It still
+ // blinks (bossBlink: PHANTOM is the one 'always' kind, thralls included).
+ thrall:{ sig:'UNDELIVERED BEAM', sec:'blinkfan',
+  signature(e,C){ if(e.phB===undefined) e.phB=3; e.phB-=C.dt;
+   if(e.phB<=0){ e.phB=6.5; bossBeam(e,{a:C.aim,warn:0.8,live:0.3,w:10,follow:false,dmg:Math.round(e.dmg*0.6),what:'UNDELIVERED BEAM'}); SFX.click(); } } },
  attacks:{
   blinkfan(e,C){ // blink out, a short aim, a fan
    C.orbit(1.1); let S=e.phF; if(e.atkT===0||!S) S=e.phF={t:0.3,aim:0};
@@ -2904,8 +3048,15 @@ BOSS_KITS.revenant={
   counter:'Cross the bolts, never ride them. Keep moving through a cold snap. Shoot its pod early, or hit it hard once it docks: 6% of its strength forces it out.',
   lore:'The Cold-Sleeper. A sleeper ship whose crew never woke, and whose pods decided, somewhere in the dark, to keep the ship instead. It wakes only for a visitor, and it leaves one pod by the wall when it does. The pod is not a lifeboat. It is where it means to go back to sleep.'},
  cycle:['frostlane','shatter','coldsnap','frostlane','shatter'],
+ // THRALL: one rime bolt at a time on a slower clock, and the shatter dash. No pod.
+ thrall:{ sig:'RIME BOLTS', sec:'shatter',
+  signature(e,C){ if(e.rvR===undefined) e.rvR=2.2;
+   if(e.rvAim>0){ e.rvAim-=C.dt;
+    if(e.rvAim<=0){ const b=eshot(e,C.aim,150,7,0.9,5); if(b){ b.freeze=1.0; b.rime=true; b.rvOwn=e.uid; b.src=e.rvBsrc||(e.rvBsrc=srcOf(e,'RIME BOLT')); } SFX.eshoot(); } }
+   else { e.rvR-=C.dt; const dashing=e.atk==='shatter'&&e.rvS&&e.rvS.st!=='rest';
+    if(e.rvR<=0&&!dashing){ e.rvR=3.6; e.rvAim=0.35; } } } },
  vmax:560,
- init(e){ if(!e.summoned) try{ rvPlant(e); }catch(_){} },
+ init(e){ if(!e.summoned&&!e.thrall) try{ rvPlant(e); }catch(_){} }, // a thrall has no pod: it never recovers
  attacks:{
   frostlane(e,C){ // five marked points down its aim, then drifting frost mines
    C.mv(0.4); let S=e.rvL; if(e.atkT===0||!S) S=e.rvL={st:'rest',t:0.2};
@@ -3045,6 +3196,8 @@ BOSS_KITS.leviathan={
   counter:'Leave the arc before the tail swings. Break out of a coil before the ring tightens. When it runs to SHED, keep hitting it: two seconds unhit and it mends.',
   lore:'The Lane-Wyrm. Lane-boring infrastructure that kept growing after the contract lapsed, tunnelling debris fields for a trade that ended before home\'s star was lit. The segments are not armour; they are the original boring string, still following the head out of habit.'},
  cycle:['whip','coil','lunge'],
+ // THRALL: three segments and a shorter wake (the signature rides post), and the lunge.
+ thrall:{ sig:'WAKE TRAIL', sec:'lunge', signature:false, init(e){ e.segs.length=3; e.wakeLife=2.4; } },
  vmax:600,
  attacks:{
   whip(e,C){ // rear, then swing the whole tail through a wide arc
@@ -3212,6 +3365,13 @@ BOSS_KITS.hydra={
   counter:'Take the throats one at a time, then all together. A cut throat regrows in 12 s: kill the body in that window. While any head lives the body takes half.',
   lore:'The Three-Throated. A council ship, built when its makers could not agree on a captain and so installed three. They still cannot agree. Everything it fires is the loser of an argument that has run for four hundred million years.'},
  cycle:['tailslam','headswap','acidspit'],
+ // THRALL: two throats (frost and fan) taking turns on a slower beat, and the
+ // tail slam. No beam head, no armour while they live, and a cut throat stays cut.
+ thrall:{ sig:'THROATS', sec:'tailslam', armor:false,
+  init(e){ const b=e.hy.heads.find(h=>h.kind==='beam');
+   if(b){ const i=e.parts.indexOf(b.part); if(i>=0) e.parts.splice(i,1); e.hy.heads.splice(e.hy.heads.indexOf(b),1); }
+   e.hy.fireT=1.8; },
+  signature(e,C){ const f=e.hy.fireT; BOSS_KITS.hydra.signature(e,C); if(e.hy.fireT>f+0.5) e.hy.fireT+=0.8; } },
  phases:[{},{at:0.5,enter(e){ e.hy.fireT=Math.min(e.hy.fireT,0.4); e.hy.swap=null; }}],
  armor(e){ return hyAlive(e).length?0.5:1; },
  init(e){
@@ -3270,8 +3430,8 @@ BOSS_KITS.hydra={
   const h=e.hy.heads.find(x=>x.part===q); if(!h||h.lost) return;
   h.lost=true; h.st=null; h.x=q.x; h.y=q.y; h.flare=0.5; h.sprayT=1.2;
   addFloater(q.x,q.y-24,'THROAT CUT',K.gold);
-  if(!e.summoned&&!e.hardEnrage&&h.used<2){ h.regrow=HY_REGROW; }
-  if(!e.summoned&&e.ph<2&&!e.hy.heads.some(x=>!x.lost)){ e.ph=2; phaseBeat(e); }
+  if(!e.summoned&&!e.thrall&&!e.hardEnrage&&h.used<2){ h.regrow=HY_REGROW; }
+  if(!e.summoned&&!e.thrall&&e.ph<2&&!e.hy.heads.some(x=>!x.lost)){ e.ph=2; phaseBeat(e); }
  },
  post(e,dt){
   if(!e.hy) return;
@@ -3404,6 +3564,8 @@ BOSS_KITS.wyvern={
   lore:'The Strafing Wing. A picket fighter from a war fought at such speed that the pilots were removed to save weight. The wing learned the war by itself. It still lights its run before it makes it, a courtesy from an age when the other side had to see it coming.'},
  vmax:720,
  cycle:['strafe','gust','talon','divebomb'],
+ // THRALL: the strafing run (single lanes, never the crossing pair) and the talon.
+ thrall:{ sig:'strafe', sec:'talon' },
  phases:[{},{at:0.5,enter(e){ e.wy.run=null; }}],
  init(e){ e.wy={face:0,run:null,runT:1.5}; },
  attacks:{
@@ -3604,6 +3766,10 @@ BOSS_KITS.oracle={
   lore:'The Rememberer. It computes where you will be, which is a harder problem than it sounds and a cheaper one than aiming. It has run the same sum on every species it ever heard, and kept the answers. The wards are its working memory, and it cannot afford to lose them mid-calculation.'},
  calls:['wyvern','wyvern'], summons:{at:[0.5], budget:6},
  cycle:['clockbeam','foresight'],
+ // THRALL: three strike marks on a slow clock, no wards, no Call; and the clockbeam.
+ thrall:{ sig:'STRIKE MARKS', sec:'clockbeam',
+  signature(e,C){ if(e.orMarkT===undefined) e.orMarkT=3; e.orMarkT-=C.dt; if(e.orMarkT>0) return;
+   e.orMarkT=7; bossMarks(e,orStrikePts(e,C.p,3),{warn:1.1,what:'STRIKE MARKS'}); } },
  phases:[{},{at:0.25,enter(e){ e.orMarkT=Math.min(e.orMarkT,1.0); }}],
  init(e){ if(e.summoned){ e.recLeft=[]; e.sumLeft=[]; } e.orRe=e.orRe||0; e.orFull=false; },
  attacks:{
@@ -3730,6 +3896,8 @@ BOSS_KITS.sentinel={
   counter:'Flank the mirror: it turns at 70° a second. Shoot through the Phase II gaps. When it closes its WALL, break the three anchors outside it.',
   lore:'The Shield-Wall. A gatehouse given engines, from a people who believed a wall that could follow you was a kinder thing than a gun. It has never started a fight. It has also never let one end on any terms but its own.'},
  cycle:['bulwark','spear','riposte'],
+ // THRALL: a narrower mirror that reflects less (the signature is passive), and the spear line.
+ thrall:{ sig:'MIRROR SHIELD', sec:'spear', init(e){ e.mirror.arcs[0].half=SN_HALF*0.8; e.mirror.cap=2; e.mirror.budget=2; } },
  phases:[{},{at:0.5,enter(e){ if(!e.rec) snSetP2(e); }}],
  init(e){ e.sn={face:Math.atan2(player?player.y-e.y:0,player?player.x-e.x:1)};
   e.mirror={arcs:[{a:e.sn.face,half:SN_HALF}],cap:3,dmgMul:0.45,stored:0,budget:3}; },
@@ -3856,6 +4024,12 @@ BOSS_KITS.archon={
   lore:'The Lawspeaker. Rank, rendered as a machine. It wrote the holmgang every god fights under, it has never fired the first shot in any holmgang it has won, and it regards this as the entire point of the office.'},
  summons:{at:[0.75,0.25]}, // decided timing (spec §2)
  cycle:['verdict','decree','gavel','circle'],
+ // THRALL: a shorter, slower Verdict (two arms, never four; it does not span
+ // the arena), and the gavel.
+ thrall:{ sig:'verdict', sec:'gavel',
+  attacks:{ verdict(e,C){ C.mv(0.3); if(e.atkT!==0) return;
+   const rot=(Math.random()<0.5?1:-1)*0.6; e.avDir=rot>0?1:-1;
+   bossBeam(e,{a:C.aim,len:560,warn:1.2,live:2.5,w:10,arms:2,rot,follow:true,dmg:Math.round(e.dmg*0.5),what:'VERDICT'}); SFX.alarm(); } } },
  phases:[{},{at:0.66},{at:0.33}],
  attacks:{
   verdict(e,C){ // twin-ended (four-armed in P3), rotating, blocked by cover
@@ -3957,6 +4131,9 @@ BOSS_KITS.colossus={
   counter:'Dig through one plate, then work that side. Count to three under the stomp. The boulder lands where marked and stays: keep your lanes open. When it entrenches, break the plates until fewer than two stand and the mending stops.',
   lore:'The Walled. A city that was told to leave and took itself. Its makers could not find a world to put it on and so never stopped walking. Everything it does is slow, because everything it is was built to stand still.'},
  cycle:['stomp','boulder','quake'],
+ // THRALL: two opposite plates, never regrown, and the triple stomp.
+ thrall:{ sig:'ARMOUR QUADRANTS', sec:'stomp', signature:false,
+  init(e){ e.parts=e.parts.filter(q=>q.id!=='plate1'&&q.id!=='plate3'); } },
  phases:[{},{at:0.66},{at:0.33,enter(e){
   for(const q of coPlates(e).slice()) breakPart(e,q);
   addFloater(e.x,calloutY(e),'PLATES SHATTER',K.red); SFX.brk(); }}],
@@ -4081,6 +4258,8 @@ BOSS_KITS.basilisk={
   counter:'Leave the ring before it rolls — held means frozen. Leave the cone. The lunge recoils to where it started: be elsewhere, then punish. When it sheds, break the husk: your seeking rounds will want the husk, so let them, then work the body.',
   lore:'Keeper of the Held. A dying world built it to keep visitors away, so that whatever was killing them would not leave. It does not kill so much as hold you pending review. The reviewers ended nine hundred million years ago. The queue has not moved.'},
  cycle:['flare','gaze','strike','spit'],
+ // THRALL: the hood flare and the gaze.
+ thrall:{ sig:'flare', sec:'gaze' },
  vmax:520,
  phases:[{},{at:0.66},{at:0.33}],
  init(e){ e.ba={face:Math.atan2(player?player.y-e.y:0,player?player.x-e.x:1),flare:0.25}; },
@@ -4229,6 +4408,19 @@ BOSS_KITS.progenitor={
   counter:'Break the bays to stop the launches. Take its nose or its tail, never its side. It tows its damaged fighters home: kill them in transit. When it docks its brood, kill them before they land — every one that docks mends it.',
   lore:'The Brood-Hall. A carrier whose air wing was grown, not built, and grew until the hall and the brood were one thing. It launches as a reflex. It no longer remembers which of its children were meant to come home.'},
  cycle:['broadside','minefield','recall'],
+ // THRALL: two bays and no fighters (a thrall calls nothing, and a brood would
+ // feed XP into a normal sector). On the launch clock each bay flares 0.5 s,
+ // then looses a pair of darts at the ship. And the broadside.
+ thrall:{ sig:'LAUNCH BAYS', sec:'broadside',
+  init(e){ const b=pgBays(e); e.parts=e.parts.filter(q=>q.kind!=='bay'||q===b[0]||q===b[2]); e.pg.launchT=2.5; e.pg.dart=0; },
+  signature(e,C){ const G=e.pg;
+   if(G.dart>0){ G.dart-=C.dt;
+    if(G.dart<=0){ const src=e.pgDsrc||(e.pgDsrc=srcOf(e,'LAUNCH BAYS'));
+     for(const q of pgBays(e)){ const a=Math.atan2(C.p.y-q.y,C.p.x-q.x); for(const k of [-0.1,0.1]){ const b=eshotAt(e,q.x,q.y,a+k,320,4,0.6,2.6); if(b) b.src=src; } }
+     SFX.eshoot(); }
+    return; }
+   G.launchT-=C.dt;
+   if(G.launchT<=0&&pgBays(e).length){ G.launchT=4.5; G.dart=0.5; for(const q of pgBays(e)) spawnBurst(q.x,q.y,5,K.red,70,0.5,2); SFX.click(); } } },
  phases:[{},{at:0.66},{at:0.33,enter(e){ e.pg.split=Math.max(e.pg.split||0,0.01);
   addFloater(e.x,calloutY(e),'HULL SPLIT — ONE HULL, STILL TETHERED',K.red); SFX.alarm(); }}],
  init(e){ e.pg={face:Math.atan2(player?player.y-e.y:0,player?player.x-e.x:1),launchT:1.0,tow:[],split:0,dock:null};
@@ -4367,6 +4559,10 @@ BOSS_KITS.harbinger={
   counter:'Travel with the Echo gap. Let ricochets bounce out before you re-enter a lane. Dash the Horn cone, never tank it. From Phase II the Horn leaves a sound-wall that turns its own rounds: stand outside it. It never mends: press it.',
   lore:'The Horn. An announcement, not a warship: it was built so that a species could be seen from far away. Everything it does is legible from a distance, because the point was always that you would see it coming and understand what it meant.'},
  cycle:['ricos','meteor','horn','echowall'],
+ // THRALL: a thinner ricochet spiral (two arms, a slower beat, one bounce), and the horn.
+ thrall:{ sig:'ricos', sec:'horn',
+  attacks:{ ricos(e,C){ C.mv(0.4); e.spirT-=C.dt;
+   if(e.spirT<=0){ e.spirT=0.34; const a0=e.t*2.2; for(let k=0;k<2;k++) eshotB(e,a0+k*Math.PI,200,5,0.7,4,1); SFX.eshoot(); } } } },
  phases:[{},{at:0.66},{at:0.33}],
  init(e){ e.hb={face:Math.atan2(player?player.y-e.y:0,player?player.x-e.x:1),wall:null}; },
  attacks:{
@@ -4481,6 +4677,9 @@ BOSS_KITS.kraken={
   counter:'Sever the arms at their nodules; each regrows in 15 s. Break a grasp with a dash and outswim the whirlpool the same way. When it retreats into ink, enter slowed and deny it the mend.',
   lore:'The Deep-Grasp. A salvage hull built to haul wrecks out of gravity wells, from a people who were very good at wrecks. It has reached into the dark for longer than there has been anything to pull out. It is not angry. It is simply still working.'},
  cycle:['grasp','ink','whirl'],
+ // THRALL: one arm, never regrown (the sweep rides post), and the grasp.
+ thrall:{ sig:'TENTACLE ARMS', sec:'grasp', signature:false,
+  init(e){ const A=e.kr.arms.pop(); if(A) e.parts=e.parts.filter(q=>q!==A.mid&&q!==A.tip); } },
  phases:[{},{at:0.66,enter(e){ if(krArms(e).length<3) krAddArm(e); }},{at:0.33}],
  init(e){ e.kr={arms:[],flingT:1.4}; krAddArm(e); krAddArm(e); },
  attacks:{
@@ -4543,7 +4742,8 @@ BOSS_KITS.kraken={
   if(e.atk==='whirl') return 'WHIRLPOOL'; return null; },
  post(e,dt){
   for(const A of krArms(e)){
-   if(A.lost){ A.regrow-=dt; // a severed arm regrows in 15 s
+   if(A.lost){ if(e.thrall) continue; // a thrall's arm stays severed
+    A.regrow-=dt; // a severed arm regrows in 15 s
     if(A.regrow<=0){ A.regrow=0; A.lost=false;
      const mid=addPart(e,{id:'arm'+A.idx+'mid',r:14,hp:e.maxhp*0.03,kind:'armseg'});
      const tip=addPart(e,{id:'arm'+A.idx+'tip',r:12,hp:e.maxhp*0.025,kind:'armseg'});
@@ -4557,7 +4757,7 @@ BOSS_KITS.kraken={
    if(A.tip){ A.tip.lx=pt.x-e.x; A.tip.ly=pt.y-e.y; }
    if(!e.rec){ A.drop-=dt; // the sweep lays harm where it passes
     if(A.drop<=0){ A.drop=0.22;
-     dropDisc(e,pt.x,pt.y,26,{life:2.5,safe:0.25,dmg:Math.round(e.dmg*0.3),what:'TENTACLE ARMS'}); } } } },
+     dropDisc(e,pt.x,pt.y,26*(e.thrall?THRALL.size:1),{life:2.5,safe:0.25,dmg:Math.round(e.dmg*0.3),what:'TENTACLE ARMS'}); } } } },
  under(e){
   if(e.kr&&e.kr.flingT<0.4&&e.ph>=3&&!e.summoned){ ctx.save(); ctx.globalAlpha=0.85;
    ctx.strokeStyle=K.red; ctx.lineWidth=1; ctx.setLineDash([4,4]);
@@ -4625,6 +4825,8 @@ BOSS_KITS.juggernaut={
   lore:'The Unsteered. A colony ark built around one engine too large to be steered and too valuable to be wasted. The colonists never boarded. They put armour on the prow and filed the exhaust problem as acceptable. The purge cycle still runs every watch, and it still cannot defend itself while it does.'},
  vmax:430,
  cycle:['ram','plume','quake'],
+ // THRALL: the ram (no wreck wake) with its vent, and the exhaust plume.
+ thrall:{ sig:'ram', sec:'plume' },
  phases:[{},{at:0.66},{at:0.33}],
  attacks:{
   ram(e,C){ // a ruled line held 0.6 s, then a locked straight commit
@@ -4644,7 +4846,7 @@ BOSS_KITS.juggernaut={
     e.x+=S.dx*step; e.y+=S.dy*step; e.intent+=step;
     // WRECK WAKE: debris astern as guarded temporary cover
     S.wake-=C.dt;
-    if(S.wake<=0){ S.wake=0.18; placeTempObs(e,e.x-S.dx*70,e.y-S.dy*70,JG_WAKE_R,7); }
+    if(S.wake<=0&&!e.thrall){ S.wake=0.18; placeTempObs(e,e.x-S.dx*70,e.y-S.dy*70,JG_WAKE_R,7); } // a thrall leaves no wreck
     // EXHAUST PLUME trails every ram: a burning cone astern
     S.plume-=C.dt;
     if(S.plume<=0){ S.plume=0.2;
@@ -4767,6 +4969,10 @@ BOSS_KITS.eclipse={
   counter:'Kill the moon and its bursts stop for 12 s. Walk with the Corona, not against it. Hold inside the Totality ring. Step off the Crescent line. When it steps across the field, the tracker still shows it: follow the chevron.',
   lore:'The Dimming. A sunshade built to cool a star-lit world, left in orbit after the world went dark on its own. It still passes between you and the light out of habit. The moon is not a weapon; it is ballast that learned to shoot. The makers thought of the whole thing as a parasol. Everyone since has thought of it as the end of the day.'},
  cycle:['corona','totality','crescent'],
+ // THRALL: one moon on a slower burst, never reformed, and the crescent. No
+ // Totality and no Totality Step (it cannot blink: it has no recovery).
+ thrall:{ sig:'MOON-SHIELD', sec:'crescent',
+  signature(e,C){ const b=e.ec.burstT; BOSS_KITS.eclipse.signature(e,C); if(e.ec.burstT>b) e.ec.burstT+=1.0; } },
  phases:[{},{at:0.66,enter(e){ if(ecMoons(e).length<2) ecMoonAdd(e,'moon2'); }},
   {at:0.33,enter(e){ // the moon breaks into a ring of fragments
    e.parts=e.parts.filter(q=>q.kind!=='moon');
@@ -4816,6 +5022,7 @@ BOSS_KITS.eclipse={
     for(let k=-1;k<=1;k++){ const r=eshotAt(e,M.x,M.y,a+k*0.14,250,5,0.75,3.2); if(r) r.src=src; } }
    if(ecMoons(e).length) SFX.eshoot(); } },
  onPartBreak(e,q){
+  if(q&&q.kind==='moon'&&e.thrall){ addFloater(e.x,calloutY(e),'MOON SHATTERED',K.gold); return; } // a thrall's moon stays broken
   if(q&&q.kind==='moon'){ addFloater(e.x,calloutY(e),'MOON SHATTERED · reforms in 12s',K.gold);
    if(e.ph<3||e.summoned) e.ec.regrow=EC_REGROW; } },
  // TOTALITY STEP (the allow-list): vanish mid-Totality, reappear far side,
@@ -4917,6 +5124,7 @@ BOSS_KITS.nullifier={
   counter:'Walk out of the field — it follows from Phase II, so keep walking. Dash the pulse, never tank it. Shoot round the lance, never down it. Clear mines with cheap rounds before your volley. When it steps, watch the edges: the tracker lies for 3 s.',
   lore:'The Silent. Counter-insurgency hardware from a war against ships that relied on their gear. It cannot shoot especially well. It does not need to; it only needs you to be ordinary for four seconds. The holmgang lets it take your wings, never your guns, and it resents the clause. The step is its one vanity: for three seconds, it is nowhere.'},
  cycle:['disrupt','pulse','lance','mines'],
+ thrall:false, // no thrall (spec §8): a small NULLIFIER makes no sense
  phases:[{},{at:0.66},{at:0.33}],
  attacks:{
   disrupt(e,C){ // a jam field on you — from P2 it follows you
@@ -5024,6 +5232,7 @@ BOSS_KITS.chorus={
  // its splits are its phases (spec §5)
  phases:[{},{at:0.66},{at:0.33}],
  cycle:['harmony','swap','canon'],
+ thrall:false, // no thrall (spec §8)
  attacks:{
   harmony(e,C){ // triangulated spots, one synchronised crossfire
    C.mv(0.35);
@@ -5149,7 +5358,7 @@ BOSS_KITS.chorus={
 // Clearing the Convocation early is rewarded: each absorbed boss starts
 // another 10% of the Phase-2 bar filled.
 function sgConsume(e,o){ const ix=enemies.indexOf(o); if(ix<0) return false;
- enemies.splice(ix,1); o.dead=true; if(o.type==='boss') bossDied(o);
+ enemies.splice(ix,1); o.dead=true; if(o.type==='boss'||o.type==='thrall') bossDied(o);
  rings.push({x:o.x,y:o.y,r:6,maxR:50,spd:260,dmg:0,hit:true});
  return true; }
 BOSS_KITS.singularity={
@@ -5163,6 +5372,7 @@ BOSS_KITS.singularity={
  // past the live cap. Absorption and Phase 2 below.
  calls:['chorus','nullifier','eclipse'], summons:{at:[0.5], pastCap:true},
  cycle:['gravity','spiralwall','debris','tidal'],
+ thrall:false, // no thrall (spec §8)
  attacks:{
   gravity(e,C){ if(e.ph2){ // EVENT HORIZON: a hard inward drift
     C.mv(0.2); const p=C.p;
@@ -5353,10 +5563,12 @@ function shieldBlock(msg,col){ const p=player; p.invuln=Math.max(p.invuln,0.4); 
 // (stampNext runs between enemies in the update loop), so the end screen can
 // name the god and the blow instead of a bare HULL LOST.
 const CHAFF_BLOW={drone:'RAM',mite:'RAM',stalker:'LUNGE',sniper:'HEAVY BOLT',tempest:'ROTOR SPREAD',brute:'BLAST RING'};
+// A thrall is named for its god ("OVERLORD THRALL") and carries the god's id,
+// so a hull lost to one opens (and marks seen) the god's codex entry.
 function srcOf(e,what){ if(!e) return null; const id=e.kind||e.type;
- let w=what||(e.type==='boss'?bossLabel(e):(CHAFF_BLOW[id]||'CONTACT')); if(w==='REPOSITIONING') w='RE-ENTRY';
+ let w=what||((e.type==='boss'||e.type==='thrall')?bossLabel(e):(CHAFF_BLOW[id]||'CONTACT')); if(w==='REPOSITIONING') w='RE-ENTRY';
  const f=e.def?null:CODEX_FOES.find(c=>c.type===id);
- return { id, name:e.def?e.def.name:(f?f.name:String(id).toUpperCase()), lt:!!(e.summoned||e.echo), what:w }; }
+ return { id, name:e.def?e.def.name+(e.thrall?' THRALL':''):(f?f.name:String(id).toUpperCase()), lt:!!(e.summoned||e.echo), thrall:!!e.thrall, what:w }; }
 let stampActor=null, stampB=0, stampR=0, stampH=0;
 function stampReset(){ stampActor=null; stampB=ebullets.length; stampR=rings.length; stampH=hazards.length; }
 function stampNext(e){
@@ -5389,18 +5601,20 @@ function killEnemy(j){
  // A burn or splash can finish something off after the ship has already died
  // this frame: the kill still counts, but it must not heal (or draft) a corpse.
  const over=state==='gameover';
- // First kill of a kind unlocks its codex entry. Lieutenants and echoes count
- // for their kind — defeating one is defeating one.
- const cid=e.type==='boss'?e.kind:e.type;
+ // First kill of a kind unlocks its codex entry. Summoned gods and echoes count
+ // for their kind — defeating one is defeating one. A thrall does not: it is a
+ // lesser copy, so it earns its god's portrait, name and tells (seen, marked in
+ // the enemy loop) but the field note still waits for the god itself.
+ const cid=e.type==='boss'?e.kind:(e.type==='thrall'?null:e.type);
  if(cid&&!codexKills[cid]){
   codexKills[cid]=true; saveCodex(); if(e.type==='boss') nestTally.firsts.push(cid);
   const nm=e.type==='boss'?(BOSSDEF[cid]?BOSSDEF[cid].name:cid):cid.toUpperCase();
   addFloater(e.x,e.y-58,'CODEX UNLOCKED · '+nm+' [C]',K.gold);
  }
  if(e.type==='mite'&&enemies.length<20){ for(let k=0;k<2;k++){ const m=mkEnemy('drone',e.x+(Math.random()-0.5)*30,e.y+(Math.random()-0.5)*30,arenaIdx); enemies.push(m); } addFloater(e.x,e.y-16,'SPLIT',K.red); }
- spawnBurst(e.x,e.y,e.type==='boss'?50:(e.type==='brute'?22:12),e.type==='boss'?pigOf(e).c:K.metal,240,0.6,3);
+ spawnBurst(e.x,e.y,e.type==='boss'?50:(e.type==='thrall'?30:(e.type==='brute'?22:12)),(e.type==='boss'||e.type==='thrall')?pigOf(e).c:K.metal,240,0.6,3);
  SFX.die();
-  const n=e.type==='brute'?3:(e.type==='boss'?8:1);
+  const n=e.type==='brute'?3:(e.type==='boss'?8:(e.type==='thrall'?4:1));
   const gemV=Math.max(1,Math.round(e.xp/n*(1+0.12*arenaIdx))); // later arenas pay more: pacing stays smooth
   if(!replaySnap) for(let k=0;k<n;k++) gems.push({x:e.x+(Math.random()-0.5)*24,y:e.y+(Math.random()-0.5)*24,v:gemV,t:0});
  if(player.vamp>0&&!over){ player.hp=Math.min(player.maxhp,player.hp+player.vamp); addFloater(player.x,player.y-26,'+'+player.vamp,K.gold); }
@@ -5426,6 +5640,8 @@ function killEnemy(j){
    tone('sine',200,900,0.32,0.18);
   }
  }
+ // a thrall's beams, marks and parts go with it; it banks, heals and drafts nothing
+ if(e.type==='thrall') bossDied(e);
  if(e.type==='boss'){
   bossDied(e); // its beams, marks, discs, zones, boulders and any tether go with it
   if(e.lead) nestLeadDown=true; // and the nest's chaff stream stops with its lead
@@ -5856,10 +6072,11 @@ function update(dt){
      else { const sv=steer(e,nx,ny); e.x+=sv[0]*e.sp*sF*dt; e.y+=sv[1]*e.sp*sF*dt; e.slamCd-=dt; if(d<95&&e.slamCd<=0){ e.windup=0.6; e.slamCd=Math.max(arenaIdx>=59?1.3:1.6,2.6-arenaIdx*0.12); } }
     }
    else if(e.type==='boss') bossUpdate(e,{p,dx,dy,d,nx,ny,dt,sF});
+   else if(e.type==='thrall') thrallUpdate(e,{p,dx,dy,d,nx,ny,dt,sF});
    e.x=clamp(e.x,PX0+e.r,PX1-e.r); e.y=clamp(e.y,PY0+e.r,PY1-e.r);
    resolveObstacles(e);
-   if(e.type==='boss') bossPost(e,dt);
-   if(!e.phased&&circleHit(e,p)&&e.contactCd<=0){ e.contactCd=0.6; if(e.type!=='brute'||e.windup<=0) hurtPlayer(e.dmg,(e.type==='boss'||e.type==='brute'),srcOf(e,e.type==='boss'?null:({drone:'RAM',mite:'RAM',stalker:'LUNGE'}[e.type]||'CONTACT'))); }
+   if(e.type==='boss'||e.type==='thrall') bossPost(e,dt);
+   if(!e.phased&&circleHit(e,p)&&e.contactCd<=0){ e.contactCd=0.6; const god=e.type==='boss'||e.type==='thrall'; if(e.type!=='brute'||e.windup<=0) hurtPlayer(e.dmg,(god||e.type==='brute'),srcOf(e,god?null:({drone:'RAM',mite:'RAM',stalker:'LUNGE'}[e.type]||'CONTACT'))); }
   }
   stampNext(null);
   nestChaff(dt);
@@ -5887,7 +6104,12 @@ function update(dt){
     spawnT=wp.every;
     const q=spawnEdgePos(700,1000); q.pack=true;
     let n=wp.pack;
-    while(n-->0&&spawnQueue.length>0&&enemies.length<wp.cap) spawnEnemy(spawnQueue.shift(),q);
+    while(n-->0&&spawnQueue.length>0&&enemies.length<wp.cap){
+     // a thrall over its alive cap waits: the next ordinary foe goes first
+     let i=0; const tc=thrallCap(arenaIdx+1), ta=thrallsAlive();
+     while(i<spawnQueue.length&&spawnQueue[i].indexOf('thrall:')===0&&ta>=tc) i++;
+     if(i>=spawnQueue.length) break;
+     spawnEnemy(spawnQueue.splice(i,1)[0],q); }
    }
   }
   if(enemies.length===0&&spawnQueue.length===0&&!portal){
@@ -6227,8 +6449,9 @@ shields:[
 'Live shields hang under your HUD: AEGIS PULSE · WARDING PLATE · BULWARK ×2 · CRIT WARD · BARRIER 50 · STASIS ×1.',
 'Repair Drone mends you only after 4s UNDAMAGED — sustain between fights.',
 'Adrenal Core pays more the lower your HP. Salvage mends on every gem.'],
-arsenal:[
-'BARRELS: Gun Array +1 shot, no cost. Split Chamber (rare) +1 shot, -15% dmg.',
+ arsenal:[
+ 'OVERDRIVE: every stat stick pays. Overclock +rate -dmg · AP +dmg -rate · Nanoweave +HULL -speed. Higher rarity, better rate.',
+ 'BARRELS: Gun Array +1 shot but slower. Mk II (rare) is lighter. Split Chamber (MYTHIC) DOUBLES barrels, HALVES damage.',
 '  Minigun Amps +1 barrel, wider spread, per-bullet damage rebalanced.',
 'AMMO: Incendiary burns · Cryo chills · Slug hits harder and slower.',
 '  Flak detonates on impact · Corrosive shreds armour (5 stacks, +8% each).',
@@ -6819,7 +7042,7 @@ function drawWorld(th){
   ctx.restore(); }
  drawBossUnder(th); // boulders, trail discs, erase zones, currents, marks, beams
  // what a god trails behind its hull (LEVIATHAN's body), beneath every hull
- for(const e of enemies) if(e.type==='boss'&&e.kit&&e.kit.under) e.kit.under(e);
+ for(const e of enemies) if((e.type==='boss'||e.type==='thrall')&&e.kit&&e.kit.under) e.kit.under(e);
  // enemy fire: a solid red round with a hot core; HEAVY rounds carry a second ring
  for(const b of ebullets){ ctx.fillStyle=K.red; ctx.beginPath(); ctx.arc(b.x,b.y,b.r,0,6.283); ctx.fill();
   ctx.fillStyle=K.redHi; ctx.beginPath(); ctx.arc(b.x,b.y,Math.max(1,b.r*0.45),0,6.283); ctx.fill();
@@ -6875,18 +7098,21 @@ function drawShip(){
 // the blows. Enraged, the pigment runs hot and the outer rank ring is ticked.
 // Each silhouette is its kit's draw() in its own boss block; this frame adds
 // what every god shares: rank rings, enraged ticks and the red telegraphs.
+// A thrall is the same silhouette at thrall scale, visibly lesser: a hairline
+// (1px, never the god's 1.5-2), no rank rings, never enraged, and a small HP
+// pip instead of the god's bar (drawEnemy).
 function drawBossShape(e,enrage,flash){
- const kit=e.kit||BOSS_KITS[e.kind]||BOSS_KITS.overlord, def=kit.def, R=e.r, P=pigOf(e);
- const g={R,P,col:enrage?P.hi:P.c,body:flash?P.flash:P.body,dim:P.dim,lw:enrage?2:1.5,enrage,flash};
+ const kit=e.kit||BOSS_KITS[e.kind]||BOSS_KITS.overlord, def=kit.def, R=e.r, P=pigOf(e), thr=!!e.thrall;
+ const g={R,P,col:enrage?P.hi:P.c,body:flash?P.flash:P.body,dim:P.dim,lw:thr?1:(enrage?2:1.5),enrage,flash,thrall:thr};
  if(kit.draw) kit.draw(e,g);
  else { ctx.fillStyle=g.body; ctx.strokeStyle=g.col; ctx.lineWidth=g.lw; poly(6,R-3,0); ctx.fill(); ctx.stroke(); }
  drawBossParts(e,g);
- // rank: concentric rings just outside the silhouette
+ // rank: concentric rings just outside the silhouette (a thrall holds no rank)
  const tier=(def.tier||1);
- ctx.save(); ctx.globalAlpha=0.9; rankRings(0,0,R+10,tier,(e.summoned||e.echo)?P.dim:(enrage?P.hi:P.c),1);
+ if(!thr){ ctx.save(); ctx.globalAlpha=0.9; rankRings(0,0,R+10,tier,(e.summoned||e.echo)?P.dim:(enrage?P.hi:P.c),1);
  // enraged: the outer ring is cut with ticks, the way heavy is double-ruled
  if(enrage){ const ro=R+10+(tier-1)*3.5; ctx.strokeStyle=P.hi; ctx.lineWidth=1; ctx.beginPath(); for(let k=0;k<24;k++){ const a=k*0.2618+(REDUCED?0:e.t*0.4); ctx.moveTo(Math.cos(a)*(ro+2),Math.sin(a)*(ro+2)); ctx.lineTo(Math.cos(a)*(ro+(k%2?5:8)),Math.sin(a)*(ro+(k%2?5:8))); } ctx.stroke(); }
- ctx.restore();
+ ctx.restore(); }
  if(kit.drawTop) kit.drawTop(e,g);
  // signature telegraphs drawn over the body: ruled, ticked, never glowing
  if(e.laser){ tickedLine(0,0,Math.cos(e.laser.ang)*700,Math.sin(e.laser.ang)*700,K.red,1,24,4); }
@@ -6927,6 +7153,9 @@ function drawEnemy(e){
   // the blast band, previewed as an engraved ring with radius ticks: a ring, not a sphere
   if(hot){ ctx.strokeStyle=K.red; ctx.lineWidth=1.5; ctx.beginPath(); ctx.arc(0,0,110,0,6.283); ctx.stroke();
    ctx.lineWidth=1; ctx.beginPath(); for(let k=0;k<16;k++){ const a=k*0.3927; ctx.moveTo(Math.cos(a)*104,Math.sin(a)*104); ctx.lineTo(Math.cos(a)*116,Math.sin(a)*116); } ctx.stroke(); } }
+ else if(e.type==='thrall'){
+  if(e.phased){ ctx.globalAlpha=0.4; drawBossShape(e,false,flash); ctx.globalAlpha=1; }
+  else drawBossShape(e,false,flash); }
  else if(e.type==='boss'){ const enrage=e.hp<e.maxhp*0.3;
   if(e.phased){ // translucent (a Ghost Form): the real shape, a whisper of itself, in a dashed rim
    ctx.globalAlpha=0.4; drawBossShape(e,enrage,flash); ctx.globalAlpha=1;
@@ -6947,7 +7176,12 @@ function drawEnemy(e){
   if(e.rec&&e.healPool>0) inkText('MENDING',e.x,e.y+e.r+tier*3.5+42,P.hi,fM(11,600));
  }
  if(e.slowT>0){ ctx.strokeStyle=K.metal; ctx.lineWidth=1; ctx.setLineDash([2,3]); ctx.beginPath(); ctx.arc(e.x,e.y,e.r+4,0,6.283); ctx.stroke(); ctx.setLineDash([]); }
- if(!codexPreview&&(e.type==='brute'||e.type==='boss'||e.hp<e.maxhp)&&e.hp>0){
+ // A thrall's HP pip: a short pigment bar, always shown, capped by a diamond
+ // so it reads as more than chaff and far less than a god's 96px ruled bar.
+ if(!codexPreview&&e.type==='thrall'&&e.hp>0){ const w=30, y=e.y-e.r-10, f=clamp(e.hp/e.maxhp,0,1), x0=e.x-w/2;
+  line(x0,y,x0+w,y,K.metalDim,1); line(x0,y,x0+w*f,y,P.c,2);
+  ctx.save(); ctx.translate(x0-5,y); ctx.rotate(0.7854); ctx.fillStyle=P.c; ctx.fillRect(-2,-2,4,4); ctx.restore(); }
+ else if(!codexPreview&&(e.type==='brute'||e.type==='boss'||e.hp<e.maxhp)&&e.hp>0){
   const boss=e.type==='boss', w=boss?96:34, y=e.y-e.r-(boss?10+((e.def&&e.def.tier)||1)*3.5+(e.hp<e.maxhp*0.3?8:0):9), f=clamp(e.hp/e.maxhp,0,1);
   line(e.x-w/2,y,e.x+w/2,y,K.metalDim,1);
   // a phase beat is the god's one invulnerable window: the fill goes dashed
@@ -7649,6 +7883,8 @@ function codexStep(dir){
 let II={m:K.gold,b:K.goldHi,d:K.hull,t:K.goldWash,r:K.goldDim};
 function iconInk(inverted){ II=inverted?{m:K.ground,b:K.ground,d:K.gold,t:K.inkWash,r:K.ground}:{m:K.gold,b:K.goldHi,d:K.hull,t:K.goldWash,r:K.goldDim}; }
 function drawIcon(id,cx,cy,s){
+ // Overdrive variants share their family's engraving.
+ id=({rate0:'rate',rate3:'rate',dmg0:'dmg',dmg4:'dmg',hp0:'hp',hp1:'hp',hp2:'hp',array2:'array'})[id]||id;
  ctx.save(); ctx.translate(cx,cy); const u=s/20;
  ctx.strokeStyle=II.r; ctx.lineWidth=1; ctx.beginPath(); ctx.arc(0,0,s+4,0,6.283); ctx.stroke();
  ctx.lineWidth=1.75; ctx.lineCap='round';
@@ -7880,32 +8116,32 @@ function drawLevelUp(){
    // so unpicked cards never read as broken corner ticks.
    plate(r.x,r.y,r.w,r.h,hot?ink.main:K.metalDim,true);
   if(sel){ ctx.save(); ctx.strokeStyle=ink.main; ctx.lineWidth=3; ctx.strokeRect(r.x-4.5,r.y-4.5,r.w+9,r.h+9); ctx.restore(); }
-  // rarity as rim ticks: one, two or three cuts along the top edge
-  const n=u.r===2?3:(u.r===1?2:1); for(let k=0;k<n;k++){ const tx=r.x+r.w/2+(k-(n-1)/2)*8; line(tx,r.y-4,tx,r.y+4,ink.main,1.5); }
+  // rarity as rim ticks: one cut per tier, COMMON(1) to MYTHIC(6), in rarity ink
+  const n=(u.r||0)+1, rc=rarityCol(u); for(let k=0;k<n;k++){ const tx=r.x+r.w/2+(k-(n-1)/2)*8; line(tx,r.y-4,tx,r.y+4,rc,1.5); }
   if(r.h < 170){
    // Stacked phone card: icon left, text right, so a short centred card
    // still reads at 11-12px instead of clipping.
    drawIcon(u.id,r.x+34,r.y+r.h/2,13);
    mono('['+(i+1)+']',r.x+58,r.y+24,11,ink.dim);
-   if(u.r===2) heading('RARE',r.x+r.w-12,r.y+24,9,ink.main,'right');
+   if(u.r>=2) heading(rarityName(u),r.x+r.w-12,r.y+24,9,rc,'right');
    const nm=((dn&&dn.name)||u.name).toUpperCase();
    heading(nm,r.x+58,r.y+44,11,ink.text);
    const wrapN=Math.max(20,Math.floor((r.w-76)/6.6));
    const dl=wrapLines((dn&&dn.desc)||u.desc,Math.min(48,wrapN)); dl.slice(0,2).forEach((l,k)=>mono(l,r.x+58,r.y+62+k*15,11,ink.dim));
-   const df=draftDiffs()[i]||[];
-   if(df.length&&r.h>=128) mono(df[0],r.x+58,r.y+r.h-12,11,ink.main,'left',600);
+   const df=draftDiffs()[i]||[], ng=draftNegs()[i]||[];
+   if(df.length&&r.h>=128) mono(df[0],r.x+58,r.y+r.h-12,11,ng[0]?K.red:ink.main,'left',600);
    return;
   }
   mono('['+(i+1)+']',r.x+12,r.y+22,11,ink.dim);
-  if(u.r===2) heading('RARE',r.x+r.w-12,r.y+22,9,ink.main,'right');
+  if(u.r>=2) heading(rarityName(u),r.x+r.w-12,r.y+22,9,rc,'right');
   drawIcon(u.id,r.x+r.w/2,r.y+66,19);
   const nm=((dn&&dn.name)||u.name).toUpperCase();
   const nl=wrapLines(nm,18); ctx.font=fD(11); nl.forEach((l,k)=>heading(l,r.x+r.w/2,r.y+118+k*17,11,ink.text,'center'));
    const dl=wrapLines((dn&&dn.desc)||u.desc,28); dl.forEach((l,k)=>mono(l,r.x+r.w/2,r.y+124+nl.length*17+10+k*16,11,ink.dim,'center'));
-   // what it does to this hull: one true change line, never a bare count.
+   // what it does to this hull: true change lines, gains in gold, costs in red.
    // The BUILD plate below already carries every stack count.
-   const df=draftDiffs()[i]||[], dy0=r.y+124+nl.length*17+10+dl.length*16+6;
-   df.slice(0,2).forEach((l,k)=>{ const yy=dy0+k*15; if(yy<r.y+r.h-6) mono(l,r.x+r.w/2,yy,11,ink.main,'center',600); });
+   const df=draftDiffs()[i]||[], ng=draftNegs()[i]||[], dy0=r.y+124+nl.length*17+10+dl.length*16+6;
+   df.slice(0,2).forEach((l,k)=>{ const yy=dy0+k*15; if(yy<r.y+r.h-6) mono(l,r.x+r.w/2,yy,11,ng[k]?K.red:ink.main,'center',600); });
   });
   // the hull so far: one row in the empty lower third, level draft and nest
   // draft alike. Hover names the refit and its true count.
@@ -8009,8 +8245,21 @@ function statDiff(u){
  const out=[]; for(const [k,label,f] of STAT_VIEW){ const a=player[k], b=q[k]; if(typeof a==='number'&&typeof b==='number'&&Math.abs(a-b)>1e-9) out.push(label+' '+fmtStat(f,a)+' → '+fmtStat(f,b)); }
  return out;
 }
-let diffCache={of:null,d:[]};
+let diffCache={of:null,d:[]}, negCache={of:null,d:[]};
 function draftDiffs(){ if(diffCache.of!==levelChoices){ diffCache={of:levelChoices,d:levelChoices.map(statDiff)}; } return diffCache.d; }
+// Parallel to statDiff: true where the change is a cost (number goes down,
+// except cooldowns where going down is the gain). Costs draw in red.
+const NEG_UP=new Set(['recallCdMax','channelMax','shockNeed']);
+function statDiffNeg(u){
+ if(!player||!u||typeof u.apply!=='function') return [];
+ if(u.id==='spd'&&!player.dashUnlocked) return [false];
+ if(u.id==='pcell'&&!player.recallUnlocked) return [false];
+ let q=null; previewing=true; try{ q=JSON.parse(JSON.stringify(player)); u.apply(q); }catch(e){ return []; } finally{ previewing=false; }
+ const out=[]; for(const [k] of STAT_VIEW){ const a=player[k], b=q[k];
+  if(typeof a==='number'&&typeof b==='number'&&Math.abs(a-b)>1e-9) out.push(NEG_UP.has(k)?(b>a):(b<a)); }
+ return out;
+}
+function draftNegs(){ if(negCache.of!==levelChoices){ negCache={of:levelChoices,d:levelChoices.map(statDiffNeg)}; } return negCache.d; }
 // ---------- the build plate ----------
 // Everything KRIEFNE has bolted on this hull, in the order it was drafted:
 // the refit's engraving, and a count under it once it stacks (MAX at cap).
@@ -8330,6 +8579,7 @@ arena={seed:1337, obs:[], theme:THEMES[0], spawns:[], port:{x:800,y:500}, valida
    get ladder(){ return LADDER; }, get bossKits(){ return BOSS_KITS; }, get teleportOk(){ return TELEPORT_OK; }, get caps(){ return CAP; },
    leadFor, ladderLevel, summonsOf, callersOf, nestSummons, summonAt, chainExtra, maxChainDepth, summonBudgetFor, phaseAt,
    mkBoss, mkSummoned, bossMaxSpeed, bossBlink, bossLabel, liveSummoned,
+   mkThrall, thrallKinds, thrallCap, thrallCount, thrallDebut, thrallKit, thrallsAlive, thrallEligible, canBlink, srcOf, get thrallCfg(){ return THRALL; },
    // boss primitives, status, recovery and phases (the prims / fuzz suites drive these)
    bossBeam, bossMarks, markEscapeGap, dropDisc, shockwave, eshotB, bossDeflect, addPart, hitBossPart, breakPart, placeTempObs, bossGrasp,
    eraseZone, bulletErased, addCurrent, bulletField, applyStatus, statusTags, rayObs, clearBossState, relentlessFor, nestHead,
@@ -8396,7 +8646,9 @@ try{ if(window.__KRIEFNE_DEV===true&&window.__kriefne){
  const hpSeen=new Map(), removed=new Set(), fights=[];
  let lastArena=null, lastHp=null, fight=null, fightN=0, dpsWin=[];
  const r1=v=>Math.round(v*10)/10;
-  function liveBoss(uid){ return enemies.find(e=>e.type==='boss'&&!e.dead&&(!uid||e.uid===uid))||null; }
+  // the lab drives thralls like gods (force an attack, set HP, time the kill)
+  const godLike=e=>e.type==='boss'||e.type==='thrall';
+  function liveBoss(uid){ return enemies.find(e=>godLike(e)&&!e.dead&&(!uid||e.uid===uid))||null; }
  function targetBoss(uid){ return (uid&&liveBoss(uid))||(D.target&&liveBoss(D.target))||liveBoss(); }
  function roleOf(e){ return e.labRole||(e.thrall?'thrall':((e.lieutenant||e.summoned)?'summoned':'lead')); }
  function kitOf(kind){ try{ return (typeof BOSS_KITS!=='undefined'&&BOSS_KITS&&BOSS_KITS[kind])||null; }catch(_){ return null; } }
@@ -8489,7 +8741,7 @@ try{ if(window.__KRIEFNE_DEV===true&&window.__kriefne){
   for(const a of bl) if(a) for(const b of a) paintBeam(b);
   for(const g of rings) if(g.dmg>0&&!g.own) circ(g.x,g.y,g.r,HC.ring,1,[3,5]);
   for(const e of enemies){
-   circ(e.x,e.y,e.r*(e.vscale||1),HC.body,e.type==='boss'?1.5:1);
+   circ(e.x,e.y,e.r*(e.vscale||1),HC.body,godLike(e)?1.5:1);
    if(Array.isArray(e.hitParts)) for(const q of e.hitParts) circ(q.x,q.y,q.r,HC.body,1,[4,2]);
    if(Array.isArray(e.parts)) for(const q of e.parts){ if(q.dead||q.hp<=0) continue; const c=partPos(e,q); circ(c.x,c.y,q.r,HC.part,1.5,[5,2]); }
    if(Array.isArray(e.segs)) for(const q of e.segs) circ(q.x,q.y,q.r,HC.seg,1);
@@ -8504,8 +8756,8 @@ try{ if(window.__KRIEFNE_DEV===true&&window.__kriefne){
  function paintNums(){
   ctx.textAlign='center'; ctx.font=fM(10,600);
   for(const e of enemies){
-   const R=e.r*(e.vscale||1), t=e.type==='boss'?Math.ceil(e.hp)+'/'+Math.ceil(e.maxhp)+' · '+Math.round(100*e.hp/e.maxhp)+'%':String(Math.ceil(e.hp));
-   ctx.fillStyle=K.deep; ctx.fillText(t,e.x+1,e.y-R-7); ctx.fillStyle=e.type==='boss'?K.goldHi:K.text; ctx.fillText(t,e.x,e.y-R-8);
+   const R=e.r*(e.vscale||1), t=godLike(e)?Math.ceil(e.hp)+'/'+Math.ceil(e.maxhp)+' · '+Math.round(100*e.hp/e.maxhp)+'%':String(Math.ceil(e.hp));
+   ctx.fillStyle=K.deep; ctx.fillText(t,e.x+1,e.y-R-7); ctx.fillStyle=godLike(e)?K.goldHi:K.text; ctx.fillText(t,e.x,e.y-R-8);
    if(Array.isArray(e.parts)) for(const q of e.parts){ if(q.dead||!(q.hp>0)) continue; const c=partPos(e,q); ctx.fillStyle=HC.part; ctx.fillText(String(Math.ceil(q.hp)),c.x,c.y-(q.r||8)-4); }
   }
  }
@@ -8626,7 +8878,7 @@ try{ if(window.__KRIEFNE_DEV===true&&window.__kriefne){
   return n;
  }
  function bossList(){ const t=targetBoss();
-  return enemies.filter(e=>e.type==='boss'&&!e.dead).map(e=>({ uid:e.uid, kind:e.kind, name:e.bname||e.kind, role:roleOf(e), hp:Math.ceil(e.hp), maxhp:Math.ceil(e.maxhp), pct:Math.round(100*e.hp/e.maxhp),
+  return enemies.filter(e=>godLike(e)&&!e.dead).map(e=>({ uid:e.uid, kind:e.kind, name:e.bname||e.kind, role:roleOf(e), hp:Math.ceil(e.hp), maxhp:Math.ceil(e.maxhp), pct:Math.round(100*e.hp/e.maxhp),
    attack:typeof bossLabel==='function'?bossLabel(e):'', forcedAttack:e.forcedAttack||null, forcedPhase:e.forcedPhase||null, target:!!t&&t.uid===e.uid })); }
  function labStatus(){ const f=fight, p=player;
   return { state, sector:arenaIdx+1, level:p?p.level:0, hp:p?Math.ceil(p.hp):0, maxhp:p?Math.ceil(p.maxhp):0,
