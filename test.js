@@ -3186,6 +3186,73 @@ function suiteKits1() {
   kitRun(a, 0.1); const hp = b.hitParts[0], r = b.r * (b.vscale || 1);
   ok('a round through a pylon, clear of the core circle, strikes the WARDEN', Math.hypot(hp.x - b.x, hp.y - b.y) + hp.r > r && a.enemyHitT(b, hp.x - 60, hp.y, hp.x + 60, hp.y, 3.5) >= 0);
  }
+
+ // ---------------- PHANTOM ----------------
+ basics('phantom');
+ {
+  const { a, p, b } = kitRoom('phantom', 14);
+  b.forcedAttack = 'blinkfan'; b.phB = 99; const px = p.x, py = p.y, pin = () => { p.x = px; p.y = py; };
+  const x0 = b.x, y0 = b.y;
+  kitRun(a, 0.4, pin);
+  ok('BLINK FAN: PHANTOM blinks, legally stamped', b.blinkAt > 0 && Math.hypot(b.x - x0, b.y - y0) > 60);
+  range('190-300px from the ship', Math.hypot(b.x - px, b.y - py), 150, 320);
+  ok('leaving an afterimage where it stood', (b.ghosts || []).some(g => g.kind === 'fan' && Math.hypot(g.x - x0, g.y - y0) < 90 && Math.hypot(g.x - b.x, g.y - b.y) > 150));
+  eq('nothing fires during the 0.35s aim', a.ebullets.length, 0);
+  ok('the aim and the afterimage draw', !kitRenders(a));
+  kitRun(a, 0.35, pin);
+  atLeast('then a five-round fan', a.ebullets.length, 5);
+  const hits = kitRun(a, 0.6, pin);
+  ok('and the afterimage aims once and fires its own fan at the ship', (hits.AFTERIMAGE || 0) >= 1 || a.ebullets.some(r => r.src && r.src.what === 'AFTERIMAGE'), JSON.stringify(hits));
+  kitRun(a, 1.2, pin); ok('then it fades', (b.ghosts || []).every(g => g.t < g.life));
+ }
+ {
+  const { a, p, b } = kitRoom('phantom', 14);
+  b.forcedAttack = 'afterimage'; b.phB = 99; const seen = new Set(), blinks = new Set();
+  kitRun(a, 2.0, () => { for (const g of b.ghosts || []) seen.add(g); if (b.blinkAt > 0) blinks.add(b.blinkAt); });
+  atLeast('AFTERIMAGE: a chain of three quick blinks', blinks.size, 3);
+  atLeast('each leaving a decoy', seen.size, 3);
+ }
+ {
+  const { a, p, b } = kitRoom('phantom', 14);
+  b.forcedAttack = 'crossfire'; b.phB = 99; const px = p.x, py = p.y;
+  kitRun(a, 0.3, () => { p.x = px; p.y = py; });
+  const bm = a.bossBeams.filter(q => q.owner === b && q.src.what === 'CROSSFIRE');
+  eq('CROSSFIRE: two beams', bm.length, 2);
+  const dl = q => { const dx = Math.cos(q.a), dy = Math.sin(q.a); return Math.abs((px - q.x) * dy - (py - q.y) * dx); };
+  ok('from the flank and from its afterimage opposite, both through the ship', bm.length === 2 && bm.every(q => dl(q) < 3) && Math.hypot(bm[0].x - bm[1].x, bm[0].y - bm[1].y) > 200);
+  range('crossing at an angle, not along one line', bm.length === 2 ? Math.abs(Math.abs(wrapA(bm[0].a - bm[1].a)) - Math.PI) : 0, 0.5, 1.4);
+  ok('both telegraph first', bm.every(q => q.warn >= 0.5));
+  const hitStill = kitRun(a, 1.0, () => { p.x = px; p.y = py; });
+  atLeast('a ship left on the X is struck', hitStill.CROSSFIRE || 0, 1);
+  const r2 = kitRoom('phantom', 14); const A = r2.a, P = r2.p, B = r2.b;
+  B.forcedAttack = 'crossfire'; B.phB = 99; const qx = P.x, qy = P.y;
+  kitRun(A, 0.3, () => { P.x = qx; P.y = qy; });
+  const b2 = A.bossBeams.filter(q => q.owner === B), m = b2.length ? (b2[0].a + b2[1].a) / 2 : 0;
+  let best = null; for (const s of [0, Math.PI / 2, Math.PI, 3 * Math.PI / 2]) { const tx = qx + Math.cos(m + s) * 90, ty = qy + Math.sin(m + s) * 90; const d = Math.min(...b2.map(q => Math.abs((tx - q.x) * Math.sin(q.a) - (ty - q.y) * Math.cos(q.a)))); if (!best || d > best.d) best = { tx, ty, d }; }
+  const stepped = kitRun(A, 1.0, () => { P.x = best.tx; P.y = best.ty; });
+  eq('a ship that steps out of the X is not', stepped.CROSSFIRE || 0, 0);
+ }
+ {
+  const { a, p, b } = kitRoom('phantom', 14);
+  b.phB = 0.01; b.forcedAttack = 'blinkfan'; const px = p.x, py = p.y;
+  kitRun(a, 0.05, () => { p.x = px; p.y = py; });
+  const bm = a.bossBeams.find(q => q.owner === b && q.src.what === 'UNDELIVERED BEAM');
+  ok('UNDELIVERED BEAM: a locked line held 0.7s', !!bm && bm.warn >= 0.7 && bm.follow === false);
+  const ox = bm.x; kitRun(a, 0.5, () => { p.x = px; p.y = py; });
+  ok('the line stays where it was locked when PHANTOM blinks away', bm.x === ox && b.x !== ox);
+  const hit = kitRun(a, 0.5, () => { p.x = px; p.y = py; });
+  atLeast('and the beam comes down on a ship that stayed on it', hit['UNDELIVERED BEAM'] || 0, 1);
+  const r2 = kitRoom('phantom', 14); r2.a.arena.obs.push({ kind: 'circle', x: r2.p.x + 120, y: r2.p.y, r: 30 });
+  r2.b.phB = 0.01; r2.b.forcedAttack = 'crossfire'; r2.b.phX = { st: 'rest', t: 99 }; r2.b.atk = 'crossfire';
+  const qx = r2.p.x, qy = r2.p.y, cov = kitRun(r2.a, 1.3, () => { r2.p.x = qx; r2.p.y = qy; if (r2.b.phB < 90) { r2.b.forcedAttack = 'blinkfan'; r2.b.phF = { t: 99, aim: 0 }; } });
+  eq('cover stops the beam', cov['UNDELIVERED BEAM'] || 0, 0);
+ }
+ {
+  const { a, b } = kitRoom('phantom', 14);
+  b.hp = b.maxhp * 0.49; kitRun(a, 0.5);
+  const s = a.enemies.filter(e => e.summoned);
+  ok('at 50% PHANTOM calls WARDEN', s.length === 1 && s[0].kind === 'warden', s.map(e => e.kind).join(','));
+ }
  return null;
 }
 

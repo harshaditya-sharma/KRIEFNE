@@ -2663,6 +2663,7 @@ BOSS_KITS.warden={
   end(e,why){ e.parts=e.parts.filter(q=>q.kind!=='plate');
    addFloater(e.x,calloutY(e),why==='broken'?'BRIDGE BROKEN':'BRIDGE LOWERED',why==='broken'?K.gold:K.red); }
  },
+ label(e){ return e.atk==='lanelock'?'LANE LOCK':null; },
  post(e,dt){ // the gate faces the ship; a planted toll gate keeps its time
   const want=player?Math.atan2(player.y-e.y,player.x-e.x):0;
   e.wdFace=e.wdFace==null?want:turnTo(e.wdFace,want,1.6*dt);
@@ -2708,8 +2709,24 @@ BOSS_KITS.warden={
 // ===== END BOSS: WARDEN =====
 
 // ===== BOSS: PHANTOM =====
+// The Undelivered (spec §5), the one god that always blinks (bossBlink).
+// Signature UNDELIVERED BEAM: a locked red line held 0.7 s, then a beam down
+// it that stops at cover; the line stays where it was locked, whoever moves.
+// BLINK FAN: a blink 190-300 px out, a 0.35 s aim, a fan. AFTERIMAGE: every
+// blink leaves a decoy where it stood that aims, fires one fan and fades (the
+// AFTERIMAGE slot is a chain of three quick blinks). CROSSFIRE: it blinks to
+// your flank and a decoy stands on the other; both beam through you at once,
+// an X to step out of. Recovery GHOST FORM, once. Calls WARDEN at 50%.
+const PH_LABEL={blinkfan:'BLINK FAN',afterimage:'AFTERIMAGE',crossfire:'CROSSFIRE'};
+function phDecoy(e,x,y,kind){ const G=e.ghosts||(e.ghosts=[]); if(G.length>=4) G.shift();
+ const g={x,y,t:0,kind,a:null,done:false,life:kind==='fan'?1.2:1.5}; G.push(g); return g; }
+// A blink that leaves an afterimage (a fan decoy) where it stood, unless told not to.
+function phBlink(e,x,y,decoy){ const ox=e.x, oy=e.y; if(!bossBlink(e,x,y,'blink')) return false;
+ if(decoy!==false) phDecoy(e,ox,oy,'fan'); return true; }
+function phSpot(P,a,d,m){ const x=clamp(P.x+Math.cos(a)*d,PX0+m,PX1-m), y=clamp(P.y+Math.sin(a)*d,PY0+m,PY1-m);
+ return pointBlocked(x,y,m,arena.obs)?nearSpot(P.x,P.y,190,300,m):{x,y}; }
 BOSS_KITS.phantom={
- def:{name:'PHANTOM',epithet:'the Undelivered',tier:2,hp:760,r:26,spd:1.35,shape:'diamond',pt:9,sig:'laser',chaff:['drone','mite']},
+ def:{name:'PHANTOM',epithet:'the Undelivered',tier:2,hp:760,r:26,spd:1.35,shape:'diamond',pt:3.2,sig:'beam',chaff:['drone','mite']},
  // Ghost Form, once (spec §5), the reference recovery: translucent on the
  // spot, rounds land at 30% (e.phased), knitting from its pool while the
  // escorts it raised live. Killing them breaks it; so does RELENTLESS.
@@ -2725,40 +2742,75 @@ BOSS_KITS.phantom={
  },
  lore:'A CAPTAIN WITHOUT A POST — PHANTOM carries a reply no one is left to read.',
  codex:{role:'Skirmisher', threat:'Ghost Form, once',
-  tell:'A locked RED LINE that holds still — the beam comes down exactly there.',
-  counter:'Step off the line. In GHOST FORM it still takes 30% damage — kill its escorts to break it.',
+  tell:'A locked RED LINE that holds still: the beam comes down exactly there. Every blink leaves an AFTERIMAGE that aims once. Two lines crossing on you is a CROSSFIRE.',
+  counter:'Step off the line, not along it. An afterimage fires once down the line it shows, so leave that line. In GHOST FORM it still takes 30% damage: kill its escorts to break it.',
   lore:'The Undelivered. A courier that learned its cargo was itself. It crossed eleven thousand years to deliver a reply and arrived at an empty star. The blink hardware was for outrunning interdiction; the beam was improvised later, from the part that did the outrunning.'},
- cycle:['skirmish'],
+ cycle:['blinkfan','afterimage','crossfire'],
  attacks:{
-  skirmish(e,C){ // weave, fan, blink
-   C.orbit(1.1); e.burstT-=C.dt;
-   if(e.burstT<=0){ e.burstT=C.enrage?1.1:1.7;
-    for(let k=-2;k<=2;k++) eshot(e,C.aim+k*0.16,260,5);
-    SFX.eshoot(); }
-   e.teleCd-=C.dt;
-   // Blink to a VALIDATED spot 190-300px out: on screen, out of obstacles, off
-   // the walls. PHANTOM is the one god the teleport policy lets blink freely.
-   if(e.teleCd<=0){ e.teleCd=C.enrage?3:4.5;
-    const tp=nearSpot(C.p.x,C.p.y,190,300,e.r+16); bossBlink(e,tp.x,tp.y,'blink'); } }
+  blinkfan(e,C){ // blink out, a short aim, a fan
+   C.orbit(1.1); let S=e.phF; if(e.atkT===0||!S) S=e.phF={t:0.3,aim:0};
+   S.t-=C.dt;
+   if(S.aim>0){ S.aim-=C.dt; if(S.aim<=0){ for(let k=-2;k<=2;k++) eshot(e,C.aim+k*0.16,260,5); SFX.eshoot(); } }
+   else if(S.t<=0){ S.t=C.enrage?1.3:1.8; const tp=nearSpot(C.p.x,C.p.y,190,300,e.r+16); phBlink(e,tp.x,tp.y); S.aim=0.35; } },
+  afterimage(e,C){ // three quick blinks round the ship; the afterimages do the shooting
+   C.orbit(0.8); let S=e.phA; if(e.atkT===0||!S) S=e.phA={t:0.25,n:0,ang:Math.atan2(e.y-C.p.y,e.x-C.p.x),dir:Math.random()<0.5?1:-1};
+   S.t-=C.dt;
+   if(S.t<=0){ if(S.n<3){ S.n++; S.ang+=1.2*S.dir; const q=phSpot(C.p,S.ang,230,e.r+16); phBlink(e,q.x,q.y); S.t=0.55; }
+    else { S.n=0; S.t=C.enrage?0.6:1.0; } } },
+  crossfire(e,C){ // your flank and its afterimage opposite: two beams cross on you
+   C.mv(0.1); let S=e.phX; if(e.atkT===0||!S) S=e.phX={t:0.25,st:'wait'};
+   S.t-=C.dt;
+   if(S.st==='wait'&&S.t<=0){ const P=C.p, base=Math.atan2(e.y-P.y,e.x-P.x)+1.5708*(Math.random()<0.5?1:-1);
+    const A=phSpot(P,base,240,e.r+16); phBlink(e,A.x,A.y,false);
+    const g=phDecoy(e,0,0,'cross'), B=phSpot(P,base+Math.PI-0.9,240,e.r+16); g.x=B.x; g.y=B.y;
+    const dmg=Math.round(e.dmg*0.6), o={warn:0.8,live:0.4,w:12,follow:false,dmg,what:'CROSSFIRE'};
+    bossBeam(e,Object.assign({a:Math.atan2(P.y-e.y,P.x-e.x)},o));
+    const b2=bossBeam(e,Object.assign({a:Math.atan2(P.y-g.y,P.x-g.x)},o)); if(b2){ b2.x=g.x; b2.y=g.y; beamEnds(b2); }
+    addFloater(e.x,calloutY(e),'CROSSFIRE',K.red); SFX.alarm();
+    S.st='rest'; S.t=C.enrage?1.5:2.2; }
+   else if(S.st==='rest'&&S.t<=0){ S.st='wait'; S.t=0.2; } }
  },
- signature(e,C){ // locks a line, telegraphs, then fires down it
-  const p=C.p; e.laserT-=C.dt;
-  if(e.laser){ e.laser.t-=C.dt;
-   if(e.laser.t<=0){ const a=e.laser.ang, dx2=Math.cos(a), dy2=Math.sin(a);
-    const tt=clamp((p.x-e.x)*dx2+(p.y-e.y)*dy2,0,700), cx=e.x+dx2*tt, cy=e.y+dy2*tt;
-    e.beamA=a; e.beamT=0.25; e.laser=null; e.laserT=C.enrage?3.5:5;
-    for(let k=0;k<=10;k++) pushPart({x:e.x+dx2*k*70,y:e.y+dy2*k*70,vx:0,vy:0,life:0.25,maxlife:0.25,col:K.red,r:5});
-    SFX.eshoot();
-    if(Math.hypot(p.x-cx,p.y-cy)<16) hurtPlayer(e.dmg+8,true,srcOf(e)); } }
-  else if(e.laserT<=0){ e.laser={t:0.7,ang:C.aim}; SFX.click(); }
+ signature(e,C){ // UNDELIVERED BEAM: a locked line, 0.7 s, then the beam
+  if(e.phB===undefined) e.phB=2.5;
+  e.phB-=C.dt;
+  if(e.phB<=0&&e.atk!=='crossfire'){ e.phB=C.enrage?3.5:5;
+   bossBeam(e,{a:C.aim,warn:0.7,live:0.3,w:12,follow:false,dmg:Math.round(e.dmg*0.6),what:'UNDELIVERED BEAM'}); SFX.click(); } },
+ post(e,dt){
+  // the trailing ghost: where it was a moment ago
+  e.phTrT=(e.phTrT||0)-dt; const tr=e.phTr||(e.phTr=[]);
+  if(e.phTrT<=0){ e.phTrT=0.06; tr.push({x:e.x,y:e.y}); if(tr.length>6) tr.shift(); }
+  // afterimages: a fan decoy locks its aim, holds 0.35 s, fires once and fades
+  const G=e.ghosts; if(!G) return;
+  for(let i=G.length-1;i>=0;i--){ const g=G[i]; g.t+=dt;
+   if(g.kind==='fan'&&player){ if(g.a===null&&g.t>=0.15) g.a=Math.atan2(player.y-g.y,player.x-g.x);
+    if(!g.done&&g.t>=0.5){ g.done=true; const src=e.phDsrc||(e.phDsrc=srcOf(e,'AFTERIMAGE'));
+     for(let k=-1;k<=1;k++){ const b=eshotAt(e,g.x,g.y,g.a+k*0.2,240,5,0.7); if(b) b.src=src; } SFX.eshoot(); } }
+   if(g.t>=g.life) G.splice(i,1); } },
+ label(e){ return e.atk?PH_LABEL[e.atk]:null; },
+ under(e){ const P=pigOf(e);
+  // the trailing ghost
+  const tr=e.phTr; if(tr&&tr.length){ const q=tr[0]; if(Math.hypot(q.x-e.x,q.y-e.y)>8){ ctx.save(); ctx.globalAlpha=0.22; ctx.translate(q.x,q.y); ctx.strokeStyle=P.c; ctx.lineWidth=1; poly(4,e.r*0.62,-e.t*1.2); ctx.stroke(); ctx.setLineDash([3,4]); poly(4,e.r,e.t*1.2); ctx.stroke(); ctx.setLineDash([]); ctx.restore(); } }
+  // afterimages: a fading copy of the hull; a fan decoy's aim as a short ticked line
+  if(e.ghosts) for(const g of e.ghosts){ const f=clamp(1-g.t/g.life,0,1);
+   ctx.save(); ctx.globalAlpha=0.55*f; ctx.translate(g.x,g.y); ctx.fillStyle=P.body; ctx.strokeStyle=P.c; ctx.lineWidth=1.25; ctx.setLineDash([4,3]);
+   poly(4,e.r,e.t*1.2); ctx.stroke(); ctx.setLineDash([]); poly(4,e.r*0.62,-e.t*1.2); ctx.fill(); ctx.stroke(); ctx.restore();
+   if(g.kind==='fan'&&g.a!==null&&!g.done){ ctx.save(); ctx.globalAlpha=0.85; tickedLine(g.x,g.y,g.x+Math.cos(g.a)*110,g.y+Math.sin(g.a)*110,K.red,1,18,3); ctx.restore(); } }
+  // BLINK FAN's aim
+  const S=e.phF; if(e.atk==='blinkfan'&&S&&S.aim>0&&player){ ctx.save(); ctx.globalAlpha=0.8; tickedLine(e.x,e.y,player.x,player.y,K.red,1,24,3); ctx.restore(); }
  },
- draw(e,g){ // ghosted diamond inside a counter-spinning frame
-  const R=g.R;
-  ctx.save(); ctx.rotate(e.t*1.2+Math.PI/4); ctx.strokeStyle=g.dim; ctx.lineWidth=1; ctx.strokeRect(-R*0.62,-R*0.62,R*1.24,R*1.24); ctx.restore();
-  ctx.fillStyle=g.body; ctx.strokeStyle=g.col; ctx.lineWidth=g.lw; poly(4,R-6,-e.t*1.2); ctx.fill(); ctx.stroke();
-  ctx.strokeStyle=g.dim; poly(4,R*0.4,-e.t*1.2); ctx.stroke();
+ draw(e,g){ // a diamond inside a counter-spinning square frame
+  const R=g.R, fa=REDUCED?0:e.t*1.2;
+  if(codexPreview){ ctx.save(); ctx.globalAlpha*=0.3; ctx.translate(-R*0.95,R*0.55); ctx.strokeStyle=g.col; ctx.lineWidth=1; poly(4,R*0.62,0); ctx.stroke(); ctx.setLineDash([3,4]); poly(4,R,0); ctx.stroke(); ctx.setLineDash([]); ctx.restore(); }
+  ctx.fillStyle=g.body; ctx.strokeStyle=g.col; ctx.lineWidth=g.lw;
+  ctx.beginPath(); for(const rr of [R*1.0,R*0.8]) for(let i=0;i<=4;i++){ const a=fa+i*1.5708, x=Math.cos(a)*rr, y=Math.sin(a)*rr; if(i) ctx.lineTo(x,y); else ctx.moveTo(x,y); }
+  ctx.fill('evenodd'); ctx.stroke();
+  ctx.strokeStyle=g.dim; ctx.lineWidth=1; ctx.beginPath(); for(let i=0;i<4;i++){ const a=fa+i*1.5708; ctx.moveTo(Math.cos(a)*R*0.8,Math.sin(a)*R*0.8); ctx.lineTo(Math.cos(a)*R*0.62,Math.sin(a)*R*0.62); } ctx.stroke();
+  ctx.fillStyle=g.body; ctx.strokeStyle=g.col; ctx.lineWidth=g.lw; poly(4,R*0.58,-fa); ctx.fill(); ctx.stroke();
+  ctx.strokeStyle=g.dim; ctx.lineWidth=1; poly(4,R*0.28,-fa); ctx.stroke();
   ctx.fillStyle=g.col; ctx.beginPath(); ctx.arc(0,0,3,0,6.283); ctx.fill();
- }
+ },
+ // the frame's corners turn past the hull circle
+ hitParts:{ rot:e=>REDUCED?0:e.t*1.2, c:[[0.93,0,0.12],[0,0.93,0.12],[-0.93,0,0.12],[0,-0.93,0.12]] }
 };
 // ===== END BOSS: PHANTOM =====
 
