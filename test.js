@@ -1522,7 +1522,7 @@ function suiteCascades() {
  // burrow, the other case this used to cover, is gone: spec §3.5.)
  {
   const { api, p, b } = bossAt('basilisk');
-  b.phaseT = 3.2; b.gazeT = 0; p.x = 600; p.y = 500; b.x = 900; b.y = 500;
+  b.phaseT = 6.6; b.gazeT = 0; p.x = 600; p.y = 500; b.x = 900; b.y = 500;
   api.update(DT); const had = !!b.gaze;
   step(api, 20);
   ok('basilisk had a gaze pending', had);
@@ -3479,6 +3479,7 @@ function suiteKits2() {
   ok(k + ': a codex field note, tells and counter, and a debut line naming its rank', !!(kit.codex.lore && kit.codex.tell && kit.codex.counter && kit.lore.indexOf(api0.tierNames[kit.def.tier]) >= 0));
  };
  const pinAt = (p, x, y) => () => { p.x = x; p.y = y; };
+ const jumpWatch = b => { let last = { x: b.x, y: b.y }, worst = 0; return () => { worst = Math.max(worst, Math.hypot(b.x - last.x, b.y - last.y)); last = { x: b.x, y: b.y }; return worst; }; };
 
  // ---------------- HYDRA ----------------
  basics('hydra');
