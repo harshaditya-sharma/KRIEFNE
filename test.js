@@ -4485,6 +4485,126 @@ function suiteKits3() {
   s = a.enemies.filter(e => e.summoned);
   ok('and again at 35%', s.length === 1 && s[0].kind === 'progenitor');
  }
+
+ // ---------------- KRAKEN ----------------
+ basics('kraken');
+ const krSegs = b => b.parts.filter(q => q.kind === 'armseg');
+ {
+  const { a, p, b } = kitRoom('kraken', 74);
+  kitRun(a, 0.05, () => noChaff(a));
+  eq('TENTACLE ARMS: two arms of two hittable segments', b.kr.arms.length, 2);
+  eq('four segment parts', krSegs(b).length, 4);
+  ok('each worth less than a twentieth of the hull', krSegs(b).every(q => q.hp < b.maxhp * 0.05));
+  ok('arms and mantle draw', !kitRenders(a));
+  const a0 = b.kr.arms.map(A => A.a);
+  kitRun(a, 2.0, () => noChaff(a));
+  ok('the arms sweep slow arcs', b.kr.arms.every((A, i) => Math.abs(wrapA(A.a - a0[i])) > 0.5 && Math.abs(wrapA(A.a - a0[i])) < 1.6));
+  const discs = a.discs.filter(d => d.owner === b);
+  ok('laying harm where they pass, harmless at first', discs.length >= 5 && discs.every(d => d.safe >= 0.25));
+ }
+ {
+  const { a, p, b } = kitRoom('kraken', 74);
+  a.arena.obs.push({ kind: 'circle', x: b.x - 100, y: b.y, r: 40 });
+  b.forcedAttack = 'grasp'; b.krG = { st: 'rest', t: 99 }; b.sumLeft = [];
+  let prev = b.kr.arms.map(A => A.a); const trav = [0, 0];
+  kitRun(a, 14.0, () => { noChaff(a); b.kr.arms.forEach((A, i) => { trav[i] += Math.abs(wrapA(A.a - prev[i])); prev[i] = A.a; }); });
+  ok('obstacles do not stop the arms: full circles past the rock', trav.every(t => t > 5.5), trav.map(t => t.toFixed(1)).join(','));
+  const past = a.discs.filter(d => d.owner === b && Math.hypot(d.x - (b.x - 100), d.y - b.y) < 60);
+  ok('laying harm on the far side of it', past.length >= 2 && a.discs.filter(d => d.owner === b).length > 10);
+ }
+ {
+  const { a, p, b } = kitRoom('kraken', 74);
+  b.forcedAttack = 'grasp'; b.krG = { st: 'rest', t: 99 }; b.sumLeft = [];
+  kitRun(a, 0.05, () => noChaff(a));
+  const segs = krSegs(b), A = b.kr.arms[0];
+  a.breakPart(b, segs.find(q => q.armIdx === 0));
+  ok('severing a segment loses the whole arm', A.lost && krSegs(b).filter(q => q.armIdx === 0).length === 0 && krSegs(b).length === 2);
+  kitRun(a, 14.5, () => noChaff(a));
+  ok('no regrowth before 15s', A.lost && krSegs(b).length === 2);
+  kitRun(a, 1.0, () => noChaff(a));
+  ok('then the arm is back, both segments', !A.lost && krSegs(b).length === 4);
+  ok('and sweeping again', !kitRenders(a));
+ }
+ {
+  const { a, p, b } = kitRoom('kraken', 74, { dx: 300 });
+  b.forcedAttack = 'grasp'; b.sumLeft = [];
+  p.dashUnlocked = true; p.dashCd = 0;
+  const pin = pinAt(p, p.x, p.y);
+  kitRun(a, 1.2, () => { pin(); noChaff(a); });
+  ok('GRASP: a tether that pulls', !!p.status.tether && p.status.tether.owner === b);
+  const d0 = Math.hypot(p.x - b.x, p.y - b.y);
+  kitRun(a, 1.0, () => { noChaff(a); });
+  ok('dragging the ship in', Math.hypot(p.x - b.x, p.y - b.y) < d0 - 30);
+  p.dashCd = 0; a.keys.KeyS = true; a.tryDash(); a.keys.KeyS = false; kitRun(a, 0.1, () => noChaff(a));
+  ok('a dash breaks it', !p.status.tether);
+ }
+ {
+  const { a, p, b } = kitRoom('kraken', 74, { dx: 260 });
+  b.forcedAttack = 'ink'; b.sumLeft = []; const pin = pinAt(p, p.x, p.y);
+  kitRun(a, 1.0, () => { pin(); noChaff(a); });
+  const pools = a.hazards.filter(h => h.src && h.src.what === 'INK MINES');
+  atLeast('INK MINES: slowing fields', pools.length, 2);
+  ok('telegraphed, clearly drawn', pools.every(h => h.warn >= 0.5) && !kitRenders(a));
+  const hits = kitRun(a, 1.5, () => { pin(); noChaff(a); });
+  ok('standing in ink slows the ship', p.status.slow > 0 || (hits['INK MINES'] || 0) >= 1, JSON.stringify(hits));
+ }
+ {
+  const { a, p, b } = kitRoom('kraken', 74, { dx: 200 });
+  b.forcedAttack = 'whirl'; b.sumLeft = [];
+  kitRun(a, 0.6, () => noChaff(a));
+  const cur = a.bossCurrents.find(c => c.owner === b);
+  ok('WHIRLPOOL: a current round it, telegraphed', !!cur && cur.warn >= 0.5 - 1e-9 && cur.swirl !== 0);
+  const x0 = p.x, y0 = p.y;
+  kitRun(a, 2.0, () => noChaff(a));
+  ok('that drags the ship round it', Math.hypot(p.x - x0, p.y - y0) > 30);
+ }
+ {
+  const { a, p, b } = kitRoom('kraken', 74);
+  b.forcedAttack = 'grasp'; b.krG = { st: 'rest', t: 99 }; b.sumLeft = [];
+  kitRun(a, 0.05, () => noChaff(a));
+  b.hp = b.hpSeen = b.maxhp * 0.65; kitRun(a, 1.2, () => noChaff(a));
+  ok('PHASE II at 66%', b.ph === 2);
+  eq('Phase II: a third arm', b.kr.arms.length, 3);
+  eq('six segments, inside the parts cap', krSegs(b).length, 6);
+  b.hp = b.hpSeen = b.maxhp * 0.32; kitRun(a, 2.0, () => noChaff(a));
+  ok('PHASE III at 33%', b.ph === 3);
+  a.ebullets.length = 0;
+  kitRun(a, 2.0, () => noChaff(a));
+  atLeast('Phase III: the arms fling debris', a.ebullets.length, 3);
+  const r2 = kitRoom('kraken', 74); r2.b.forcedAttack = 'grasp'; r2.b.krG = { st: 'rest', t: 99 }; r2.b.sumLeft = [];
+  kitRun(r2.a, 0.05, () => noChaff(r2.a));
+  r2.a.ebullets.length = 0;
+  kitRun(r2.a, 2.0, () => noChaff(r2.a));
+  eq('Phase I arms fling nothing', r2.a.ebullets.length, 0);
+  const s = kitRoom('kraken', 74, { summoned: true }); kitRun(s.a, 0.05, () => noChaff(s.a));
+  s.b.hp = s.b.hpSeen = s.b.maxhp * 0.2; kitRun(s.a, 1.0, () => noChaff(s.a));
+  ok('a summoned KRAKEN never grows a third arm (Phase I kit only)', s.b.ph === 1 && s.b.kr.arms.length === 2);
+ }
+ {
+  const { a, p, b } = kitRoom('kraken', 74, { dx: 300 });
+  b.forcedAttack = 'grasp'; b.krG = { st: 'rest', t: 99 }; b.sumLeft = []; b.fightT = 20;
+  b.hp = b.hpSeen = b.maxhp * 0.54;
+  kitRun(a, 1.2, () => noChaff(a));
+  ok('at 55% KRAKEN pulls back into INK RETREAT', b.mode === 'recover' && a.bossLabel(b) === 'INK RETREAT');
+  const ink = a.hazards.find(h => h.src && h.src.what === 'INK RETREAT');
+  ok('an ink cloud round it', !!ink && ink.r >= 140 && ink.slow > 0);
+  const h0 = b.hp; kitRun(a, 1.5, () => { p.x = b.x + 400; p.y = b.y; noChaff(a); });
+  ok('mending while the ship stays outside', b.hp > h0);
+  const h1 = b.hp;
+  kitRun(a, 1.5, () => { p.x = b.x; p.y = b.y; noChaff(a); });
+  ok('entering the ink (slowed) denies it', b.hp - h1 < b.maxhp * 0.01 && p.status.slow > 0);
+  kitRun(a, 7.0, () => noChaff(a));
+  ok('the retreat ends and the ink goes with it', b.mode !== 'recover' && !a.hazards.some(h => h.src && h.src.what === 'INK RETREAT'));
+ }
+ {
+  const { a, b } = kitRoom('kraken', 74);
+  b.hp = b.hpSeen = b.maxhp * 0.69; kitRun(a, 0.5);
+  let s = a.enemies.filter(e => e.summoned);
+  ok('at 70% KRAKEN calls HARBINGER', s.length === 1 && s[0].kind === 'harbinger', s.map(e => e.kind).join(','));
+  a.killEnemy(a.enemies.indexOf(s[0])); b.hp = b.hpSeen = b.maxhp * 0.34; kitRun(a, 1.5);
+  s = a.enemies.filter(e => e.summoned);
+  ok('and again at 35%', s.length === 1 && s[0].kind === 'harbinger');
+ }
  return null;
 }
 

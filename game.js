@@ -4399,28 +4399,153 @@ BOSS_KITS.harbinger={
 // ===== END BOSS: HARBINGER =====
 
 // ===== BOSS: KRAKEN =====
-// Placeholder kit (wave 2 builds the full one, spec §5): two sweeping arms.
+// The Deep-Grasp (spec §5). Signature TENTACLE ARMS: two long arms sweep
+// slow arcs, laying harm where they pass; rocks do not stop them. Each arm
+// is two hittable segments — sever either and the arm is lost, regrowing in
+// 15 s. Secondaries: GRASP (a tether that pulls you in; a dash breaks it),
+// INK MINES (slowing fields, clearly drawn) and WHIRLPOOL (a current that
+// drags you round it; a dash beats it). P2 at 66%: a third arm. P3 at 33%:
+// the arms grab debris and fling it. Recovery INK RETREAT at 55% and 30%: it
+// pulls back into an ink cloud and mends while you stay outside — enter the
+// ink (slowed) to deny it. Calls HARBINGER at 70% and 35% (the rung below).
+// No radial volleys.
+const KR_ARM_L=2.2, KR_REGROW=15;
+function krArms(e){ return e.kr?e.kr.arms:[]; }
+function krArmPos(e,A,f){ return {x:e.x+Math.cos(A.a)*e.r*KR_ARM_L*f,y:e.y+Math.sin(A.a)*e.r*KR_ARM_L*f}; }
+function krAddArm(e){ const arms=krArms(e), i=arms.length;
+ const A={a:Math.random()*6.283,dir:i%2?1:-1,lost:false,regrow:0,drop:0,mid:null,tip:null,idx:i};
+ const mid=addPart(e,{id:'arm'+i+'mid',r:14,hp:e.maxhp*0.03,kind:'armseg'});
+ const tip=addPart(e,{id:'arm'+i+'tip',r:12,hp:e.maxhp*0.025,kind:'armseg'});
+ if(!mid||!tip) return null;
+ mid.armIdx=i; tip.armIdx=i; A.mid=mid; A.tip=tip; arms.push(A); return A; }
+function krSever(e,A){ if(!A||A.lost) return; A.lost=true; A.regrow=KR_REGROW;
+ for(const q of [A.mid,A.tip]){ const ix=e.parts.indexOf(q); if(ix>=0) e.parts.splice(ix,1); }
+ A.mid=A.tip=null;
+ addFloater(e.x,calloutY(e),'ARM SEVERED · regrows in 15s',K.gold); SFX.brk(); }
 BOSS_KITS.kraken={
  def:{name:'KRAKEN',epithet:'the Deep-Grasp',tier:4,hp:1600,r:36,spd:0.85,shape:'mantle',pt:3.6,sig:'arms',chaff:['mite','tempest']},
  lore:'A SOVEREIGN FROM UNDER THE LANE — KRAKEN reaches for what floats past.',
- codex:{role:'Grappler', threat:'Two sweeping arms',
-  tell:'Two arms sweep slow arcs of rounds out of its mantle, crossing as they turn.',
-  counter:'The arms turn slowly. Slip through the gap between them, then stay on the far side.',
+ codex:{role:'Grappler', threat:'Arms regrow; ink retreat twice; three phases',
+  tell:'Two (then three) ARMS sweep slow arcs of harm; rocks do not stop them. A red line that holds is the GRASP — dash it. Hatched pools are INK MINES, slowing; circling red arcs, the WHIRLPOOL.',
+  counter:'Sever the arms at their nodules; each regrows in 15 s. Break a grasp with a dash and outswim the whirlpool the same way. When it retreats into ink, enter slowed and deny it the mend.',
   lore:'The Deep-Grasp. A salvage hull built to haul wrecks out of gravity wells, from a people who were very good at wrecks. It has reached into the dark for longer than there has been anything to pull out. It is not angry. It is simply still working.'},
- cycle:['lash','fan'],
- attacks:Object.assign(atk('fan'),{
-  lash(e,C){ // two arms sweep counter-rotating arcs of rounds
-   C.mv(0.35); e.spirT-=C.dt;
-   if(e.spirT<=0){ e.spirT=C.enrage?0.12:0.17; const a=C.aim+Math.sin(e.phaseT*1.3)*1.2;
-    eshot(e,a,200,6,0.75,3.2); eshot(e,2*C.aim-a+3.1416,200,6,0.75,3.2); } }
- }),
+ cycle:['grasp','ink','whirl'],
+ phases:[{},{at:0.66,enter(e){ if(krArms(e).length<3) krAddArm(e); }},{at:0.33}],
+ init(e){ e.kr={arms:[],flingT:1.4}; krAddArm(e); krAddArm(e); },
+ attacks:{
+  grasp(e,C){ // a tether that pulls you in; a dash breaks it
+   C.mv(0.35);
+   let S=e.krG; if(e.atkT===0||!S) S=e.krG={st:'rest',t:0.5};
+   S.t-=C.dt;
+   if(S.st==='rest'&&S.t<=0){ S.st='cool'; S.t=2.4;
+    if(C.d<520) bossGrasp(e,{warn:0.6,life:2.5,pull:180,range:520,what:'GRASP'}); }
+   else if(S.st==='cool'&&S.t<=0){ S.st='rest'; S.t=0.5; } },
+  ink(e,C){ // slowing ink mines where you stand, clearly drawn
+   C.mv(0.4);
+   let S=e.krI; if(e.atkT===0||!S) S=e.krI={st:'wind',t:0.6};
+   S.t-=C.dt;
+   if(S.st==='wind'&&S.t<=0){ S.st='cool'; S.t=2.4;
+    if(hazards.length+2<CAP.haz){ const p=C.p, src=srcOf(e,'INK MINES');
+     const pts=[{x:p.x,y:p.y},{x:p.x+(Math.random()-0.5)*200,y:p.y+(Math.random()-0.5)*200}];
+     for(const q of pts) hazards.push({x:clamp(q.x,PX0+70,PX1-70),y:clamp(q.y,PY0+70,PY1-70),
+      r:60,t:0,life:7,dmg:Math.round(e.dmg*0.3),tick:0,warn:0.6,slow:0.55,src}); }
+    SFX.click(); }
+   else if(S.st==='cool'&&S.t<=0){ S.st='wind'; S.t=0.6; } },
+  whirl(e,C){ // a current that drags you round it; a dash always beats it
+   C.mv(0.3);
+   let S=e.krW; if(e.atkT===0||!S) S=e.krW={st:'rest',t:0.4};
+   S.t-=C.dt;
+   if(S.st==='rest'&&S.t<=0){ S.st='cool'; S.t=3.5;
+    addCurrent(e,{r:280,pull:60,swirl:170,life:3.5,warn:0.5});
+    SFX.ring(); }
+   else if(S.st==='cool'&&S.t<=0){ S.st='rest'; S.t=0.4; } }
+ },
+ signature(e,C){ // P3: the arms grab debris and fling it
+  if(e.ph>=3&&!e.summoned&&!e.rec){ e.kr.flingT-=C.dt;
+   if(e.kr.flingT<=0){ e.kr.flingT=C.enrage?1.0:1.4;
+    for(const A of krArms(e)){ if(A.lost||!A.tip) continue;
+     for(let k=-1;k<=1;k++) eshotAt(e,A.tip.x,A.tip.y,C.aim+k*0.14,250,5,0.8,3.2); }
+    SFX.eshoot(); } } },
+ onPartBreak(e,q){
+  if(q&&q.kind==='armseg'){ const A=krArms(e)[q.armIdx]; krSever(e,A); } },
+ // INK RETREAT: an ink cloud it mends inside — enter slowed and deny it.
+ recover:{ at:[0.55,0.30], pool:0.08, label:'INK RETREAT', hold:false, max:8,
+  start(e){ e.krRet={healed:0,ink:[]};
+   if(hazards.length<CAP.haz){ const z={x:e.x,y:e.y,r:150,t:0,life:12,dmg:0,tick:0,warn:0.5,slow:0.55,src:srcOf(e,'INK RETREAT')};
+    hazards.push(z); e.krRet.ink.push(z); }
+   rings.push({x:e.x,y:e.y,r:e.r,maxR:e.r+90,spd:260,dmg:0,hit:true});
+   addFloater(e.x,calloutY(e),'KRAKEN RETREATS INTO INK · enter it slowed',K.red); SFX.alarm(); },
+  update(e,C){ const ink=e.krRet.ink.find(z=>hazards.indexOf(z)>=0);
+   const inside=ink&&Math.hypot(C.p.x-ink.x,C.p.y-ink.y)<ink.r;
+   // it pulls back while it mends
+   const dx=e.x-C.p.x, dy=e.y-C.p.y, l=Math.hypot(dx,dy)||1;
+   const sv=steer(e,dx/l,dy/l), v=e.sp*0.5*C.spdM*C.sF;
+   e.x+=sv[0]*v*C.dt; e.y+=sv[1]*v*C.dt; e.intent+=v*C.dt;
+   if(ink){ ink.x=e.x; ink.y=e.y; }
+   if(!inside){ const h0=e.hp; bossHeal(e,e.maxhp*0.022*C.dt); e.krRet.healed+=e.hp-h0; }
+   if(e.healPool<=0) return 'mended';
+   return false; },
+  end(e,why){ if(e.krRet) for(const z of e.krRet.ink){ const ix=hazards.indexOf(z); if(ix>=0) hazards.splice(ix,1); }
+   e.krRet=null;
+   addFloater(e.x,calloutY(e),why==='broken'?'INK BROKEN':'RETREAT ENDS',why==='broken'?K.gold:K.red); } },
+ label(e){ if(e.atk==='grasp') return 'GRASP'; if(e.atk==='ink') return 'INK MINES';
+  if(e.atk==='whirl') return 'WHIRLPOOL'; return null; },
+ post(e,dt){
+  for(const A of krArms(e)){
+   if(A.lost){ A.regrow-=dt; // a severed arm regrows in 15 s
+    if(A.regrow<=0){ A.regrow=0; A.lost=false;
+     const mid=addPart(e,{id:'arm'+A.idx+'mid',r:14,hp:e.maxhp*0.03,kind:'armseg'});
+     const tip=addPart(e,{id:'arm'+A.idx+'tip',r:12,hp:e.maxhp*0.025,kind:'armseg'});
+     if(mid&&tip){ mid.armIdx=A.idx; tip.armIdx=A.idx; A.mid=mid; A.tip=tip;
+      addFloater(e.x,calloutY(e),'ARM REGROWN',K.red); }
+     else { A.mid=A.tip=null; A.lost=true; A.regrow=1; } }
+    continue; }
+   A.a+=A.dir*0.5*dt; // slow arcs; rocks do not stop them
+   const pm=krArmPos(e,A,0.55), pt=krArmPos(e,A,1.0);
+   if(A.mid){ A.mid.lx=pm.x-e.x; A.mid.ly=pm.y-e.y; }
+   if(A.tip){ A.tip.lx=pt.x-e.x; A.tip.ly=pt.y-e.y; }
+   if(!e.rec){ A.drop-=dt; // the sweep lays harm where it passes
+    if(A.drop<=0){ A.drop=0.22;
+     dropDisc(e,pt.x,pt.y,26,{life:2.5,safe:0.25,dmg:Math.round(e.dmg*0.3),what:'TENTACLE ARMS'}); } } } },
+ under(e){
+  if(e.kr&&e.kr.flingT<0.4&&e.ph>=3&&!e.summoned){ ctx.save(); ctx.globalAlpha=0.85;
+   ctx.strokeStyle=K.red; ctx.lineWidth=1; ctx.setLineDash([4,4]);
+   for(const A of krArms(e)){ if(A.lost||!A.tip) continue;
+    ctx.beginPath(); ctx.arc(A.tip.x,A.tip.y,20,0,6.283); ctx.stroke(); }
+   ctx.setLineDash([]); ctx.restore(); } },
  draw(e,g){ // a nonagon mantle with limbs
   const R=g.R;
-  ctx.strokeStyle=g.dim; ctx.lineWidth=2.5; for(let k=0;k<6;k++){ const a=k*1.047+Math.sin(e.t*1.5+k)*0.2; ctx.beginPath(); ctx.moveTo(Math.cos(a)*R*0.6,Math.sin(a)*R*0.6); ctx.quadraticCurveTo(Math.cos(a+0.3)*R*0.95,Math.sin(a+0.3)*R*0.95,Math.cos(a+0.1)*R*1.15,Math.sin(a+0.1)*R*1.15); ctx.stroke(); }
+  for(const A of krArms(e)){ const a=A.a;
+   const ex=Math.cos(a)*R*KR_ARM_L, ey=Math.sin(a)*R*KR_ARM_L;
+   const mx=Math.cos(a)*R*KR_ARM_L*0.55, my=Math.sin(a)*R*KR_ARM_L*0.55;
+   ctx.save();
+   ctx.strokeStyle=A.lost?g.dim:g.col; ctx.lineWidth=A.lost?2:4;
+   ctx.beginPath(); ctx.moveTo(Math.cos(a)*R*0.5,Math.sin(a)*R*0.5);
+   if(A.lost){ ctx.lineTo(Math.cos(a)*R*0.8,Math.sin(a)*R*0.8); }
+   else ctx.quadraticCurveTo(Math.cos(a+0.25)*R*1.4,Math.sin(a+0.25)*R*1.4,ex,ey);
+   ctx.stroke();
+   ctx.strokeStyle=g.dim; ctx.lineWidth=1;
+   ctx.beginPath(); ctx.moveTo(Math.cos(a)*R*0.5,Math.sin(a)*R*0.5);
+   if(A.lost) ctx.lineTo(Math.cos(a)*R*0.8,Math.sin(a)*R*0.8);
+   else ctx.quadraticCurveTo(Math.cos(a+0.25)*R*1.4,Math.sin(a+0.25)*R*1.4,mx,my);
+   ctx.stroke();
+   if(A.lost&&A.regrow>0){ ctx.strokeStyle=g.col; ctx.setLineDash([3,3]);
+    ctx.beginPath(); ctx.arc(Math.cos(a)*R*0.8,Math.sin(a)*R*0.8,10,0,6.283); ctx.stroke(); ctx.setLineDash([]);
+    ctx.fillStyle=g.col; ctx.font='600 10px "Martian Mono",monospace'; ctx.textAlign='center';
+    ctx.fillText(Math.ceil(A.regrow),Math.cos(a)*R*0.8,Math.sin(a)*R*0.8+4); }
+   ctx.restore(); }
   ctx.fillStyle=g.body; ctx.strokeStyle=g.col; ctx.lineWidth=g.lw; poly(9,R*0.72,e.t*0.15); ctx.fill(); ctx.stroke();
   ctx.strokeStyle=g.dim; ctx.lineWidth=1; poly(9,R*0.4,e.t*0.15); ctx.stroke();
   ctx.fillStyle=g.col; ctx.beginPath(); ctx.arc(0,0,4,0,6.283); ctx.fill();
- }
+ },
+ drawPart(e,q,g){ // an arm nodule, worth severing
+  ctx.fillStyle=q.flash>0?g.P.flash:g.body; ctx.strokeStyle=g.col; ctx.lineWidth=1.5;
+  ctx.beginPath(); ctx.arc(0,0,q.r,0,6.283); ctx.fill(); ctx.stroke();
+  ctx.fillStyle=g.col; ctx.beginPath(); ctx.arc(0,0,2.5,0,6.283); ctx.fill();
+  const f=clamp(q.hp/(q.maxhp||q.hp||1),0,1);
+  ctx.strokeStyle=g.dim; ctx.lineWidth=1.5; ctx.beginPath(); ctx.arc(0,0,q.r*0.55,-1.5708,-1.5708+f*6.283); ctx.stroke(); },
+ // limb stubs between the arms reach past the mantle circle
+ hitParts:{ rot:()=>0, c:[[0.75,0.4,0.2],[-0.75,0.4,0.2],[0,-0.85,0.2]] }
 };
 // ===== END BOSS: KRAKEN =====
 
