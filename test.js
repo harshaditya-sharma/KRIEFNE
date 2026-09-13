@@ -27,8 +27,9 @@ function section(name) { suite = name; console.log('\n== ' + name + ' =='); }
 
 // ---------- DOM / platform stubs ----------
 // `seedStore` pre-populates localStorage, so persistence can be tested by
-// booting a second game against the storage the first one wrote.
-function boot(seedStore) {
+// booting a second game against the storage the first one wrote. `opts.dev`
+// sets window.__KRIEFNE_DEV first, arming the DevX lab hooks (spawnBoss & co).
+function boot(seedStore, opts) {
  const noop = function () { };
  const ctx2d = {};
  ['save', 'restore', 'translate', 'rotate', 'scale', 'beginPath', 'moveTo', 'lineTo', 'arc', 'ellipse',
@@ -61,6 +62,7 @@ function boot(seedStore) {
   hidden: false, hasFocus: () => true
  };
  sandbox.window = sandbox;
+ if (opts && opts.dev) sandbox.__KRIEFNE_DEV = true;
  sandbox.window.addEventListener = noop;
  sandbox.window.removeEventListener = noop;
  sandbox.globalThis = sandbox;
@@ -371,9 +373,9 @@ function suiteUpgradePool() {
 // survivability and utility, like a real run. The analytic TTK model that used
 // to sit here (gunDps x 0.45 uptime) is retired: spec §10 makes the fight
 // simulator the source of truth.
-const GREEDY_ORDER = ['dmg', 'rate', 'array', 'crit', 'slug', 'overcharge', 'flak', 'minigun', 'split',
- 'corrode', 'chain', 'adrenal', 'seek', 'pierce', 'surge', 'lance', 'orbital', 'tract', 'inc', 'cryo', 'rico', 'hp', 'vamp'];
-const BALANCED_ORDER = ['dmg', 'hp', 'rate', 'ward', 'array', 'vamp', 'crit', 'aegis', 'spd', 'shock',
+const GREEDY_ORDER = ['dmg4', 'dmg', 'dmg0', 'rate3', 'rate', 'rate0', 'array2', 'array1', 'array', 'crit', 'slug', 'overcharge', 'flak', 'minigun', 'split',
+ 'corrode', 'chain', 'adrenal', 'seek', 'pierce', 'surge', 'lance', 'orbital', 'tract', 'inc', 'cryo', 'rico', 'hp2', 'hp', 'hp1', 'hp0', 'vamp'];
+const BALANCED_ORDER = ['dmg', 'dmg4', 'dmg0', 'hp', 'hp2', 'hp1', 'hp0', 'rate', 'rate3', 'rate0', 'ward', 'array2', 'array1', 'array', 'vamp', 'crit', 'aegis', 'spd', 'shock',
  'bulwark', 'seek', 'repair', 'orbital', 'tract', 'slug', 'shockcap', 'magnet', 'orbit', 'lance',
  'nova', 'salvage', 'pierce', 'shockamp'];
 // Drive the REAL progression loop: earn XP, open a draft, pick the highest
@@ -442,9 +444,9 @@ function effDps(p) { return gunDps(p) + abilityDps(p); }
 // depth's pick count and still drafting from the gems they collect mid-fight.
 // HOMING HOSE is the user's playtest build: every barrel on offer, Seeker, then
 // damage and rate. It is the one the pacing bands are asserted against.
-const HOSE_ORDER = ['spd:1', 'seek', 'array', 'dmg', 'split', 'rate', 'minigun', 'crit', 'slug', 'overcharge',
+const HOSE_ORDER = ['spd:1', 'seek', 'array2', 'array1', 'array', 'dmg', 'dmg0', 'split', 'rate', 'rate0', 'minigun', 'rate3', 'dmg4', 'crit', 'slug', 'overcharge',
  'pierce', 'flak', 'chain', 'corrode', 'surge', 'orbital', 'lance', 'tesla', 'inc', 'shrap', 'cryo', 'rico', 'adrenal',
- 'hp', 'vamp', 'orbit', 'nova', 'shock'];
+ 'hp', 'hp2', 'hp1', 'hp0', 'vamp', 'orbit', 'nova', 'shock'];
 const SIM_BUILDS = { hose: HOSE_ORDER, balanced: BALANCED_ORDER, greedy: GREEDY_ORDER };
 const SIM_CAP = 400;           // simulated seconds before a fight is called
 const FIGHTSIM_STRICT = false; // nest bands (spec §6) report only; wave 3 turns this on after the boss HP fit
@@ -1023,9 +1025,9 @@ function suiteCombos() {
  // level inflation a 500-draft simulation would add.
  const a = boot(); seedRandom(a, 24680);
  a.startRun(); a.loadSector(0); a.forceState('playing');
- for (const id of ['dmg', 'rate', 'slug', 'array', 'crit', 'split', 'minigun', 'overcharge',
+ for (const id of ['dmg', 'dmg0', 'dmg4', 'rate', 'rate0', 'rate3', 'slug', 'array', 'array1', 'split', 'array2', 'crit', 'minigun', 'overcharge',
   'flak', 'chain', 'corrode', 'adrenal', 'shock', 'shockamp', 'shockrad', 'shockcap',
-  'orbital', 'lance', 'tesla', 'orbit', 'nova', 'pierce', 'seek', 'vamp', 'hp']) {
+  'orbital', 'lance', 'tesla', 'orbit', 'nova', 'pierce', 'seek', 'vamp', 'hp', 'hp0', 'hp1', 'hp2']) {
   const u = a.upgrades.find(x => x.id === id);
   if (!u) { ok('combo card ' + id + ' exists', false); continue; }
   for (let k = 0; k < (u.max || 4); k++) { if (u.req && !u.req(a.player)) break; a.pickUpgrade(u); }
@@ -1521,8 +1523,10 @@ function suiteXp() {
   api.startRun(); api.loadSector(2); api.forceState('playing');
   const p = api.player;
   // Enough gun and legs to reliably finish a sector — snipers and tempests kite,
-  // and a starting loadout can stalemate them forever.
-  give(api, 'dmg', 6); give(api, 'rate', 4); give(api, 'array', 2);
+  // and a starting loadout can stalemate them forever. Stacks are sized for the
+  // overdrive economy (every stat stick pays a rate/dmg cost), matching the
+  // pre-tradeoff firepower of the old dmg-6/rate-4/array-2 loadout.
+  give(api, 'dmg', 8); give(api, 'rate', 6); give(api, 'array', 2);
   for (let k = 0; k < magnetStacks; k++) give(api, 'magnet', 1);
   api.forceState('playing');
   p.autoFire = true; p.xpNeed = 1e9;          // no levelling; measure raw conservation
@@ -1805,6 +1809,18 @@ function suitePigment() {
  for (const g of gods) for (const c of (B[g].chaff || [])) pairs.push([g, c]);
  const close = pairs.map(([a, b]) => [a + '/' + b, dE(P[a].c, P[b].c)]).filter(x => x[1] < 0.09);
  ok('any two gods that can share a field, any two servitors, and each god and its own chaff stay ≥ 0.09 apart', close.length === 0, close.map(x => x[0] + ' ' + x[1].toFixed(3)).join('; '));
+ // Thralls (spec §8) put ANY two gods in one field (every unlocked kind can
+ // stream through a normal sector, and past S100 all seventeen can), and a
+ // thrall beside every servitor. Twenty-six muted pigments cannot all sit 0.09
+ // apart, so those pairs hold looser floors — any two gods ≥ 0.05, each
+ // thrall-bearing god and each servitor ≥ 0.03 (never one colour) — and the
+ // thrall's silhouette and hairline (no rank rings, a pip not a bar) carry
+ // identity past that. The full-scale pairs above keep the 0.09 rule.
+ const el = api.thrallEligible(), anyGod = [], thrFoe = [];
+ for (let i = 0; i < gods.length; i++) for (let j = i + 1; j < gods.length; j++) { const d = dE(P[gods[i]].c, P[gods[j]].c); if (d < 0.05) anyGod.push(gods[i] + '/' + gods[j] + ' ' + d.toFixed(3)); }
+ for (const g of el) for (const f of foes) { const d = dE(P[g].c, P[f].c); if (d < 0.03) thrFoe.push(g + '/' + f + ' ' + d.toFixed(3)); }
+ ok('any two gods (thralls can put any two in one field) stay ≥ 0.05 apart', anyGod.length === 0, anyGod.join('; '));
+ ok('every thrall-bearing god stays ≥ 0.03 from every servitor it can stream beside', thrFoe.length === 0, thrFoe.join('; '));
  // sector tint stays a tint, and wreckage keeps its bare-metal edge
  const tint = api.themes.map(t => [t.name, hexLab(t.pal.ground), hexLab(t.pal.metal)]);
  ok('sector grounds stay near-black (L < 0.16, chroma < 0.04)', tint.every(([, g]) => g[0] < 0.16 && Math.hypot(g[1], g[2]) < 0.04));
@@ -5209,11 +5225,219 @@ function suiteKits4() {
  return null;
 }
 
+// ======================================================================
+//  thralls: small bosses in the common pool (spec §8)
+// ======================================================================
+// A thrall is its own enemy type ('thrall', kind = its god), so every god-only
+// rule gated on type==='boss' leaves it out. These check the schedule, the
+// form, the reduced kit, what it must never do (call, mend, phase, bank, lead,
+// wear a boss bar or a tracker), where it comes from, how it is named, the
+// teleport rule, the lab, and a 60 s run of every kind at its unlock depth.
+function thrallRoom(sector, kind, seed) {
+ const a = sectorRoom(sector, seed || (8800 + sector));
+ a.enemies.length = 0; a.arena.obs.length = 0;
+ const p = a.player, t = a.mkThrall(kind, p.x + 260, p.y, sector);
+ if (t) { t.spawnT = 0; a.enemies.push(t); }
+ return { a, p, t };
+}
+function suiteThralls() {
+ section('thralls (spec §8)');
+ const api = boot(), L = api.ladder, D = api.bossdefs, KITS = api.bossKits, CFG = api.thrallCfg;
+ const NEVER = ['nullifier', 'chorus', 'singularity'], EL = api.thrallEligible();
+ // -- the unlock schedule: 25 sectors after the debut, OVERLORD S30 ... KRAKEN S100
+ deepEq('seventeen kinds have a thrall, OVERLORD to ECLIPSE in ladder order', EL, L.slice(0, 17));
+ for (const k of EL) eq(k + ' thrall unlocks 25 sectors after its debut (S' + (D[k].debut + 25) + ')', api.thrallDebut(k), D[k].debut + 25);
+ eq('the first thrall is OVERLORD\'s, at S30', api.thrallKinds(30).join(), 'overlord');
+ eq('no thrall before S30', api.thrallKinds(29).length, 0);
+ ok('KRAKEN\'s is the last to unlock by S100 (JUGGERNAUT and ECLIPSE not yet)', api.thrallKinds(100).slice(-1)[0] === 'kraken' && api.thrallKinds(100).indexOf('juggernaut') < 0);
+ deepEq('past S100 every thrall up to ECLIPSE is unlocked', api.thrallKinds(101), EL);
+ let never = 0; for (let n = 1; n <= 300; n++) for (const k of NEVER) if (api.thrallKinds(n).indexOf(k) >= 0) never++;
+ eq('NULLIFIER, CHORUS and SINGULARITY never have a thrall (S1-S300)', never, 0);
+ ok('their kits say thrall:false, and mkThrall refuses them', NEVER.every(k => KITS[k].thrall === false && api.mkThrall(k, 500, 500, 150) === null));
+ // -- form: 60% size, 6-10 brutes' worth on the foe HP curve, lesser in every stat
+ for (const k of EL) {
+  const s = api.thrallDebut(k), t = api.mkThrall(k, 500, 500, s), brute = 130 * api.eHpScaleFoe(s), b = api.thrallBrutes(k);
+  ok(k + ' thrall: type thrall, 60% of its god\'s size, named ' + D[k].name + ' THRALL', t.type === 'thrall' && t.thrall && t.kind === k && Math.abs(t.r - D[k].r * 0.6) < 1e-9 && t.bname === D[k].name + ' THRALL');
+  ok(k + ' thrall: HP is ' + b.toFixed(1) + ' brutes at S' + (s + 1) + ' (' + CFG.hp.join('-') + ')', Math.abs(t.maxhp - brute * b) < 1 && b >= CFG.hp[0] && b <= CFG.hp[1]);
+ }
+ {
+  const t1 = api.mkThrall('wyvern', 0, 0, 60), t2 = api.mkThrall('wyvern', 0, 0, 90), lead = api.mkBoss('wyvern', 0, 0, 60);
+  ok('thrall HP rides the sector it appears in', t2.maxhp > t1.maxhp * 1.5);
+  ok('a thrall hits softer than its god at the same depth', t1.dmg < lead.dmg);
+ }
+ // -- the reduced kit: its signature (simplified) plus ONE secondary
+ for (const k of EL) {
+  const kit = KITS[k], T = api.thrallKit(k), names = T.cycle.filter((n, i) => n !== 'hunt' && T.cycle.indexOf(n) === i);
+  const sigSlot = !!kit.attacks[T.sig];
+  ok(k + ' thrall declares its signature (' + T.sig + ') and one secondary (' + T.sec + ')', !!(kit.thrall && T.sig && T.sec && kit.attacks[T.sec] && T.sec !== T.sig));
+  ok(k + ' thrall cycle is signature + secondary only, with hunt beats between', names.length === (sigSlot ? 2 : 1) && names.every(n => n === T.sig || n === T.sec) && T.cycle.indexOf('hunt') >= 0);
+  if (!sigSlot) ok(k + ' thrall carries its signature off the cycle (hook, parts or post)', !!(T.signature || kit.post || kit.init));
+ }
+ // -- no summons, no recovery, no phases; its god's own gates never fire
+ for (const k of EL) {
+  const t = api.mkThrall(k, 500, 500, api.thrallDebut(k));
+  ok(k + ' thrall: no recovery, no phases, no calls, no RELENTLESS clock', t.recLeft.length === 0 && t.phAt.length === 0 && t.sumLeft.length === 0 && !t.summoned && !t.lead && t.relentlessT === Infinity);
+ }
+ // -- no bonus bank, no boss XP heal, no draft, no lead; the nest head ignores it
+ {
+  const { a, p, t } = thrallRoom(30, 'overlord');
+  a.spawnEnemy('drone', { x: p.x - 400, y: p.y }); // the sector is not cleared by this kill
+  const b0 = a.bosses; p.hp = 50; a.update(DT);
+  ok('a live thrall is never the nest head (a normal sector has none)', a.nestHead() === null);
+  const ix = a.enemies.indexOf(t); t.hp = 0; a.killEnemy(ix);
+  ok('killing a thrall banks no permanent bonus', a.bosses === b0);
+  ok('killing a thrall opens no draft and heals nothing', a.state === 'playing' && p.hp === 50);
+  ok('a thrall drops four gems (its roster slots\' XP)', a.gems.length === 4 && a.gems[0].v > 1);
+ }
+ {
+  const a = sectorRoom(59, 4242); const lead = a.enemies.find(e => e.type === 'boss');
+  a.enemies.length = 0; lead.lead = true; a.enemies.push(lead);
+  const t = a.mkThrall('overlord', lead.x + 300, lead.y, 59); t.spawnT = 0; a.enemies.push(t);
+  ok('in a nest the lead stays the nest head beside a thrall', a.nestHead() === lead);
+  a.enemies.splice(a.enemies.indexOf(lead), 1);
+  ok('with the lead gone, a thrall never becomes the nest\'s god', a.nestHead() === null);
+  a.enemies.length = 0; a.enemies.push(lead, t); const b0 = a.bosses;
+  a.killEnemy(a.enemies.indexOf(t));
+  ok('a thrall killed in a nest banks nothing and leaves the lead leading', a.bosses === b0 && a.nestHead() === lead && a.state === 'playing');
+ }
+ // -- no boss bar, tracker or label: the render names no thrall, near or far
+ {
+  const { a, p, t } = thrallRoom(60, 'kraken');
+  const c = a.ctx, orig = c.fillText, said = [];
+  c.fillText = function (s) { said.push(String(s)); };
+  try {
+   a.update(DT); a.render();
+   const near = said.some(s => s.indexOf('KRAKEN') >= 0);
+   said.length = 0; t.x = p.x + 1500; t.y = p.y; a.cam.x = Math.max(0, p.x - 480); a.render();
+   const far = said.some(s => s.indexOf('KRAKEN') >= 0);
+   ok('a thrall wears no name, attack label or boss bar text on the field', !near);
+   ok('the off-screen boss tracker never points at a thrall', !far);
+  } finally { c.fillText = orig; }
+ }
+ // -- counts: 1 alive at the first unlock, rising to 3; the roster carries them
+ {
+  eq('alive cap is 1 when the first kind unlocks (S30)', api.thrallCap(30), 1);
+  eq('alive cap reaches 3 deep in the run (S80)', api.thrallCap(80), 3);
+  let capOk = true, prev = 0; for (let n = 30; n <= 200; n++) { const c = api.thrallCap(n); if (c < prev || c > 3) capOk = false; prev = c; }
+  ok('the alive cap only rises, and never past 3', capOk);
+  let cntOk = true, cp = 0; for (let s = 30; s < 200; s++) { if (api.isBossSector(s)) continue; const c = api.thrallCount(s); if (c < cp || c < 1 || c > CFG.count[2]) cntOk = false; cp = c; }
+  ok('every normal sector from S31 carries thralls, never fewer with depth', cntOk);
+  let sumOk = true; for (const s of [30, 45, 60, 80, 98, 130]) { const c = api.compFor(s); let n = 0; for (const k in c) n += c[k]; if (n + api.thrallCount(s) * api.thrallSlots(s) !== api.compTotal(s)) sumOk = false; }
+  ok('thralls are carved out of compTotal, each for the roster slots its HP is worth', sumOk);
+  // the XP they pay: a sector's picks hold (per-foe XP scaling stays compXpScale)
+  for (const s of [30, 60, 98]) {
+   const a = sectorRoom(s, 1234); const eb = { drone: 3, stalker: 4, sniper: 4, brute: 8, mite: 2, tempest: 5 };
+   const c = a.compFor(s); let x = 0; for (const k in c) x += c[k] * eb[k] * a.compXpScale(s);
+   const t = a.mkThrall(a.thrallKinds(s + 1)[0], 0, 0, s); x += a.thrallCount(s) * t.xp;
+   const x0 = a.compTotal(s) * a.compMix(s).xp * a.compXpScale(s);
+   range('S' + (s + 1) + ' XP with thralls stays within 5% of the roster without them', +(x / x0).toFixed(3), 0.95, 1.05);
+  }
+ }
+ // -- where they come from: the stream (never the opening wave) and nest chaff
+ {
+  const a = boot(); seedRandom(a, 3131); a.startRun(); a.loadSector(80); a.forceState('playing');
+  const q = a.queue.filter(x => x.indexOf('thrall:') === 0);
+  eq('S81 queues its thralls in the stream', q.length, a.thrallCount(80));
+  ok('queued thralls are unlocked kinds', q.every(x => a.thrallKinds(81).indexOf(x.slice(7)) >= 0));
+  ok('no thrall in the opening wave', !a.enemies.some(e => e.type === 'thrall'));
+  // a scripted cull stands in for a gun: chaff dies every half second, a
+  // thrall 8 s after it lands, so the stream (and the cap) is what is tested
+  let peak = 0, over = 0, f = 0; const p = a.player, uids = new Set(), born = new Map();
+  hold(a, 200, () => { immortal(a); f++;
+   for (const e of a.enemies) if (e.type === 'thrall' && !born.has(e.uid)) { born.set(e.uid, a.time); uids.add(e.uid); }
+   const n = a.thrallsAlive(); if (n > peak) peak = n; if (n > a.thrallCap(81)) over++;
+   if (f % 30 === 0) for (const e of a.enemies.slice()) { const ix = a.enemies.indexOf(e); if (ix < 0) continue;
+    if (e.type !== 'thrall' || a.time - born.get(e.uid) > 8) { e.hp = 0; a.killEnemy(ix); } } });
+  eq('every queued thrall arrives through the stream', uids.size, a.thrallCount(80));
+  ok('several share the field deep in the run (' + peak + ' at once)', peak >= 2);
+  eq('never more thralls alive than the cap (' + a.thrallCap(81) + ')', over, 0);
+  eq('the sector still empties', a.hostiles(), 0);
+ }
+ {
+  const a = boot(); seedRandom(a, 3232); a.startRun(); a.loadSector(59); a.forceState('playing');
+  a.thrallCfg.nestP = 1; const p = a.player; p.autoFire = false; let got = null;
+  hold(a, 30, () => { immortal(a); if (!got) got = a.enemies.find(e => e.type === 'thrall'); });
+  a.thrallCfg.nestP = CFG.nestP;
+  ok('nest chaff brings thralls once they are unlocked (S60)', !!got && a.thrallKinds(60).indexOf(got.kind) >= 0);
+  const b = boot(); seedRandom(b, 3333); b.startRun(); b.loadSector(24); b.forceState('playing'); b.thrallCfg.nestP = 1;
+  let early = false; hold(b, 30, () => { immortal(b); if (b.enemies.some(e => e.type === 'thrall')) early = true; });
+  ok('and none before the first unlock (S25 nest)', !early);
+ }
+ // -- codex: seen for its god, named "<GOD> THRALL", no field note for a thrall kill
+ {
+  const { a, p, t } = thrallRoom(60, 'harbinger');
+  ok('not seen before it is met', !a.codexSeen('harbinger'));
+  a.update(DT);
+  ok('meeting a thrall marks its god seen in the codex', a.codexSeen('harbinger'));
+  const src = a.srcOf(t, 'HORN BLAST');
+  ok('its blows are stamped "HARBINGER THRALL" under its god\'s id', src.name === 'HARBINGER THRALL' && src.id === 'harbinger' && src.thrall && !src.lt);
+  a.killEnemy(a.enemies.indexOf(t));
+  ok('killing a thrall does not unlock its god\'s field note (only the god does)', !a.codexKnown('harbinger') && !a.codexKnown('thrall'));
+ }
+ {
+  const { a, p, t } = thrallRoom(60, 'overlord');
+  p.invuln = 0; p.stasisN = 0; p.secondWind = false; p.barrier = 0; p.shieldReady = false; p.wardUp = false; p.bulwark = 0; p.mirrorUp = false;
+  a.hurtPlayer(1e9, true, a.srcOf(t, 'CHARGE'));
+  ok('a hull lost to a thrall names it on the end screen', a.state === 'gameover' && a.endInfo.src && a.endInfo.src.name === 'OVERLORD THRALL');
+ }
+ // -- teleport: the allow-list, narrowed; only the PHANTOM thrall blinks
+ {
+  const a = sectorRoom(60, 11);
+  const ph = a.mkThrall('phantom', 600, 600, 60), ec = a.mkThrall('eclipse', 600, 600, 60), wd = a.mkThrall('warden', 600, 600, 60);
+  ok('the PHANTOM thrall may blink', a.canBlink(ph, 'blink'));
+  ec.mode = 'recover';
+  ok('the ECLIPSE thrall may not, even flagged as recovering', !a.canBlink(ec, 'recover') && !a.bossBlink(ec, 900, 900, 'recover') && ec.x === 600);
+  ok('no other thrall may blink', !a.bossBlink(wd, 900, 900, 'blink') && wd.x === 600);
+ }
+ // -- the lab: spawnBoss(kind,'thrall') goes through mkThrall
+ {
+  const a = boot(null, { dev: true }); a.startRun(); a.loadSector(59); a.forceState('playing');
+  const r = a.spawnBoss('basilisk', 'thrall'), e = a.enemies.find(x => x.uid === r.uid);
+  ok('lab spawnBoss(kind, "thrall") builds a thrall via mkThrall', r.ok && r.via === 'mkThrall' && !!e && e.type === 'thrall' && e.kind === 'basilisk');
+  ok('the lab lists it as a thrall and can force its attacks', a.bossList().some(b => b.uid === r.uid && b.role === 'thrall') && a.forceAttack('gaze', r.uid).ok);
+  ok('the lab refuses a kind with no thrall', !a.spawnBoss('chorus', 'thrall').ok);
+ }
+ // -- every kind, 60 s at its unlock depth: no throw, no illegal jump, no NaN,
+ // in bounds, caps held, never a call, a mend or a phase
+ const bad = [], jumps = [], seenBlink = {};
+ for (const k of EL) {
+  const s = api.thrallDebut(k), { a, p, t } = thrallRoom(s, k, 9900 + s);
+  const OK = a.teleportOk, C = a.caps; p.autoFire = true;
+  let last = { x: t.x, y: t.y }, tt = 0, threw = null;
+  try {
+   for (let i = 0; i < 3600; i++) {
+    immortal(a); a.mouse.down = false; if (a.state !== 'playing') a.forceState('playing');
+    circleKeys(a, tt, 0.6);
+    t.hp = Math.max(t.maxhp * 0.1, Math.min(t.hp, t.maxhp * Math.max(0.15, 1 - 0.85 * tt / 60)));
+    a.update(DT); tt += DT;
+    if (a.enemies.indexOf(t) < 0) { bad.push(k + ' left the field @' + tt.toFixed(1)); break; }
+    const j = Math.hypot(t.x - last.x, t.y - last.y), lim = a.bossMaxSpeed(t) * DT * 3;
+    if (t.blinkAt === a.time) seenBlink[k] = (seenBlink[k] || 0) + 1;
+    if (j > lim && !(OK[k] === 'always' && t.blinkAt === a.time)) jumps.push(k + ' ' + j.toFixed(1) + '>' + lim.toFixed(1) + ' @' + tt.toFixed(2));
+    last = { x: t.x, y: t.y };
+    if (!isFinite(t.x) || !isFinite(t.y) || !isFinite(t.hp)) { bad.push(k + ' NaN @' + tt.toFixed(1)); break; }
+    const w = a.sectorWorld(s);
+    if (t.x < 0 || t.y < 0 || t.x > w.w || t.y > w.h) { bad.push(k + ' out of bounds'); break; }
+    if (t.rec || t.ph !== 1 || t.mode === 'recover' || t.mode === 'beat') { bad.push(k + ' mended or phased @' + tt.toFixed(1)); break; }
+    if (a.enemies.some(e => e !== t)) { bad.push(k + ' brought something in: ' + a.enemies.filter(e => e !== t).map(e => e.type + ':' + e.kind).join(',')); break; }
+    if (a.ebullets.length > C.eb || a.marks.length > C.marks || a.bossBeams.length > C.beams || t.parts.length > C.parts) { bad.push(k + ' broke a cap'); break; }
+   }
+  } catch (e) { threw = e; }
+  releaseKeys(a);
+  ok(k + ' thrall runs 60 s at S' + (s + 1) + ' without throwing', !threw, threw && threw.stack);
+ }
+ eq('no thrall mends, phases, calls, leaves bounds or breaks a cap (60 s each)', bad.length, 0, bad.slice(0, 6).join('; '));
+ eq('no thrall jumps further than it can travel', jumps.length, 0, jumps.slice(0, 6).join('; '));
+ ok('the PHANTOM thrall blinks, and it is the only one', (seenBlink.phantom || 0) > 0 && Object.keys(seenBlink).every(k => k === 'phantom'), JSON.stringify(seenBlink));
+ return null;
+}
+
 const SUITES = [
  ['kits1', suiteKits1],
  ['kits2', suiteKits2],
  ['kits3', suiteKits3],
  ['kits4', suiteKits4],
+ ['thralls', suiteThralls],
  ['xp', suiteXp],
  ['boot', suiteBoot],
  ['sectors', suiteSectors],
@@ -5241,7 +5465,7 @@ const SUITES = [
 
 // Importable so ad-hoc diagnostics can drive the same stubs without running the
 // whole suite: `const {boot, fightNest} = require('./test.js')`.
-module.exports = { boot, seedRandom, fightNest, step, seconds, give, bossesIn, immortal, DT, simRun, simRow, simFight, draftBuild, SIM_BUILDS };
+module.exports = { boot, seedRandom, fightNest, step, seconds, give, bossesIn, immortal, DT, simRun, simRow, simFight, simPilot, draftBuild, SIM_BUILDS };
 
 if (require.main === module) {
   console.log('KRIEFNE QA harness\n------------------');

@@ -149,6 +149,13 @@ function oklch(L,C,H){
 // per nest they no longer need to: a god only ever fights beside the rungs
 // its chain reaches (three below it, spec §2) and the Apex beside the S75-S95
 // Sovereigns its Convocation can bring. test.js checks exactly those pairs.
+// Thralls (spec §8) let ANY two gods share a field, and a thrall shares it
+// with every servitor. Those pairs cannot all be separated either, so they
+// hold looser floors — any two gods ≥ 0.05, a thrall-bearing god and any
+// servitor ≥ 0.03 (never the same colour) — and identity past that is
+// carried by the thrall's own silhouette and its hairline (no rank rings, a
+// pip not a bar). PROGENITOR moved 177 -> 198 for this: it sat 0.013 from the
+// brute, a hull of about a thrall's size.
 // [hue, lightness, chroma], found by a constrained search that held each god
 // as near as it could to its character hue.
 const PIGMENT_DEF={
@@ -171,7 +178,7 @@ const PIGMENT_DEF={
  wyvern:[358,0.58,0.042],      // ash-rose     · the Strafing Wing
  sentinel:[238,0.72,0.118],    // glacier blue · the Shield-Wall
  colossus:[0,0.74,0.034],      // pale stone   · the Walled
- progenitor:[177,0.70,0.118],  // brood jade   · the Brood-Hall
+ progenitor:[198,0.67,0.118],  // brood teal   · the Brood-Hall
  kraken:[240,0.59,0.118],      // deep blue    · the Deep-Grasp
  eclipse:[296,0.66,0.042]      // dusk         · the Dimming
 };
@@ -551,10 +558,10 @@ function compTotal(s){ const w=sectorWorld(s); const n=s+1;
  const g=0.72+Math.min(Math.max(0,n-12),9)*0.092+Math.max(0,n-21)*0.045, mid=n<=9?60:(n<=49?87.5:115);
  let t=mid*g; if(n===3) t=Math.min(t,33);
  return Math.round(Math.min(t,w.w*w.h/18000)); }
-// Thralls (spec §8) are carved out of the same total: each takes THRALL.cost
-// slots, so compFor is the ordinary species only and thrallRoster the rest.
+// Thralls (spec §8) are carved out of the same total: each takes the roster
+// slots its HP is worth (thrallSlots), so compFor is the ordinary species only.
 function compFor(s){
- const tot=Math.max(0,compTotal(s)-thrallCount(s)*THRALL.cost), out={}, rem=[];
+ const tot=Math.max(0,compTotal(s)-thrallCount(s)*thrallSlots(s)), out={}, rem=[];
  let wsum=0, used=0;
  for(const k in COMP_W) if(s>=COMP_W[k][0]) wsum+=COMP_W[k][1];
  for(const k in COMP_W){
@@ -635,24 +642,26 @@ const UPGRADES=[
  // to 126x player DPS by S30 against bosses only 2.4x tougher — every deep nest
  // melted in four seconds. Capped, a single stat line can no longer carry a run;
  // late-game power comes from the ability lines instead, which cap separately.
- // Gains stack ADDITIVELY on the base and costs stay small and flat (a "-0.2/s"
- // really cuts 0.2/s), so compounding can never spiral; overdrive families
- // share a stack budget across rarities, and barrels are gated on hull count.
- {id:'rate0', name:'Overclock Barrel', desc:'+10% base fire rate, -1% dmg', max:8, r:0, req(p){ return odFam(RATE_FAM)<10; }, apply(p){ p.fireRate+=0.45; p.dmgMult-=0.01; }},
- {id:'rate', name:'Overclock Cell', desc:'+20% base fire rate, -2% dmg', max:6, r:1, req(p){ return odFam(RATE_FAM)<10; }, apply(p){ p.fireRate+=0.9; p.dmgMult-=0.02; }},
- {id:'rate3', name:'Overclock Core', desc:'+30% base fire rate, -3% dmg', max:4, r:2, req(p){ return odFam(RATE_FAM)<10; }, apply(p){ p.fireRate+=1.35; p.dmgMult-=0.03; }},
- {id:'dmg0', name:'AP Rounds', desc:'+15% base damage, -0.1/s rate', max:6, r:0, req(p){ return odFam(DMG_FAM)<10; }, apply(p){ p.dmgMult+=0.15; p.fireRate-=0.08; }},
- {id:'dmg', name:'AP Core', desc:'+30% base damage, -0.2/s rate', max:10, r:1, req(p){ return odFam(DMG_FAM)<10; }, apply(p){ p.dmgMult+=0.30; p.fireRate-=0.15; }},
- {id:'dmg4', name:'AP Lance', desc:'EPIC: +40% damage, -0.2/s rate', max:3, r:3, req(p){ return odFam(DMG_FAM)<10; }, apply(p){ p.dmgMult+=0.40; p.fireRate-=0.2; }},
- {id:'hp0', name:'Nanoweave Mesh', desc:'+5 Max HP, heal 5, heavier', max:6, r:0, req(p){ return odFam(HP_FAM)<12; }, apply(p){ p.maxhp+=5; p.hp=Math.min(p.maxhp,p.hp+5); p.speed-=4; }},
- {id:'hp1', name:'Nanoweave Weave', desc:'+10 Max HP, heal 10, heavier', max:8, r:1, req(p){ return odFam(HP_FAM)<12; }, apply(p){ p.maxhp+=10; p.hp=Math.min(p.maxhp,p.hp+10); p.speed-=6; }},
- {id:'hp2', name:'Nanoweave Lattice', desc:'+15 Max HP, heal 15, heavier', max:6, r:2, req(p){ return odFam(HP_FAM)<12; }, apply(p){ p.maxhp+=15; p.hp=Math.min(p.maxhp,p.hp+15); p.speed-=8; }},
- {id:'hp', name:'Nanoweave Plating', desc:'EPIC: +25 Max HP, heal 25, heavier', max:6, r:3, req(p){ return odFam(HP_FAM)<12; }, apply(p){ p.maxhp+=25; p.hp=Math.min(p.maxhp,p.hp+25); p.speed-=12; }},
+ // Gains stack ADDITIVELY on the base and costs stay small and multiplicative,
+ // so a pick is always net-positive, compounding can never spiral, and no
+ // stack of costs can stall the gun or the hull; overdrive families share a
+ // stack budget across rarities, and barrels are gated on hull count.
+ {id:'rate0', name:'Overclock Barrel', desc:'+10% base fire rate, -1% dmg', max:8, r:0, req(p){ return odFam(RATE_FAM)<10; }, apply(p){ p.fireRate+=0.45; p.dmgMult*=0.99; }},
+ {id:'rate', name:'Overclock Cell', desc:'+20% base fire rate, -2% dmg', max:6, r:1, req(p){ return odFam(RATE_FAM)<10; }, apply(p){ p.fireRate+=0.9; p.dmgMult*=0.98; }},
+ {id:'rate3', name:'Overclock Core', desc:'+30% base fire rate, -3% dmg', max:4, r:2, req(p){ return odFam(RATE_FAM)<10; }, apply(p){ p.fireRate+=1.35; p.dmgMult*=0.97; }},
+ {id:'dmg0', name:'AP Rounds', desc:'+15% base damage, -1% rate', max:6, r:0, req(p){ return odFam(DMG_FAM)<10; }, apply(p){ p.dmgMult+=0.15; p.fireRate*=0.99; }},
+ {id:'dmg', name:'AP Core', desc:'+30% base damage, -2% rate', max:10, r:1, req(p){ return odFam(DMG_FAM)<10; }, apply(p){ p.dmgMult+=0.30; p.fireRate*=0.98; }},
+ {id:'dmg4', name:'AP Lance', desc:'EPIC: +40% damage, -3% rate', max:3, r:3, req(p){ return odFam(DMG_FAM)<10; }, apply(p){ p.dmgMult+=0.40; p.fireRate*=0.97; }},
+ {id:'hp0', name:'Nanoweave Mesh', desc:'+5 Max HP, heal 5, heavier', max:6, r:0, req(p){ return odFam(HP_FAM)<12; }, apply(p){ p.maxhp+=5; p.hp=Math.min(p.maxhp,p.hp+5); p.speed=Math.max(170,p.speed-2); }},
+ {id:'hp1', name:'Nanoweave Weave', desc:'+10 Max HP, heal 10, heavier', max:8, r:1, req(p){ return odFam(HP_FAM)<12; }, apply(p){ p.maxhp+=10; p.hp=Math.min(p.maxhp,p.hp+10); p.speed=Math.max(170,p.speed-3); }},
+ {id:'hp2', name:'Nanoweave Lattice', desc:'+15 Max HP, heal 15, heavier', max:6, r:2, req(p){ return odFam(HP_FAM)<12; }, apply(p){ p.maxhp+=15; p.hp=Math.min(p.maxhp,p.hp+15); p.speed=Math.max(170,p.speed-4); }},
+ {id:'hp', name:'Nanoweave Plating', desc:'EPIC: +25 Max HP, heal 25, heavier', max:6, r:3, req(p){ return odFam(HP_FAM)<12; }, apply(p){ p.maxhp+=25; p.hp=Math.min(p.maxhp,p.hp+25); p.speed=Math.max(170,p.speed-6); }},
  {id:'spd', name:'Ion Thrusters', desc:'UNLOCK dash', max:4, dyn(p){ return p.dashUnlocked?{name:'Ion Thrusters',desc:'-20% dash cooldown'}:null; }, apply(p){ if(!p.dashUnlocked){ p.dashUnlocked=true; p.dashCd=0; } else { p.dashCdMax=Math.max(0.7,p.dashCdMax*0.8); } }},
  {id:'slip', name:'Slipstream Coils', desc:'+10% move speed (needs dash)', max:3, r:1, req(p){ return p.dashUnlocked; }, apply(p){ p.speed*=1.1; }},
- {id:'split', name:'Split Chamber', desc:'MYTHIC: DOUBLE barrels, HALVE damage', max:1, r:5, req(p){ return p.shots>=2&&p.shots<=6; }, apply(p){ p.shots=Math.min(12,p.shots*2); p.dmgMult*=0.5; }},
- {id:'array', name:'Gun Array', desc:'+1 barrel, -0.9/s rate', max:3, r:1, req(p){ return p.shots<8; }, apply(p){ p.shots+=1; p.fireRate-=0.9; }},
- {id:'array2', name:'Gun Array Mk II', desc:'+1 barrel, -0.7/s rate, -2% dmg', max:2, r:2, req(p){ return p.shots<8; }, apply(p){ p.shots+=1; p.fireRate-=0.7; p.dmgMult-=0.02; }},
+ {id:'split', name:'Split Chamber', desc:'MYTHIC: DOUBLE barrels, HALVE damage', max:1, r:5, req(p){ return p.shots>=2&&p.shots<=8; }, apply(p){ p.shots=Math.min(12,p.shots*2); p.dmgMult*=0.5; }},
+ {id:'array', name:'Gun Array', desc:'+1 barrel, -7% rate', max:3, r:0, req(p){ return p.shots<8; }, apply(p){ p.shots+=1; p.fireRate*=0.93; }},
+ {id:'array1', name:'Gun Array Mk I', desc:'+1 barrel, -6% rate', max:3, r:1, req(p){ return p.shots<8; }, apply(p){ p.shots+=1; p.fireRate*=0.94; }},
+ {id:'array2', name:'Gun Array Mk II', desc:'+1 barrel, -5% rate, -2% dmg', max:2, r:2, req(p){ return p.shots<8; }, apply(p){ p.shots+=1; p.fireRate*=0.95; p.dmgMult*=0.98; }},
  {id:'minigun', name:'Minigun Amps', desc:'+1 barrel, wider spread, damage rebalanced', max:3, r:1, req(p){ return p.shots<8; }, apply(p){ const n=p.shots; p.shots+=1; p.dmgMult*=n/(n+1); p.minigun+=1; }},
  {id:'vamp', name:'Vampire Chip', desc:'Heal 1 HP per kill', max:5, dyn(p){ return p.vamp>0?{name:'Vampire Chip',desc:'Feed harder: +1 HP per kill (now '+p.vamp+')'}:null; }, apply(p){ p.vamp=(p.vamp||0)+1; }},
  {id:'seek', name:'Seeker Rounds', desc:'Bullets home in on foes', max:2, r:1, apply(p){ p.homing+=1; }},
@@ -1358,20 +1367,35 @@ function mkSummoned(kind,x,y,s,chain){ return bossCore(kind,x,y,s,Math.max(1,cha
 //   hp   : [lo,hi] brutes' worth at the sector it appears in, on the foe HP
 //          curve; lo for the bottom rung, rising to hi for the top eligible god
 //   dmg  : of a god's damage at that sector
-//   cost : roster slots a thrall takes from the sector's compTotal, so the
-//          sector's HP and pacing budget stays about where the fight sim put it
-//   xp   : base XP (x compXpScale in a normal sector, like every foe); about
-//          what the `cost` slots it displaced were worth, so picks/sector hold
+//   count: [first, every, max] a normal sector's roster carries `first` from
+//          the first unlock, one more every `every` sectors, at most `max`
+//   cap  : alive at once is 1, then 2 from cap[0], 3 from cap[1]
 //   nestP: chance a nest chaff pack brings one along (under the alive cap)
-const THRALL={ after:25, size:0.6, hp:[6,10], dmg:0.75, cost:4, xp:16, nestP:0.3 };
+//   slotK: roster slots taken per brute's worth of HP (1 = HP-equivalent)
+//   q    : [first, last] queue fractions the stream releases them at
+// A thrall takes the roster slots its HP is worth (thrallSlots: brutes' HP
+// over the sector's mean foe HP) out of compTotal, and pays the XP those
+// slots would have (x compXpScale in a normal sector, like every foe), so a
+// sector's HP budget, its pacing and its picks all hold where the fight sim
+// put them; the thrall just gathers them into one hard target.
+const THRALL={ after:25, size:0.6, hp:[6,10], dmg:0.75, count:[2,20,6], cap:[55,80], nestP:0.3, slotK:1, q:[0.12,0.5] };
 function thrallEligible(){ return LADDER.filter(k=>BOSS_KITS[k]&&BOSS_KITS[k].thrall!==false); }
 function thrallDebut(kind){ const k=BOSS_KITS[kind]; if(!k||k.thrall===false||!BOSSDEF[kind]) return Infinity; return BOSSDEF[kind].debut+THRALL.after; }
 // Kinds whose thralls may appear at sector n (1-based).
 function thrallKinds(n){ return n>100?thrallEligible():thrallEligible().filter(k=>thrallDebut(k)<=n); }
 // Alive at once: 1 when the first kind unlocks, 2 from S55, 3 from S80.
-function thrallCap(n){ return thrallKinds(n).length?(n<55?1:(n<80?2:3)):0; }
-// How many a normal sector's roster carries: 2 at S31, one more every 20.
-function thrallCount(s){ const n=s+1; if(isBossSector(s)||!thrallKinds(n).length) return 0; return Math.min(6,2+Math.floor((n-31)/20)); }
+function thrallCap(n){ return thrallKinds(n).length?(n<THRALL.cap[0]?1:(n<THRALL.cap[1]?2:3)):0; }
+// How many a normal sector's roster carries.
+function thrallCount(s){ const n=s+1, C=THRALL.count; if(isBossSector(s)||!thrallKinds(n).length) return 0; const first=thrallDebut(LADDER[0]);
+ return Math.min(C[2],C[0]+Math.floor(Math.max(0,n-first)/C[1])); }
+// Brutes' worth of HP for a kind: the bottom rung at hp[0], the top eligible god at hp[1].
+function thrallBrutes(kind){ const el=thrallEligible(), i=Math.max(0,el.indexOf(kind)), top=Math.max(1,el.length-1); return THRALL.hp[0]+(THRALL.hp[1]-THRALL.hp[0])*i/top; }
+// The mean base HP and XP of one foe of sector s's species mix (COMP_W shares).
+function compMix(s){ let w=0, hp=0, xp=0; for(const k in COMP_W){ if(s<COMP_W[k][0]) continue; const c=COMP_W[k][1]; w+=c; hp+=c*EBASE[k].hp; xp+=c*EBASE[k].xp; } return {hp:hp/w, xp:xp/w}; }
+// Roster slots one thrall takes at sector s: its mean brutes' worth (over the
+// kinds unlocked there) in foes of that sector's mix.
+function thrallSlots(s){ const tk=thrallKinds(s+1); if(!tk.length) return 0; let b=0; for(const k of tk) b+=thrallBrutes(k); b/=tk.length;
+ return Math.max(1,Math.round(THRALL.slotK*b*EBASE.brute.hp/compMix(s).hp)); }
 function thrallsAlive(){ let c=0; for(const o of enemies) if(o.type==='thrall'&&!o.dead) c++; return c; }
 // The reduced kit a thrall runs, from the kit's optional `thrall` entry:
 //   sig       : the signature. An attack name when the signature is a slot of
@@ -1401,13 +1425,12 @@ function thrallKit(kind){
 // A thrall's between-beats slot: close to working range, then circle there.
 function thrallHunt(e,C){ if(C.d>260) C.mv(0.6); else C.orbit(0.7); }
 function thrallShape(e,kind,s){
- const d=e.def, i=Math.max(0,thrallEligible().indexOf(kind)), top=Math.max(1,thrallEligible().length-1);
- const brutes=THRALL.hp[0]+(THRALL.hp[1]-THRALL.hp[0])*i/top;
+ const d=e.def, brutes=thrallBrutes(kind);
  e.type='thrall'; e.thrall=true; e.tk=thrallKit(kind);
  e.bname=d.name+' THRALL'; e.r=d.r*THRALL.size;
  e.maxhp=e.hp=EBASE.brute.hp*eHpScaleFoe(s)*brutes; e.hpSeen=e.hp;
  e.dmg=Math.round(15*eDmgScale(s)*THRALL.dmg);
- e.xp=THRALL.xp*(isBossSector(s)?1:compXpScale(s));
+ e.xp=thrallSlots(s)*compMix(s).xp*(isBossSector(s)?1:compXpScale(s));
  e.recLeft=[]; e.phAt=[]; e.sumLeft=[]; e.lead=false; e.summoned=false; e.depth=0;
  e.relentlessT=Infinity; e.desperate=true; // no minion surge
 }
@@ -1628,11 +1651,11 @@ function loadArena(i){
   } else spawnQueue.push(ty);
  });
  // Thralls arrive through the stream, never the opening wave: spread evenly
- // through the queue from its second fifth on, so the first lands a little
- // way in and the rest follow through the sector (the director holds each to
- // the alive cap). Kinds are drawn from everything unlocked at this depth.
+ // over THRALL.q of the queue, so the first lands a little way in and the last
+ // still has the stream around it rather than trailing it alone (the director
+ // holds each to the alive cap). Kinds are drawn from everything unlocked here.
  if(!boss){ const tk=thrallKinds(s+1), n=thrallCount(s);
-  for(let k=0;k<n&&tk.length;k++){ const at=Math.round(spawnQueue.length*(0.2+0.75*k/Math.max(1,n)));
+  for(let k=0;k<n&&tk.length;k++){ const at=Math.round(spawnQueue.length*(THRALL.q[0]+(THRALL.q[1]-THRALL.q[0])*k/Math.max(1,n-1)));
    spawnQueue.splice(Math.min(at,spawnQueue.length),0,'thrall:'+tk[(Math.random()*tk.length)|0]); } }
  if(boss){ bossWarnT=3.2; const kinds=bossKindsFor(s), lead=BOSSDEF[kinds[0]];
    // the arrival names the god and whom it will call, the same line the hub gave
@@ -3883,7 +3906,7 @@ BOSS_KITS.oracle={
 // 55%: the mirror closes 360° for up to 5 s while it heals; three anchor
 // nodes orbit outside it — break them to drop the wall (and eat the Riposte).
 // Calls ORACLE at 60% and 30%; a summoned ORACLE has no Call. No radials.
-const SN_HALF=50*Math.PI/180, SN_TURN=70*Math.PI/180;
+const SN_HALF=50*Math.PI/180, SN_TURN=70*Math.PI/180, SN_THRALL_TURN=0.45;
 function snSetP1(e,face){ const a=face!=null?face:(e.sn?e.sn.face:0);
  e.mirror.arcs=[{a,half:SN_HALF}]; e.mirror.reach=0; e.mirror.off=false; }
 function snSetP2(e){ const f=e.sn?e.sn.face:0;
@@ -3896,7 +3919,8 @@ BOSS_KITS.sentinel={
   counter:'Flank the mirror: it turns at 70° a second. Shoot through the Phase II gaps. When it closes its WALL, break the three anchors outside it.',
   lore:'The Shield-Wall. A gatehouse given engines, from a people who believed a wall that could follow you was a kinder thing than a gun. It has never started a fight. It has also never let one end on any terms but its own.'},
  cycle:['bulwark','spear','riposte'],
- // THRALL: a narrower mirror that reflects less (the signature is passive), and the spear line.
+ // THRALL: a narrower mirror that reflects less and swings at under half the
+ // speed (~32°/s, so circling it at range flanks it), and the spear line.
  thrall:{ sig:'MIRROR SHIELD', sec:'spear', init(e){ e.mirror.arcs[0].half=SN_HALF*0.8; e.mirror.cap=2; e.mirror.budget=2; } },
  phases:[{},{at:0.5,enter(e){ if(!e.rec) snSetP2(e); }}],
  init(e){ e.sn={face:Math.atan2(player?player.y-e.y:0,player?player.x-e.x:1)};
@@ -3957,10 +3981,11 @@ BOSS_KITS.sentinel={
   if(e.snRip){ e.snRip.t-=dt; if(e.snRip.t<=0){ e.snRip=null; if(!e.rec) e.mirror.off=false; } }
   if(e.rec) return; // the wall holds its arcs
   const p=player, want=p?Math.atan2(p.y-e.y,p.x-e.x):0;
-  e.sn.face=e.sn.face==null?want:turnTo(e.sn.face,want,SN_TURN*dt);
-  if(e.ph>=2&&!e.summoned){ e.mirror.arcs[0].a=turnTo(e.mirror.arcs[0].a,want,SN_TURN*dt);
-   e.mirror.arcs[1].a-=SN_TURN*dt; }
-  else if(e.mirror.arcs.length) e.mirror.arcs[0].a=turnTo(e.mirror.arcs[0].a,want,SN_TURN*dt);
+  const turn=SN_TURN*(e.thrall?SN_THRALL_TURN:1); // a thrall's mirror swings slower: circling it wins
+  e.sn.face=e.sn.face==null?want:turnTo(e.sn.face,want,turn*dt);
+  if(e.ph>=2&&!e.summoned){ e.mirror.arcs[0].a=turnTo(e.mirror.arcs[0].a,want,turn*dt);
+   e.mirror.arcs[1].a-=turn*dt; }
+  else if(e.mirror.arcs.length) e.mirror.arcs[0].a=turnTo(e.mirror.arcs[0].a,want,turn*dt);
  },
  under(e){
   const B=e.snB;
@@ -6451,7 +6476,7 @@ shields:[
 'Adrenal Core pays more the lower your HP. Salvage mends on every gem.'],
  arsenal:[
  'OVERDRIVE: every stat stick pays. Overclock +rate -dmg · AP +dmg -rate · Nanoweave +HULL -speed. Higher rarity, better rate.',
- 'BARRELS: Gun Array +1 shot but slower. Mk II (rare) is lighter. Split Chamber (MYTHIC) DOUBLES barrels, HALVES damage.',
+ 'BARRELS: Gun Array +1 shot but slower — common, Mk I, Mk II (rare) mounts get lighter. Split Chamber (MYTHIC) DOUBLES barrels, HALVES damage.',
 '  Minigun Amps +1 barrel, wider spread, per-bullet damage rebalanced.',
 'AMMO: Incendiary burns · Cryo chills · Slug hits harder and slower.',
 '  Flak detonates on impact · Corrosive shreds armour (5 stacks, +8% each).',
@@ -8579,7 +8604,7 @@ arena={seed:1337, obs:[], theme:THEMES[0], spawns:[], port:{x:800,y:500}, valida
    get ladder(){ return LADDER; }, get bossKits(){ return BOSS_KITS; }, get teleportOk(){ return TELEPORT_OK; }, get caps(){ return CAP; },
    leadFor, ladderLevel, summonsOf, callersOf, nestSummons, summonAt, chainExtra, maxChainDepth, summonBudgetFor, phaseAt,
    mkBoss, mkSummoned, bossMaxSpeed, bossBlink, bossLabel, liveSummoned,
-   mkThrall, thrallKinds, thrallCap, thrallCount, thrallDebut, thrallKit, thrallsAlive, thrallEligible, canBlink, srcOf, get thrallCfg(){ return THRALL; },
+   mkThrall, thrallKinds, thrallCap, thrallCount, thrallDebut, thrallKit, thrallsAlive, thrallEligible, thrallSlots, thrallBrutes, compMix, canBlink, srcOf, drawBossGuide, get thrallCfg(){ return THRALL; },
    // boss primitives, status, recovery and phases (the prims / fuzz suites drive these)
    bossBeam, bossMarks, markEscapeGap, dropDisc, shockwave, eshotB, bossDeflect, addPart, hitBossPart, breakPart, placeTempObs, bossGrasp,
    eraseZone, bulletErased, addCurrent, bulletField, applyStatus, statusTags, rayObs, clearBossState, relentlessFor, nestHead,
