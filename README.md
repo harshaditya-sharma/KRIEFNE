@@ -264,35 +264,15 @@ so the late game never becomes a formality. Two sides hold it in check:
 - Multi-boss nests scale sub-linearly: total HP rises with count but each boss hits softer, so three
   bosses is busier and harder, not three times longer.
 
-**How it's checked.** `node test.js --only balance --verbose` sweeps **S5 → S135**, averaging three
-seeded runs per depth, for three reference players:
+**How it's checked.** The fight simulator (`node test.js --only fightsim`, or add `--verbose` for the
+table) plays the real game loop with a scripted pilot and three drafted builds: Balanced, Greedy and
+**Homing Hose** (barrels, Seeker and damage, the strongest line in play). It measures real
+normal-sector clear times and real time-to-kill for every nest from S5 to S100.
 
-- **Ceiling** — always drafts the strongest offensive card offered (~1.15 picks/sector).
-- **Balanced** — spends about a third of its picks on survival and utility (~1.15 picks/sector).
-- **Farmer** — the balanced build at ~1.4 picks/sector. Replays no longer pay anything, so no real
-  run can draft at this rate any more. It stays in the sweep as the upper reference line the curve
-  was tuned against; a real run drafts at the ceiling/balanced ~1.15 rate.
-
-Each nest's time-to-kill counts the starting bosses **plus every lieutenant the nest's budget can
-field**. Assertions: everything through **S100 is winnable** for the farmer and comfortable for a
-ceiling build; without farming it is winnable to S60 and never walled before S90; late nests take
-measurably longer than early ones; **S105 is still clearable**; and the **wall lands in the
-S110–S130 band** and stays a wall. A nest is a wall when the build can't finish inside 240s (the boss
-goes RELENTLESS at 180s) or one boss hit takes half its HP bar.
-
-| Nest | Court | Ceiling build | Farmer |
-|---|---|---|---|
-| S5 | OVERLORD | 25s | 24s |
-| S10 | WARDEN | 65s | 58s |
-| S50 | ARCHON | 48s | 51s |
-| S80 | JUGGERNAUT | 82s | 93s |
-| S100 | SINGULARITY | 145s | 172s |
-| S105 | SINGULARITY + CHORUS | 173s | 207s |
-| S110 | SINGULARITY + ARCHON | 197s | 260s — only a strong combo clears it |
-| S115 | Apex + two Sovereigns | 315s | 465s — **the wall** |
-
-These figures are **pinned in the test suite** within ±20% (and the wall at exactly S115), so a change
-that moves them fails `node test.js` and the table always matches the game.
+- Normal-sector clear times for the Homing Hose are asserted within the target bands.
+- Every nest's lead must be a real fight (at least 6 s) and killable within the cap.
+- Boss HP is being fitted to the per-band nest targets. Until then those bands are reported, not
+  asserted (`FIGHTSIM_STRICT`), and the wall past S100 is re-asserted as part of that fit.
 
 ## Upgrades (46)
 
@@ -341,35 +321,28 @@ Crit Ward (heavy) → Ward → Bulwark → Barrier → Aegis.
 
 ## QA
 
-```powershell
-node --check game.js   # syntax
-node test.js           # full harness
-node test.js --only balance --verbose
-node test.js --only hierarchy
-node test.js --only codex
-node test.js --only xp
+```sh
+node --check game.js      # syntax
+node test.js              # everyday run (~35 s): every suite except the slow fightsim and fuzz
+node test.js --all        # everything (~3 min); required before merging to main
+node test.js --only fightsim --verbose   # the fight simulator's table
+node test.js --only kits1                # one suite
 ```
 
 `test.js` boots the real `game.js` in a Node VM with stubbed DOM/Canvas/WebAudio/storage and drives
-it through `window.__kriefne` — nothing mocks game logic, every assertion runs the shipping code path.
-It is importable (`const {boot, fightNest} = require('./test.js')`) for ad-hoc telemetry.
+it through `window.__kriefne`. Nothing mocks game logic; every assertion runs the shipping code path.
+It is importable (`const {boot, fightNest, simFight} = require('./test.js')`) for ad-hoc telemetry.
 
-Suites: **XP conservation** (every gem's value accounted for — no sector-clear vacuum, the whole
-field collectable by flying over it, uncollected gems lost on exit, Magnet Core,
-boss bonus draft, hub round trip, 14-run random-build fuzz) · boot/API surface · sector plumbing ·
-bullet hitboxes · swept-collision tunnelling · boss recovery economy · no-passive-regen ·
-boss placement + mobility · procgen contract · upgrade-pool state-awareness (plus a 2,400-draft
-gating fuzz: no card for a system you do not own, and refused dash/recall always come back) ·
-balance model (S5→S135, three player profiles, lieutenants counted, README figures pinned) ·
-**chain of command** (solo debuts, rank-respecting courts, command-depth dial, live fights proving
-S20 fields no lieutenants and S100 respects rank, budget and live cap, hub lore) ·
-every boss kind live-fought for 90s · adversarial combo audit ·
-**codex** (access from every screen, locked/unlocked rendering, persistence, wipe) ·
-endless-run integrity (pool exhaustion, multi-level XP, softlock guards) ·
-**run save / resume** (reopen after closing, mid-sector quit, hub Esc, double-press new run,
-death deletes the save, corrupt saves ignored) · **pigment** rules · **voice and access** (no
-shouting, no FTL words, screen-reader lines) · **death, input safety, encounters** (every hostile
-object stamped with its maker, end screen, restart guards, draft grace, card previews that never
-touch the hull, codex opened on meeting).
+Suites, in run order:
+- **Per-boss kits:** `kits1`–`kits4`, covering every attack, recovery counter, phase and summon for all 20 gods.
+- **Progression and pacing:** `xp`, `boot`, `sectors`.
+- **Hit resolution:** `bullets` and `swept` (collision tunnelling).
+- **Maps and cards:** `procgen` and `pool` (card gating).
+- **The chain of command:** `fightsim` (slow), `hierarchy` and `teleport`.
+- **Boss engine:** `prims` (primitives, status, phases) and `fuzz` (slow: all 20 gods as lead and summoned).
+- **Run integrity:** `combos` (card bounds), `codex`, `endless` and `cascades`.
+- **Persistence and look:** `save`, `pigment`, `maps`.
+- **Access and safety:** `voice`, `safety`, `replay` and `srmirror` (screen-reader mirrors).
 
-The full harness runs **1343 checks**, all passing.
+Run `node test.js --all` for the current check count; every check must pass.
+

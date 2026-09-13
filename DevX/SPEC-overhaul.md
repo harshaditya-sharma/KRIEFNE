@@ -825,41 +825,87 @@ Each group also writes its lore, codex and silhouettes.
 
 ---
 
-## 16. Progress log
+## 16. Handoff and progress log
+
+This is the **only** status doc. Anyone taking over reads "Resume here" and "Now in progress", and needs nothing else.
+
+**How it's maintained**
+- **Overwrite** "Now in progress" and "Open items" whenever state changes.
+- **Append** a row to "History" when a step or a commit lands.
+- Update it at the start of a step, after every commit, and at the end of the step.
 
 ### Resume here
 
-This is the only status doc. `WAVE3_HANDOFF.md` was folded in here and deleted on 2026-09-14.
-
 **Where things are**
-- **Branch:** `wave3`, cut from `main` a7e8172, which is already pushed. It merges to `main` **only when the user says**, and only after `node test.js --all` is green.
-- **Repo:** one game file (`game.js`) and one test harness (`test.js`). This spec lives in `DevX/`; it's gitignored, but this file is force-tracked, so use `git add -f DevX/SPEC-overhaul.md`. The lab files stay local.
-- **Tests:**
-  - `node test.js`: the everyday run, about 45 s, skipping the `fightsim` and `fuzz` suites.
-  - `node test.js --all`: everything, about 3 minutes; required before merging.
-  - `--full`: everything, plus every build on every nest in the simulator.
-  - `--only <suite>`: one suite.
-- **Lab:** run `node DevX/serve.mjs`, then open `/DevX/lab.html?s=40&boss=oracle&build=hose&god=1&hit=1`. Headless Chrome needs `window.__kriefne.forceState('playing')`. Kill stray servers by PID.
+- **Branch:** `wave3` (run `git log --oneline -5`). It's cut from `main` a7e8172, which is pushed and deployed. It merges to `main` **only when the user says**, after `node test.js --all` is green.
+- **Code:** `game.js` is the whole game. Boss blocks run `// ===== BOSS: X =====` in ladder order; the engine sections sit before them, and the `window.__kriefne` hooks sit at the end. `test.js` is the headless harness with 27 suites. `DESIGN.md` holds the visual rules (`K.red` means harm, `K.gold` means the player's).
+- **This spec:** `DevX/` is gitignored but this file is force-tracked, so commit it with `git add -f DevX/SPEC-overhaul.md`. The lab files are local only.
+
+**Commands**
+
+| Command | What it runs |
+|---|---|
+| `node test.js` | everyday, ~35 s; skips the slow `fightsim` and `fuzz` |
+| `node test.js --all` | everything, ~3 min |
+| `node test.js --only <suite>` | one suite |
+| `node test.js --full` | everything, plus every build on every nest |
+| `node DevX/serve.mjs` | the lab, at `/DevX/lab.html?s=40&boss=oracle&build=hose&god=1&hit=1` |
+
+Headless Chrome needs `window.__kriefne.forceState('playing')`. Kill stray servers by PID.
 
 **Rules**
 - One agent at a time.
 - Small, self-contained commits.
-- After each step: run the tests, update this log, report, and **wait for the user's go-ahead**.
-- If an agent dies, commit its worktree as a WIP commit and merge only what is green.
-- Every commit ends with the `Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>` and `Claude-Session: https://claude.ai/code/session_01GoVrejqPHPJShPuKezViDX` lines.
+- After each step: run the tests, update this section, report to the user, and **wait for their go-ahead**.
+- If an agent dies, commit its WIP and merge only what's green.
+- Every commit ends with:
+  ```
+  Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+  Claude-Session: https://claude.ai/code/session_01GoVrejqPHPJShPuKezViDX
+  ```
 
-**Remaining steps** (approved plan, 2026-09-14)
+**Plan** (approved 2026-09-14)
 
-| Step | Work |
-|---|---|
-| 0 | housekeeping |
-| 1 | test consolidation (retire report-only `balance` analytics; fold `roster`/`live`/`mobility`/`recovery` into the new suites, with zero coverage loss) |
-| 2 | thralls (§8) |
-| 3 | hit-test gaps (lance, orbs, splash, tesla vs parts, segs and `hitParts`; spawn-pop scale) |
-| 4 | boss HP fit to §6 with the fight simulator, recovery tuning, `FIGHTSIM_STRICT=true` |
-| 5 | docs sweep (README, PRODUCT, LORE §7/§8/§11, DESIGN) |
-| 6 | full pass (`--all`, perf, lab captures, the user's playtest) |
+| Step | Work | Status |
+|---|---|---|
+| 0 | housekeeping | done |
+| 1 | test consolidation | done |
+| 2 | thralls (§8) | **in progress** |
+| 3 | hit-test gaps | next |
+| 4 | boss HP fit, with the S105+ wall checks | |
+| 5 | docs sweep | |
+| 6 | full pass and the user's playtest | |
 
+### Now in progress
+**Step 2: thralls (spec §8).** Started 2026-09-14 by one agent, working directly on `wave3`. Nothing is committed for Step 2 yet. The agent overwrites this block as it goes, saying what's done, what it's doing now and what's left.
+
+### Open items
+Each is tagged with the step that owns it; resolved items are removed.
+- **[2]** The pigment-distance rule only compares gods within 3 rungs. Thralls mix any kinds in one field, so revisit it.
+- **[3]** Prism Lance, orbs, splash and tesla ignore `hitParts`, `segs` and `parts`: they hit the body circle only, so parts such as WARDEN's plates or REVENANT's pod can't be damaged by them. The spawn-in pop draws up to 1.44× larger than the hitbox.
+- **[4]**
+  - Boss HP: nests die in 7–35 s against the §6 bands.
+  - Flip `FIGHTSIM_STRICT`.
+  - Add S105–S130 wall checks to `fightsim` (a wall exists, it lands in S110–S130, it stays a wall, S105 is clearable), plus "difficulty climbs toward S100".
+  - Tune the recovery numbers (plate HP 1.2%, pod 5%, heals 2.2–3%/s).
+  - Deep danger: Hose and Greedy take almost no damage past S20. Use foe damage and behaviour, thrall density and deadlier nest chaff (the user's three levers).
+- **[5]**
+  - README (the chain-of-command section, "courts", "lieutenants", 12 bosses), PRODUCT.md (content, terminology), LORE.md (§7 holmgang clauses, §8 twenty gods, §11 L04 trigger) and DESIGN.md (pigments for 20 gods, nest banners).
+  - The README test sections were already fixed on 2026-09-14.
+- **[6]**
+  - A lab capture round: all 20 gods, the maps (never visually confirmed) and the codex portraits (LEVIATHAN's is busy).
+  - LEVIATHAN's Coil wake reads as dense red.
+  - Perf: S100 Phase 2 plus chaff under 4 ms per frame.
+- **[user]** Root currently also blocks the dash; spec §3.3 says root means no movement only. It's existing behaviour, left as is until the user decides.
+
+### Decisions (user)
+- **Deep-sector danger** uses three levers: foe damage and behaviour, thrall density, and deadlier nest chaff.
+- **Boss HP** is fitted strictly to the Homing Hose §6 bands; off-meta builds being harder is accepted.
+- **Normal sectors** keep an alive floor so they never go quiet. Per-foe XP scales so picks per sector stay about the same.
+- **PROGENITOR's P3 split** is simplified: the halves separate visually but stay tethered, with one HP bar.
+- **The stale kits-2 branch** was deleted in Step 0; its tip, 3f4f57c, is recoverable from the reflog.
+
+### History
 | Date | Stream | Status | Where |
 |---|---|---|---|
 | 2026-09-12 | base | done: pause and draft optical centring, Vampire 1–5, DevX ignored | `overhaul` 15ee787 |
@@ -873,46 +919,9 @@ This is the only status doc. `WAVE3_HANDOFF.md` was folded in here and deleted o
 | 2026-09-13 | W2-2, kits S30–S50 | **done and merged**: HYDRA, WYVERN, ORACLE (The Call), SENTINEL, ARCHON (Verdict); `kits2` suite (189); full harness 2047 green; lab captures reviewed | `overhaul` 6e2fad8 |
 | 2026-09-13 | W2-3, kits S55–S75 | **done and merged**: COLOSSUS, BASILISK (coil/line-charge/spikes gone), PROGENITOR (simplified tethered P3 split), HARBINGER (meteor verified + Ricochet Spiral), KRAKEN; `kits3` suite (170); full harness 2217 green; lab captures reviewed (PROGENITOR half-hull fixed) | `overhaul` 6e27e08 |
 | 2026-09-13 | W2-4, kits S80–S100 | **done and merged**: JUGGERNAUT, ECLIPSE, NULLIFIER, CHORUS, SINGULARITY (Convocation + Absorption → 2×HP Quasar Phase 2); `kits4` suite (158); full harness 2375 green; lab captures reviewed, no fixes | `overhaul` eca8404 |
-| 2026-09-13 | Wave 3 | next: thralls → hit-test gaps → HP/threat/density fit → docs + full pass | |
 | 2026-09-14 | Wave 3, density | **step (unmerged)**: alive floor + bigger packs (`wavePlan` floor/pack/cap), fitted `compTotal` roster, `FOE_HP` lift, `quietFrac` ≤10% + Hose §7 bands green in fightsim; deep hurry softer past S45 (hose was mowing with zero travel); map gen rescues would-be fallbacks with opening-pack-only placement (denser rosters broke validation); ECLIPSE sweep window 5→7s, PROGENITOR recall window 1.5→2s (arrival timing robustness); `WAVE3_HANDOFF.md` gitignored; full harness 2415 green | `overhaul` (unmerged step) |
 | 2026-09-14 | Wave 3, engine | **step (unmerged)**: NULLIFIER true tracker jam (`drawBossGuide` lies with SIGNAL LOST; auto-fire + homing skip `nullJam`, additive); SINGULARITY explicit homing damp (`lens.damp` 0.55 withers `seekSteer` turn toward zero at the core + codex tell); new asserts in `bullets` (damp/jam straight-flight) and `kits4` (auto-fire past jam, lens damp field); full harness 2421 green | `overhaul` (unmerged step) |
 | 2026-09-14 | $harden (audit) | **step (unmerged)**: settings rows + codex index mirrored as offscreen DOM buttons (draft pattern, same handlers, focus restore on rebuild, aria-current); `role="application"` kept deliberately with `main` landmark + offscreen h1; new `srmirror` suite (26); full harness 2447 green | `overhaul` (unmerged step) |
 | 2026-09-14 | merge to main | **done**: `main` fast-forwarded to `overhaul` 86d16a9 (Wave-3 density + engine, $harden mirrors); full harness 2447 green on `main`; 7 stale worktree checkouts removed, 6 merged `worktree-agent-*` branches deleted (`ae66187e` branch kept: unmerged alternate kit line + WIP 3f4f57c) | `main` 86d16a9 |
 | 2026-09-14 | Step 0, housekeeping | **done**: `wave3` branch; deleted the `overhaul` branch (merged) and `worktree-agent-ae66187e…` (superseded alternate HYDRA/WYVERN/ORACLE/SENTINEL line, tip 3f4f57c, recoverable from the reflog); removed the dead `mkLieutenant` lab fallback, `inReplay`, `wrapText` and ARCHON's legacy `slam` alias; fast default test run (45 s) plus `--all`; `WAVE3_HANDOFF.md` folded in here; `--all` 2447 green | `wave3` |
 | 2026-09-14 | Step 1, test consolidation | **done**: `balance` retired (94 analytic TTK/wall/pin asserts; its boss-hit-vs-farmer-hull check → `combos`; replaced by 40 real-fight asserts in `fightsim`: Hose kills every lead inside the cap, no lead under 6s); `roster`/`live`/`mobility`/`recovery`/`regen` folded into `hierarchy`/`prims`/`kits1`/`teleport` (37 duplicates deleted, the rest moved); shared helpers (`hold`, `sectorRoom`, `kitBasics`, `pinAt`, `shootAt`, `circleKeys`); 33 → 27 suites; `--all` 2447 → 2356 green (187 → 164 s), `node test.js` 2354 → 2223 (43 → 35 s). README still cites `--only balance` (docs sweep, step 5) | `wave3` 6c7f40c, 59f9dbf, ff107d5 |
-
-**Wave-3 notes (user, 2026-09-13):**
-- Normal sectors got longer but feel empty: raise enemy presence, not just duration. A trickle of one enemy per ~5 s is wasteful — bigger packs / higher alive caps so the sector stays busy.
-- W2-4 approximations to revisit: NULLIFIER tracker jam is visual-only (true suppression needs engine work in `drawBossGuide`); SINGULARITY homing-weaken is implicit via `e.lens` curve, no explicit damp stat.
-- **Wave-3 order (user, 2026-09-13): density/HP/threat fit first, then thralls.** Sectors keep a minimum alive floor (never quiet); per-foe XP keeps scaling so picks/sector stay ~same; engine approximations fixed now.
-
-**Decisions for the remaining work (user, 2026-09-13):**
-- Deep-sector danger uses all three levers: foe damage/behaviour scaling, thrall density, deadlier nest chaff.
-- Boss HP is fitted strictly to the Homing Hose §6 bands; off-meta builds being harder is accepted.
-- PROGENITOR P3 hull-split is simplified: halves separate visually but stay tethered, shared HP bar.
-
-**Follow-ups noted:**
-- **Maps:** the visual capture check wasn't confirmed before the agent stopped.
-- **Hit tests (from B):** Prism Lance beams, orbs and splash still test the bare `e.r` and ignore `segs`/`parts`. The spawn-in pop scale (up to 1.44×) mismatches the hitbox.
-- **Pacing (from D):**
-  - Deep sectors are long now but not dangerous for Hose or Greedy: almost no damage taken past S20. Wave 3 should add threat (foe damage and behaviour, thralls), not just duration.
-  - Per-foe XP is scaled by `compXpScale` so picks per sector stay about 1.15.
-  - Boss TTKs at S15+ are 10–35 s, 3–10× short of §6. That's wave 3's HP fit.
-- **Engine (from E1):**
-  - The pigment-distance rule now only compares gods that can share a field (within 3 rungs). Revisit when thralls mix kinds.
-  - ~~The analytic balance checks from S50 on are report-only.~~ They were retired in Step 1; the fight simulator is the only balance model now.
-  - LORE.md, README, PRODUCT.md and DESIGN.md are not yet updated for 20 gods.
-  - Placeholder silhouettes haven't been checked in a browser.
-- **Engine (from E2):**
-  - WARDEN, LEVIATHAN, ORACLE, ARCHON, NULLIFIER and SINGULARITY have no recovery until their wave-2 kits add one.
-  - Parts take damage only from player rounds; splash, lance and tesla hit the body only.
-  - Root blocks the dash, which is existing behaviour.
-  - The primitives haven't been checked in a real browser.
-- **Kits 1 follow-ups:**
-  - LEVIATHAN's codex portrait is busy.
-  - The wake is dense red during a Coil; disc drawing is engine code.
-  - Recovery numbers are first guesses: plate HP 1.2%, pod HP 5%, heals 2.2–3%/s.
-  - `bossThink` gained `e.atkT`, and a `turnTo` helper was added.
-- **From Step 1:**
-  - The past-S100 wall checks were retired with no replacement: a wall exists, it lands in the S110–S130 band, it stays a wall, and S105 is clearable. So was "difficulty climbs toward S100". **Step 4 must add these to `fightsim`**, covering S105–S130, when `FIGHTSIM_STRICT` flips.
-  - README lines ~267–295 and ~347 still cite `--only balance`; that's for the Step 5 docs.
