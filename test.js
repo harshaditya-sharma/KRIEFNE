@@ -3014,7 +3014,8 @@ function kitRoom(kind, sector, o) {
  a.arena.obs.length = 0; a.enemies.length = 0; a.queue.length = 0;
  const p = a.player; p.autoFire = false; a.mouse.down = false;
  const w = a.sectorWorld(sector); p.x = w.w / 2; p.y = w.h / 2;
- const b = o.summoned ? a.mkSummoned(kind, p.x + (o.dx || 260), p.y + (o.dy || 0), sector, 1) : a.mkBoss(kind, p.x + (o.dx || 260), p.y + (o.dy || 0), sector);
+ const dx = o.dx !== undefined ? o.dx : 260, dy = o.dy || 0;
+ const b = o.summoned ? a.mkSummoned(kind, p.x + dx, p.y + dy, sector, 1) : a.mkBoss(kind, p.x + dx, p.y + dy, sector);
  b.spawnT = 0; b.lead = !o.summoned; a.enemies.push(b);
  p.hp = p.maxhp = 1e6; p.invuln = 0;
  return { a, p, b, w };
@@ -3349,6 +3350,110 @@ function suiteKits1() {
   b.hp = b.maxhp * 0.49; kitRun(a, 0.5);
   const s = a.enemies.filter(e => e.summoned);
   ok('at 50% REVENANT calls PHANTOM', s.length === 1 && s[0].kind === 'phantom', s.map(e => e.kind).join(','));
+ }
+
+ // ---------------- LEVIATHAN ----------------
+ basics('leviathan');
+ const gapOf = b => { let prev = b, m = 0; for (const g of b.segs) { m = Math.max(m, Math.hypot(g.x - prev.x, g.y - prev.y) - b.r * 0.82); prev = g; } return m; };
+ const layOut = (b, a) => b.segs.forEach((g, k) => { g.x = b.x + Math.cos(a) * (k + 1) * b.r * 0.82; g.y = b.y + Math.sin(a) * (k + 1) * b.r * 0.82; });
+ {
+  const L = KITS.leviathan;
+  ok('LEVIATHAN has no burrow, mines or spiral left', !L.attacks.burrow && !L.attacks.mines && !L.attacks.spiral);
+  deepEq('its kit: Whip, Coil and Lunge, with the Segment Volley from Phase II', Object.keys(L.attacks).sort(), ['coil', 'lunge', 'volley', 'whip']);
+  const { a, p, b } = kitRoom('leviathan', 24); b.forcedAttack = 'lunge';
+  kitRun(a, 2.0);
+  const own = a.discs.filter(d => d.owner === b), sizes = new Set(own.map(d => Math.round(d.r0)));
+  atLeast('WAKE TRAIL: head and segments each drop discs their own size', sizes.size, 5);
+  ok('harmless at first, shrinking to nothing over 3.5s in Phase I', own.every(d => d.safe >= 0.25 && d.life === 3.5));
+ }
+ {
+  const { a, p, b } = kitRoom('leviathan', 24, { dx: 0, dy: -120 });
+  layOut(b, 0); b.hd = Math.PI; b.forcedAttack = 'whip';
+  const px = p.x, py = p.y; let a0 = null, a1 = null, gap = 0, windT = 0;
+  const tailA = () => { const t = b.segs[4]; return Math.atan2(t.y - b.y, t.x - b.x); };
+  let acc = 0, lastA = null;
+  const hits = kitRun(a, 1.7, () => { p.x = px; p.y = py; const S = b.lvW; if (S && S.st === 'wind') windT += 1 / 60;
+   if (S && S.st === 'swing') { const t = tailA(); if (lastA !== null) acc += wrapA(t - lastA); lastA = t; }
+   gap = Math.max(gap, gapOf(b)); if (S && S.st === 'wind') ok.windDraw = ok.windDraw || !kitRenders(a); });
+  range('WHIP: it rears for 0.5-0.6s behind a hatched arc', windT, 0.5, 0.62);
+  range('then the whole tail swings through a wide arc (rad)', Math.abs(acc), 2.0, 2.9);
+  atLeast('and strikes a ship standing in it', hits.WHIP || 0, 1);
+  atMost('the tail stays attached through the swing', gap, 0.5);
+ }
+ {
+  const { a, p, b } = kitRoom('leviathan', 24, { dx: 300 });
+  b.forcedAttack = 'coil'; const px = p.x, py = p.y;
+  kitRun(a, 0.3, () => { p.x = px; p.y = py; });
+  ok('COIL: a dashed ring round the ship first', b.lvK && b.lvK.st === 'wind' && Math.hypot(b.lvK.cx - px, b.lvK.cy - py) < 1 && !kitRenders(a));
+  let sweep = 0, lastA = null, minR = 1e9, dmax = 0;
+  kitRun(a, 3.6, () => { p.x = px; p.y = py; const S = b.lvK; if (S && (S.st === 'circle' || S.st === 'tighten')) { const t = Math.atan2(b.y - py, b.x - px); if (lastA !== null) sweep += wrapA(t - lastA); lastA = t; minR = Math.min(minR, S.R); dmax = Math.max(dmax, Math.hypot(b.x - px, b.y - py)); } });
+  atLeast('then it circles the ship', Math.abs(sweep), Math.PI);
+  atMost('and tightens the ring', minR, 130);
+  atLeast('fencing it in with its wake', a.discs.filter(d => d.owner === b && Math.hypot(d.x - px, d.y - py) < 300).length, 12);
+ }
+ {
+  const { a, p, b } = kitRoom('leviathan', 24, { dx: 320 });
+  b.forcedAttack = 'lunge'; const px = p.x, py = p.y; let wind = 0, w0 = null, still = 0, go = 0;
+  const hits = kitRun(a, 1.8, () => { p.x = px; p.y = py; const S = b.lvL; if (S && S.st === 'wind') { wind += 1 / 60; if (!w0) w0 = { x: b.x, y: b.y }; still = Math.max(still, Math.hypot(b.x - w0.x, b.y - w0.y)); } if (S) go = Math.max(go, S.go || 0); });
+  range('LUNGE: a ruled line held 0.6s', wind, 0.55, 0.65);
+  atMost('with the head still', still, 2);
+  atLeast('then a straight dash', go, 150);
+  ok('that bites a ship left on the line', (hits.LUNGE || 0) >= 1, JSON.stringify(hits));
+ }
+ {
+  const { a, p, b } = kitRoom('leviathan', 24, { dx: 320 });
+  b.forcedAttack = 'coil';
+  kitRun(a, 1.5); b.hp = b.maxhp * 0.49;
+  let beat = false; kitRun(a, 0.2, () => { beat = beat || b.mode === 'beat'; });
+  ok('PHASE II at 50%: the beat plays', b.ph === 2 && beat);
+  kitRun(a, 1.2);
+  ok('its wake now lasts 5s', a.discs.some(d => d.owner === b && d.life === 5));
+  const seen = new Map(); let firstGlow = null;
+  kitRun(a, 4.5, () => { if (b.lvV && firstGlow === null) firstGlow = a.time;
+   for (const r of a.ebullets) if (r.src && r.src.what === 'SEGMENT VOLLEY' && !seen.has(r)) { let bi = -1, bd = 1e9; [b].concat(b.segs).forEach((q, i) => { const d = Math.hypot(q.x - r.x, q.y - r.y); if (d < bd) { bd = d; bi = i; } }); seen.set(r, { i: bi, t: a.time }); } });
+  const order = [...seen.values()];
+  atLeast('SEGMENT VOLLEY: every segment, then the head, fires one round', order.length, 6);
+  ok('in sequence, tail to head', order.length >= 6 && order[0].i === 5 && order[5].i === 0, order.map(o => o.i).join(','));
+  ok('each after a 0.35s glow', order.length && order[0].t - firstGlow >= 0.33);
+ }
+ {
+  const { a, p, b } = kitRoom('leviathan', 24, { dx: 200 });
+  b.fightT = 20; b.hp = b.hpSeen = b.maxhp * 0.56; b.forcedAttack = 'lunge';
+  kitRun(a, 1.0); layOut(b, 0);
+  b.hp = b.hpSeen = b.maxhp * 0.54; b.lastHit = a.time; const px = p.x, py = p.y, d0 = Math.hypot(b.x - px, b.y - py);
+  kitRun(a, 0.05, () => { p.x = px; p.y = py; });
+  ok('at 55% LEVIATHAN goes on a SHED RUN', b.mode === 'recover' && a.bossLabel(b) === 'SHED RUN' && b.wakeMul === 1.5);
+  ok('the unhit gauge draws', !kitRenders(a));
+  const h0 = b.hp; kitRun(a, 1.8, () => { p.x = px; p.y = py; });
+  atMost('it does not mend in its first 2s unhit', b.hp - h0, 1e-6);
+  atLeast('it runs from the ship', Math.hypot(b.x - px, b.y - py), d0 + 80);
+  ok('its wake grows half again as long', a.discs.some(d => d.owner === b && Math.abs(d.life - 5.25) < 1e-9));
+  const h1 = b.hp; kitRun(a, 0.6, () => { p.x = px; p.y = py; });
+  ok('then, left unhit, it mends', b.hp > h1);
+  const h2 = b.hp; kitRun(a, 1.5, () => { p.x = px; p.y = py; b.hp -= 1; b.lastHit = a.time; });
+  ok('hitting it stops the mending', b.hp < h2);
+  kitRun(a, 8, () => { p.x = px; p.y = py; });
+  ok('the run ends and the wake returns to length', b.mode === 'hunt' && b.wakeMul === 1);
+ }
+ {
+  const { a, b } = kitRoom('leviathan', 24);
+  b.hp = b.maxhp * 0.59; kitRun(a, 0.5);
+  let s = a.enemies.filter(e => e.summoned);
+  ok('at 60% LEVIATHAN calls REVENANT', s.length === 1 && s[0].kind === 'revenant', s.map(e => e.kind).join(','));
+  a.killEnemy(a.enemies.indexOf(s[0])); b.hp = b.maxhp * 0.29; kitRun(a, 1.5);
+  s = a.enemies.filter(e => e.summoned);
+  ok('and again at 30%', s.length === 1 && s[0].kind === 'revenant');
+ }
+ {
+  const { a, p, b, w } = kitRoom('leviathan', 24); layOut(b, 0); b.forcedAttack = 'coil';
+  let gap = 0;
+  p.x = Math.min(w.w - 60, b.x + 900); b.surgeT = 1.6; b.path = null;
+  kitRun(a, 1.5, () => { gap = Math.max(gap, gapOf(b)); });
+  atMost('segments never detach while it SURGES', gap, 0.5);
+  for (let k = 0; k < 20; k++) { b.x += (k % 2 ? -1 : 1) * 250; b.y += 90; kitRun(a, 1 / 60); gap = Math.max(gap, gapOf(b)); }
+  atMost('or when the head is shoved hard, frame after frame (knockback, unstick)', gap, 0.5);
+  const sm = a.mkSummoned('leviathan', 600, 600, 24, 1); sm.hp = sm.maxhp * 0.4; a.enemies.push(sm); kitRun(a, 3);
+  ok('a summoned LEVIATHAN never volleys (Phase I kit only)', !sm.lvV && sm.ph === 1);
  }
  return null;
 }

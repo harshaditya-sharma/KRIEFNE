@@ -2954,48 +2954,142 @@ BOSS_KITS.revenant={
 // ===== END BOSS: REVENANT =====
 
 // ===== BOSS: LEVIATHAN =====
+// The Lane-Wyrm (spec §5). The head keeps a heading and turns at a limited
+// rate, so the body snakes; five segments follow it as one piece. Signature
+// WAKE TRAIL: the head and each segment drop discs their own size that shrink
+// to nothing, harmless for their first 0.25 s. WHIP: it rears (a hatched arc
+// shows the sweep) and swings its whole tail through a wide arc. COIL: a
+// dashed ring round you, then it circles you, fencing you in with its wake,
+// and tightens. LUNGE: a ruled line, then a straight dash. Phase II at 50%:
+// SEGMENT VOLLEY (each segment in turn, tail to head, fires one round at you
+// after a 0.35 s glow) and a 5 s wake. Recovery SHED RUN at 55%: it runs from
+// you with a wake half again as long and mends while it has gone 2 s unhit.
+// Calls REVENANT at 60% and 30%. Never teleports; no burrow, mines or spiral.
+const LV_LINK=0.82, LV_UNHIT=2;
+function lvMove(e,C,tx,ty,f,turn){ // turn the heading toward (tx,ty), then go forward along it
+ const want=Math.atan2(ty-e.y,tx-e.x); if(e.hd==null) e.hd=want;
+ e.hd=turnTo(e.hd,want,turn*C.dt);
+ const sv=steer(e,Math.cos(e.hd),Math.sin(e.hd)), v=e.sp*f*C.spdM*C.sF;
+ e.hd=turnTo(e.hd,Math.atan2(sv[1],sv[0]),turn*2*C.dt);
+ e.x+=sv[0]*v*C.dt; e.y+=sv[1]*v*C.dt; e.intent+=v*C.dt; }
+function lvLen(e){ const g=e.segs[e.segs.length-1]; return g?Math.hypot(g.x-e.x,g.y-e.y)+g.r:e.r; }
+function lvSwing(e,da){ const c=Math.cos(da), s=Math.sin(da); // the whole tail turns about the head, rigid
+ for(const g of e.segs){ const x=g.x-e.x, y=g.y-e.y; g.x=e.x+x*c-y*s; g.y=e.y+x*s+y*c; } }
+function lvVolley(e){ if(!e.lvV&&e.segs.length) e.lvV={t:0,i:0}; }
 BOSS_KITS.leviathan={
  def:{name:'LEVIATHAN',epithet:'the Lane-Wyrm',tier:3,hp:1700,r:36,spd:0.85,shape:'serpent',pt:4.0,sig:'segments',chaff:['mite','drone']},
  lore:'A LORD OF THE DEEP LANE — LEVIATHAN leaves a ghost of itself in the lane.',
- codex:{role:'Serpent', threat:'Body damages on contact',
-  tell:'The head sweeps twin streams as the whole body wheels after it, leaving a fading red WAKE the shape of its tail.',
-  counter:'Watch the body, not the head. Segments and the wake hurt — cross the trail where it has faded.',
+ codex:{role:'Serpent', threat:'Sheds once; two phases',
+  tell:'It rears and a hatched red arc marks the WHIP. A dashed ring round you is the COIL; a ruled line off its jaws, the LUNGE. Its wake is a fading red copy of its tail.',
+  counter:'Leave the arc before the tail swings. Break out of a coil before the ring tightens. When it runs to SHED, keep hitting it: two seconds unhit and it mends.',
   lore:'The Lane-Wyrm. Lane-boring infrastructure that kept growing after the contract lapsed, tunnelling debris fields for a trade that ended before home\'s star was lit. The segments are not armour; they are the original boring string, still following the head out of habit.'},
- // burrow is gone (spec §3.5): LEVIATHAN never leaves the surface
- cycle:['tailsweep','mines','spiral'],
- attacks:Object.assign(atk('mines','spiral'),{
-  tailsweep(e,C){ // the body itself is the attack
-   C.orbit(0.85); e.spirT-=C.dt;
-   if(e.spirT<=0){ e.spirT=0.5; const a=e.t*1.6;
-    for(let k=0;k<2;k++) eshot(e,a+k*3.14,200,7,0.9); } }
- }),
- // Phase II (spec §5): the wake lingers 5 s instead of 3.5 — the phase framework's proof
- phases:[{},{at:0.5,enter(e){ e.wakeLife=5; }}],
- init(e){ e.segs=[]; for(let k=0;k<5;k++) e.segs.push({x:e.x,y:e.y,r:e.r*(0.72-k*0.08)}); e.wakeLife=3.5; },
- signature(e,C){ // a trailing body that also hurts to touch
-  const p=C.p;
-  for(const g of e.segs) if(!e.phased&&e.contactCd<=0&&dist2(p.x,p.y,g.x,g.y)<(g.r+p.r)*(g.r+p.r)){ e.contactCd=0.7; hurtPlayer(Math.round(e.dmg*0.6),true,srcOf(e,'BODY')); }
+ cycle:['whip','coil','lunge'],
+ vmax:600,
+ attacks:{
+  whip(e,C){ // rear, then swing the whole tail through a wide arc
+   let S=e.lvW; if(e.atkT===0||!S) S=e.lvW={st:'hunt',t:0.4};
+   S.t-=C.dt;
+   if(S.st==='hunt'){ lvMove(e,C,C.p.x,C.p.y,0.9,2.4);
+    const tail=e.segs[e.segs.length-1];
+    if(S.t<=0&&C.d<260&&tail){ S.a0=Math.atan2(tail.y-e.y,tail.x-e.x); const ap=Math.atan2(C.p.y-e.y,C.p.x-e.x);
+     S.dir=angDiff(ap,S.a0)>=0?1:-1; S.sweep=2.5*S.dir; S.R=lvLen(e)+8; S.st='wind'; S.t=0.55; SFX.alarm(); } }
+   else if(S.st==='wind'){ if(S.t<=0){ S.st='swing'; S.t=0.4; SFX.dash(); } }
+   else if(S.st==='swing'){ const da=S.sweep*Math.min(C.dt,S.t+C.dt)/0.4; lvSwing(e,da); e.hd+=da; e.vis=e.hd;
+    if(S.t<=0){ S.st='hunt'; S.t=C.enrage?0.8:1.3; spawnBurst(e.segs[e.segs.length-1].x,e.segs[e.segs.length-1].y,10,K.red,200,0.4,3); } } },
+  coil(e,C){ // a ring round you, circled and fenced with the wake, then drawn tight
+   const fresh=()=>{ addFloater(e.x,calloutY(e),'COIL',K.red); SFX.alarm(); return {st:'wind',t:0.6,cx:C.p.x,cy:C.p.y,R:230,dir:Math.random()<0.5?1:-1}; };
+   let S=e.lvK; if(e.atkT===0||!S) S=e.lvK=fresh();
+   S.t-=C.dt;
+   if(S.st==='wind'){ const a=Math.atan2(e.y-S.cy,e.x-S.cx); lvMove(e,C,S.cx+Math.cos(a)*S.R,S.cy+Math.sin(a)*S.R,1.0,3);
+    if(S.t<=0){ S.st='circle'; S.t=2.4; } }
+   else if(S.st==='circle'||S.st==='tighten'){ const k=Math.min(1,C.dt*1.2); S.cx+=(C.p.x-S.cx)*k; S.cy+=(C.p.y-S.cy)*k;
+    if(S.st==='tighten') S.R=Math.max(120,S.R-130*C.dt);
+    const a=Math.atan2(e.y-S.cy,e.x-S.cx)+0.55*S.dir; lvMove(e,C,S.cx+Math.cos(a)*S.R,S.cy+Math.sin(a)*S.R,2.4,5);
+    if(S.t<=0){ if(S.st==='circle'){ S.st='tighten'; S.t=1.0; } else { S.st='rest'; S.t=0.8; } } }
+   else { lvMove(e,C,C.p.x,C.p.y,0.8,2.2); if(S.t<=0) e.lvK=fresh(); } },
+  lunge(e,C){ // a ruled line off the jaws, then the dash
+   let S=e.lvL; if(e.atkT===0||!S) S=e.lvL={st:'hunt',t:0.5};
+   S.t-=C.dt;
+   if(S.st==='hunt'){ lvMove(e,C,C.p.x,C.p.y,0.85,2.4);
+    if(S.t<=0){ S.st='wind'; S.t=0.6; S.dx=C.nx; S.dy=C.ny; S.L=clamp(rayObs(e.x,e.y,S.dx,S.dy,520)-e.r,60,460); S.go=0; S.lx=undefined; addFloater(e.x,calloutY(e),'LUNGE',K.red); SFX.click(); } }
+   else if(S.st==='wind'){ e.hd=turnTo(e.hd==null?0:e.hd,Math.atan2(S.dy,S.dx),8*C.dt); if(S.t<=0){ S.st='dash'; e.hd=Math.atan2(S.dy,S.dx); SFX.dash(); } }
+   else if(S.st==='dash'){ const step=560*C.dt, stuck=S.lx!==undefined&&Math.hypot(e.x-S.lx,e.y-S.ly)<step*0.25;
+    S.lx=e.x; S.ly=e.y; e.x+=S.dx*step; e.y+=S.dy*step; S.go+=step; e.intent+=step; e.charging=true;
+    const wall=e.x<=PX0+e.r+1||e.x>=PX1-e.r-1||e.y<=PY0+e.r+1||e.y>=PY1-e.r-1;
+    if(S.go>=S.L||wall||stuck){ S.st='hunt'; S.t=C.enrage?0.7:1.2; spawnBurst(e.x,e.y,12,K.metal,220,0.45,3); if(settings.shake) shake=Math.min(10,shake+3); } } },
+  volley(e,C){ // Phase II's added attack, on its own clock; the lab can loop it here
+   lvMove(e,C,C.p.x,C.p.y,0.8,2.2); e.lvVc=(e.atkT===0?0:(e.lvVc||0)-C.dt);
+   if(!e.lvV&&e.lvVc<=0){ lvVolley(e); e.lvVc=1.6; } }
  },
- // The body moves as one piece: every move of the head, forced or not, drags
- // each segment after it, so nothing can leave a segment behind.
- post(e){ let prev=e; const want=e.r*0.82;
-  for(const g of e.segs){ const vx=prev.x-g.x, vy=prev.y-g.y, l=len(vx,vy); if(l>want){ g.x+=vx/l*(l-want); g.y+=vy/l*(l-want); } prev=g; }
-  // Wake Trail (the signature): the head and every segment leave a disc their
-  // own size each time they move most of a width, so a fading copy of the tail
-  // lies behind it. Discs are harmless for their first 0.25 s.
-  const life=e.wakeLife||3.5, src=e.wakeSrc||(e.wakeSrc=srcOf(e,'WAKE')), dmg=Math.round(e.dmg*0.3);
+ // Phase II (spec §5): the wake lingers 5 s, and the SEGMENT VOLLEY joins the kit
+ phases:[{},{at:0.5,enter(e){ e.wakeLife=5; e.lvVT=1.5; }}],
+ init(e){ e.segs=[]; for(let k=0;k<5;k++) e.segs.push({x:e.x,y:e.y,r:e.r*(0.72-k*0.08)}); e.wakeLife=3.5; e.wakeMul=1; },
+ signature(e,C){ // Phase II: a segment volley every few seconds
+  if(e.ph>=2&&!e.summoned){ e.lvVT=(e.lvVT==null?1.5:e.lvVT)-C.dt; if(e.lvVT<=0&&!e.lvV){ e.lvVT=C.enrage?3.2:4.5; lvVolley(e); } } },
+ // SHED RUN: away from the ship, a longer wake behind it, mending while unhit for 2 s
+ recover:{ at:[0.55], pool:0.08, label:'SHED RUN', hold:true, max:9,
+  start(e){ e.wakeMul=1.5; addFloater(e.x,calloutY(e),'LEVIATHAN SHEDS · keep hitting it',K.red); SFX.alarm(); },
+  update(e,C){ const P=C.p; let dx=e.x-P.x, dy=e.y-P.y; const d=Math.hypot(dx,dy)||1; dx/=d; dy/=d;
+   const M=120, tgt=(ux,uy)=>({x:clamp(e.x+ux*300,PX0+M,PX1-M),y:clamp(e.y+uy*300,PY0+M,PY1-M)});
+   let t=tgt(dx,dy); if(Math.hypot(t.x-e.x,t.y-e.y)<110){ const a=tgt(-dy,dx), b=tgt(dy,-dx); t=Math.hypot(a.x-e.x,a.y-e.y)>Math.hypot(b.x-e.x,b.y-e.y)?a:b; }
+   lvMove(e,C,t.x,t.y,1.25,3);
+   if(timeSec-e.lastHit>=LV_UNHIT) bossHeal(e,e.maxhp*0.03*C.dt);
+   return e.healPool<=0?'mended':false; },
+  end(e,why){ e.wakeMul=1; addFloater(e.x,calloutY(e),why==='mended'?'LEVIATHAN TURNS BACK':'SHED RUN ENDS',why==='mended'?K.red:K.gold); }
+ },
+ // The body moves as one piece: after every move of the head, forced or not
+ // (a SURGE, a slide, a shove), each segment is dragged after the one before
+ // it, so nothing can leave a segment behind.
+ post(e,dt){
+  const vx=e.x-e.px, vy=e.y-e.py, L=e.lvL, lock=e.atk==='lunge'&&L&&L.st==='wind';
+  if(lock) e.vis=turnTo(e.vis==null?0:e.vis,Math.atan2(L.dy,L.dx),9*dt);
+  else if(vx*vx+vy*vy>0.25){ const a=Math.atan2(vy,vx); e.vis=e.vis==null?a:turnTo(e.vis,a,9*dt); }
+  else if(e.vis==null) e.vis=e.hd!=null?e.hd:0;
+  let prev=e; const want=e.r*LV_LINK;
+  for(const g of e.segs){ const ux=prev.x-g.x, uy=prev.y-g.y, l=len(ux,uy); if(l>want){ g.x+=ux/l*(l-want); g.y+=uy/l*(l-want); } prev=g; }
+  // the body hurts to touch; a swinging tail hits as hard as the head
+  const p=player, whip=e.atk==='whip'&&e.lvW&&e.lvW.st==='swing';
+  if(p&&!e.phased&&e.contactCd<=0) for(const g of e.segs) if(dist2(p.x,p.y,g.x,g.y)<(g.r+p.r)*(g.r+p.r)){ e.contactCd=0.7; hurtPlayer(Math.round(e.dmg*(whip?1:0.6)),true,srcOf(e,whip?'WHIP':'BODY')); break; }
+  // Wake Trail (the signature): a disc their own size each time the head or a
+  // segment moves most of a width, so a fading copy of the tail lies behind it
+  const life=(e.wakeLife||3.5)*(e.wakeMul||1), src=e.wakeSrc||(e.wakeSrc=srcOf(e,'WAKE')), dmg=Math.round(e.dmg*0.3);
   const drop=(q,r)=>{ if(q.wx===undefined||Math.hypot(q.x-q.wx,q.y-q.wy)>=r*0.8){ q.wx=q.x; q.wy=q.y; dropDisc(e,q.x,q.y,r,{life,dmg,src}); } };
-  drop(e,e.r*0.8); for(const g of e.segs) drop(g,g.r); },
- under(e){ // the body behind the head
-  const P=pigOf(e); ctx.save(); ctx.globalAlpha=e.phased?0.3:1;
-  for(let k=e.segs.length-1;k>=0;k--){ const g=e.segs[k];
-   ctx.fillStyle=P.body; ctx.strokeStyle=e.hp<e.maxhp*0.3?P.hi:P.c; ctx.lineWidth=1.5;
-   ctx.beginPath(); ctx.arc(g.x,g.y,g.r,0,6.283); ctx.fill(); ctx.stroke();
-   ctx.strokeStyle=P.dim; ctx.lineWidth=1; ctx.beginPath(); ctx.arc(g.x,g.y,g.r*0.55,0,6.283); ctx.stroke(); }
+  drop(e,e.r*0.8); for(const g of e.segs) drop(g,g.r);
+  // SEGMENT VOLLEY: tail to head, each glows 0.35 s, then fires one round at the ship
+  const V=e.lvV; if(V&&p){ V.t+=dt; const n=e.segs.length;
+   while(V.i<=n&&V.t>=0.35+V.i*0.14){ const q=V.i<n?e.segs[n-1-V.i]:e, sv=e.lvVsrc||(e.lvVsrc=srcOf(e,'SEGMENT VOLLEY'));
+    const b=eshotAt(e,q.x,q.y,Math.atan2(p.y-q.y,p.x-q.x),300,6,0.8,3); if(b) b.src=sv; V.i++; SFX.eshoot(); }
+   if(V.i>n) e.lvV=null; } },
+ label(e){ return e.lvV&&!e.rec?'SEGMENT VOLLEY':null; },
+ under(e){ // telegraphs, then the body behind the head
+  const P=pigOf(e), W=e.lvW, K2=e.lvK, L=e.lvL;
+  if(e.atk==='whip'&&W&&W.st==='wind'){ const a0=W.a0, a1=W.a0+W.sweep, lo=Math.min(a0,a1), hi=Math.max(a0,a1);
+   ctx.save(); ctx.beginPath(); ctx.moveTo(e.x,e.y); ctx.arc(e.x,e.y,W.R,lo,hi); ctx.closePath(); ctx.save(); ctx.clip();
+   ctx.strokeStyle=K.redDim; ctx.lineWidth=1; ctx.beginPath(); for(let d=-W.R;d<W.R;d+=8){ ctx.moveTo(e.x+d,e.y-W.R); ctx.lineTo(e.x+d+W.R,e.y+W.R); } ctx.stroke(); ctx.restore();
+   ctx.strokeStyle=K.red; ctx.lineWidth=1.5; ctx.stroke();
+   line(e.x+Math.cos(a1)*(W.R-16),e.y+Math.sin(a1)*(W.R-16),e.x+Math.cos(a1)*(W.R+14),e.y+Math.sin(a1)*(W.R+14),K.redHi,2); ctx.restore(); }
+  if(e.atk==='coil'&&K2&&K2.st==='wind'){ ctx.save(); ctx.strokeStyle=K.red; ctx.lineWidth=1.5; ctx.setLineDash([8,6]); ctx.beginPath(); ctx.arc(K2.cx,K2.cy,K2.R,0,6.283); ctx.stroke(); ctx.setLineDash([]);
+   ctx.lineWidth=1; ctx.beginPath(); ctx.arc(K2.cx,K2.cy,120,0,6.283); ctx.setLineDash([2,6]); ctx.stroke(); ctx.setLineDash([]); ctx.restore(); }
+  if(e.atk==='lunge'&&L&&L.st==='wind'){ const ex=e.x+L.dx*(L.L+e.r), ey=e.y+L.dy*(L.L+e.r);
+   ctx.save(); ctx.globalAlpha=0.85; tickedLine(e.x,e.y,ex,ey,K.red,1.5,22,5); const nx=-L.dy*e.r*0.8, ny=L.dx*e.r*0.8;
+   line(e.x+nx,e.y+ny,ex+nx,ey+ny,K.redDim,1,[6,6]); line(e.x-nx,e.y-ny,ex-nx,ey-ny,K.redDim,1,[6,6]); ctx.restore(); }
+  const V=e.lvV, n=e.segs.length, hot=k=>{ if(!V) return false; const i=n-1-k, due=0.35+i*0.14; return V.t>=due-0.35&&V.i<=i; };
+  const whip=e.atk==='whip'&&W&&W.st==='swing', rage=e.hp<e.maxhp*0.3;
+  ctx.save(); ctx.globalAlpha=e.phased?0.3:1;
+  for(let k=n-1;k>=0;k--){ const g=e.segs[k], pv=k?e.segs[k-1]:e, a=Math.atan2(pv.y-g.y,pv.x-g.x), r=g.r;
+   ctx.save(); ctx.translate(g.x,g.y); ctx.rotate(a);
+   polyPts([[r,0],[r*0.45,-r*0.9],[-r*0.55,-r*0.84],[-r,0],[-r*0.55,r*0.84],[r*0.45,r*0.9]]);
+   ctx.fillStyle=P.body; ctx.fill(); ctx.strokeStyle=(whip||rage)?P.hi:P.c; ctx.lineWidth=1.5; ctx.stroke();
+   ctx.strokeStyle=P.dim; ctx.lineWidth=1; ctx.beginPath(); ctx.moveTo(-r*0.6,0); ctx.lineTo(r*0.55,0); ctx.moveTo(r*0.1,-r*0.6); ctx.lineTo(r*0.45,0); ctx.lineTo(r*0.1,r*0.6); ctx.stroke();
+   if(hot(k)){ ctx.strokeStyle=K.red; ctx.lineWidth=1.5; ctx.beginPath(); ctx.arc(0,0,r+4,0,6.283); ctx.stroke(); }
+   ctx.restore(); }
   ctx.restore(); },
- draw(e,g){ // armoured head with mandibles
-  const R=g.R;
-  ctx.save(); ctx.rotate(Math.atan2(player?player.y-e.y:0,player?player.x-e.x:1));
+ draw(e,g){ // an armoured wedge head with mandibles; in the codex, its tail curled round it
+  const R=g.R, a=e.vis!=null?e.vis:(e.facing||0);
+  if(codexPreview){ ctx.save(); for(let k=4;k>=0;k--){ const t=a+2.5+k*0.72, r=R*(0.72-k*0.08), x=Math.cos(t)*R*1.12, y=Math.sin(t)*R*1.12;
+    ctx.save(); ctx.translate(x,y); ctx.rotate(t+1.5708+0.3); polyPts([[r,0],[r*0.45,-r*0.9],[-r*0.55,-r*0.84],[-r,0],[-r*0.55,r*0.84],[r*0.45,r*0.9]]);
+    ctx.fillStyle=g.body; ctx.fill(); ctx.strokeStyle=g.col; ctx.lineWidth=1.5; ctx.stroke(); ctx.restore(); } ctx.restore(); }
+  ctx.save(); ctx.rotate(a);
   ctx.fillStyle=g.body; ctx.strokeStyle=g.col; ctx.lineWidth=g.lw;
   ctx.beginPath(); ctx.moveTo(R,0); ctx.lineTo(R*0.2,-R*0.78); ctx.lineTo(-R*0.8,-R*0.5); ctx.lineTo(-R*0.8,R*0.5); ctx.lineTo(R*0.2,R*0.78); ctx.closePath(); ctx.fill(); ctx.stroke();
   ctx.lineWidth=3; ctx.lineCap='round'; ctx.beginPath(); ctx.moveTo(R*0.55,-R*0.4); ctx.lineTo(R*1.25,-R*0.72); ctx.moveTo(R*0.55,R*0.4); ctx.lineTo(R*1.25,R*0.72); ctx.stroke(); ctx.lineCap='butt';
@@ -3003,8 +3097,13 @@ BOSS_KITS.leviathan={
   ctx.fillStyle=g.col; ctx.beginPath(); ctx.arc(R*0.1,-R*0.26,3,0,6.283); ctx.arc(R*0.1,R*0.26,3,0,6.283); ctx.fill();
   ctx.restore();
  },
+ drawTop(e,g){ // SHED RUN: how long it has gone unhit, as an engraved arc round the head
+  if(!e.rec||e.kit.recover.label!==e.rec.label) return;
+  const f=clamp((timeSec-e.lastHit)/LV_UNHIT,0,1), R=g.R+18;
+  ctx.strokeStyle=g.dim; ctx.lineWidth=1; ctx.setLineDash([3,4]); ctx.beginPath(); ctx.arc(0,0,R,0,6.283); ctx.stroke(); ctx.setLineDash([]);
+  ctx.strokeStyle=f>=1?g.P.hi:g.col; ctx.lineWidth=2.5; ctx.beginPath(); ctx.arc(0,0,R,-1.5708,-1.5708+6.283*f); ctx.stroke(); },
  // the mandibles reach past the head's circle
- hitParts:{ rot:e=>Math.atan2(player?player.y-e.y:0,player?player.x-e.x:1), c:[[1.05,-0.62,0.2],[1.05,0.62,0.2]] }
+ hitParts:{ rot:e=>e.vis!=null?e.vis:(e.facing||0), c:[[1.05,-0.62,0.2],[1.05,0.62,0.2]] }
 };
 // ===== END BOSS: LEVIATHAN =====
 
