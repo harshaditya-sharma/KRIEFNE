@@ -4010,24 +4010,143 @@ BOSS_KITS.colossus={
 // ===== END BOSS: COLOSSUS =====
 
 // ===== BOSS: BASILISK =====
+// Keeper of the Held (spec §5): a cobra-hood face seen from above — flared
+// hood, eye-spots, head forward. The coil is gone, and so are the line-charge
+// that left damage circles and the spikes. Signature HOOD FLARE: the hood
+// spreads over 0.9 s, then a shockwave ring rolls out and FREEZES for 1.2 s.
+// Secondaries: GAZE (a telegraphed damage-only cone — pain, not stone),
+// STRIKE (a fast cobra lunge with a recoil back to where it started, never a
+// teleport) and SPIT (a venom fan that leaves slowing puddles). P2 at 66%: a
+// double flare, the second ring 0.6 s later. P3 at 33%: the gaze sweeps.
+// Recovery SHED SKIN at 55% and 30%: it leaves a husk decoy (a part that
+// draws seeking rounds off the hull and absorbs them) and slithers away,
+// mending while the husk stands. Calls COLOSSUS at 70% and 35% (the rung
+// below). No radial volleys.
 BOSS_KITS.basilisk={
- def:{name:'BASILISK',epithet:'Keeper of the Held',tier:4,hp:1350,r:31,spd:1.10,shape:'coil',pt:3.4,sig:'petrify',chaff:['stalker','mite']},
+ def:{name:'BASILISK',epithet:'Keeper of the Held',tier:4,hp:1350,r:31,spd:1.10,shape:'hood',pt:3.4,sig:'flare',chaff:['stalker','mite']},
  lore:'A SOVEREIGN OF QUARANTINE — its last visitor is still held in BASILISK\'s eye.',
- codex:{role:'Controller', threat:'Roots you in place',
-  tell:'A ruled CONE opens before the gaze fires. Lunges leave spikes behind.',
-  counter:'Leave the cone — being PETRIFIED next to a lunge is how this fight ends.',
+ codex:{role:'Controller', threat:'Freezes; sheds twice; three phases',
+  tell:'The hood spreads over 0.9 s, then a FREEZE ring rolls out. A ruled CONE is the GAZE: it only hurts where it points. A ruled line is the STRIKE lunge; a wedge, the SPIT, which leaves slowing pools.',
+  counter:'Leave the ring before it rolls — held means frozen. Leave the cone. The lunge recoils to where it started: be elsewhere, then punish. When it sheds, break the husk: your seeking rounds will want the husk, so let them, then work the body.',
   lore:'Keeper of the Held. A dying world built it to keep visitors away, so that whatever was killing them would not leave. It does not kill so much as hold you pending review. The reviewers ended nine hundred million years ago. The queue has not moved.'},
- cycle:['gaze','linecharge','spikes','fan'],
- attacks:atk('gaze','linecharge','spikes','fan'),
- draw(e,g){ // coiled plates with a slit gaze
-  const R=g.R;
-  for(let k=3;k>=1;k--){ ctx.strokeStyle=k===3?g.col:g.dim; ctx.lineWidth=1;
-   ctx.beginPath(); ctx.arc(0,0,R*(0.42+k*0.2),e.t*0.6+k,e.t*0.6+k+4.2); ctx.stroke(); }
-  ctx.fillStyle=g.body; ctx.strokeStyle=g.col; ctx.lineWidth=g.lw; poly(5,R*0.6,e.t*0.3); ctx.fill(); ctx.stroke();
-  { const a=Math.atan2(player?player.y-e.y:0,player?player.x-e.x:1);
-    ctx.save(); ctx.rotate(a); ctx.fillStyle=g.col;
-    ctx.beginPath(); ctx.ellipse(R*0.22,0,R*0.26,2.6,0,0,6.283); ctx.fill(); ctx.restore(); }
- }
+ cycle:['flare','gaze','strike','spit'],
+ vmax:520,
+ phases:[{},{at:0.66},{at:0.33}],
+ init(e){ e.ba={face:Math.atan2(player?player.y-e.y:0,player?player.x-e.x:1),flare:0.25}; },
+ attacks:{
+  flare(e,C){ // the hood spreads 0.9 s, then a freeze ring (two in P2)
+   C.mv(0.25);
+   let S=e.baF; if(e.atkT===0||!S) S=e.baF={st:'spread',t:0.9};
+   S.t-=C.dt;
+   e.ba.flare=S.st==='spread'?clamp(1-S.t/0.9,0.25,1):1;
+   if(S.st==='spread'&&S.t<=0){ S.st='cool'; S.t=1.4;
+    shockwave(e,e.x,e.y,{maxR:260,spd:300,dmg:Math.round(e.dmg*0.6),fx:'freeze',dur:1.2,warn:0.5,w:16,what:'HOOD FLARE'});
+    SFX.ring(); if(settings.shake) shake=Math.min(10,shake+3);
+    if(e.ph>=2&&!e.summoned) e.baF2=0.6; }
+   else if(S.st==='cool'&&S.t<=0){ S.st='spread'; S.t=0.9; SFX.click(); } },
+  gaze(e,C){ // a damage-only cone: ruled, then burning where it points (sweeping in P3)
+   C.mv(0.3);
+   let S=e.baG; if(e.atkT===0||!S) S=e.baG={st:'wind',t:0.75,a:0,tick:0,dir:1};
+   S.t-=C.dt;
+   const sweep=e.ph>=3&&!e.summoned;
+   if(S.st==='wind'){ S.a=C.aim; e.gaze={t:0.5,ang:S.a};
+    if(S.t<=0){ S.st='fire'; S.t=0.6; S.tick=0; S.dir=Math.random()<0.5?1:-1; } }
+   else if(S.st==='fire'){ if(sweep) S.a+=S.dir*1.4*C.dt; e.gaze={t:0.5,ang:S.a};
+    S.tick-=C.dt;
+    if(S.tick<=0){ S.tick=0.2;
+     if(Math.abs(angDiff(C.aim,S.a))<0.45&&C.d<430){ hurtPlayer(Math.round(e.dmg*0.5),true,srcOf(e,'GAZE'));
+      for(let k=0;k<4;k++) pushPart({x:C.p.x+(Math.random()-0.5)*20,y:C.p.y+(Math.random()-0.5)*20,vx:0,vy:-60,life:0.3,maxlife:0.3,col:K.red,r:3}); } }
+    if(S.t<=0){ S.st='wind'; S.t=C.enrage?1.4:2.0; e.gaze=null; } } },
+  strike(e,C){ // a ruled line held 0.5 s, a lunge, a recoil — never a jump
+   let S=e.baK; if(e.atkT===0||!S) S=e.baK={st:'wind',t:0.5,dx:1,dy:0};
+   S.t-=C.dt;
+   if(S.st==='wind'){ S.dx=C.nx; S.dy=C.ny;
+    if(S.t<=0){ S.st='lunge'; S.t=0.45; SFX.dash(); } }
+   else if(S.st==='lunge'){ const v=460;
+    e.x+=S.dx*v*C.dt; e.y+=S.dy*v*C.dt; e.intent+=v*C.dt; e.charging=true;
+    if(S.t<=0){ S.st='recoil'; S.t=0.5; } }
+   else if(S.st==='recoil'){ const v=300;
+    e.x-=S.dx*v*C.dt; e.y-=S.dy*v*C.dt; e.intent+=v*C.dt;
+    if(S.t<=0){ S.st='cool'; S.t=C.enrage?1.0:1.6; } }
+   else if(S.st==='cool'&&S.t<=0){ S.st='wind'; S.t=0.5; } },
+  spit(e,C){ // a venom fan, then slowing pools where you stand
+   C.mv(0.4);
+   let S=e.baS; if(e.atkT===0||!S) S=e.baS={st:'wind',t:0.55};
+   S.t-=C.dt;
+   if(S.st==='wind'&&S.t<=0){ S.st='cool'; S.t=1.8;
+    for(let k=-2;k<=2;k++) eshot(e,C.aim+k*0.16,230,5,0.7,3.0);
+    if(hazards.length+1<CAP.haz){ const p=C.p, src=srcOf(e,'SPIT');
+     const pts=[{x:p.x,y:p.y},{x:p.x+(Math.random()-0.5)*160,y:p.y+(Math.random()-0.5)*160}];
+     for(const q of pts){ const x=clamp(q.x,PX0+60,PX1-60), y=clamp(q.y,PY0+60,PY1-60);
+      hazards.push({x,y,r:56,t:0,life:6,dmg:Math.round(e.dmg*0.3),tick:0,warn:0.55,slow:0.55,src}); } }
+    SFX.eshoot(); }
+   else if(S.st==='cool'&&S.t<=0){ S.st='wind'; S.t=0.55; } }
+ },
+ // SHED SKIN: a husk decoy that draws seeking rounds and absorbs them; it
+ // slithers away and mends while the husk stands.
+ recover:{ at:[0.55,0.30], pool:0.08, label:'SHED SKIN', hold:false, max:10,
+  start(e){ const q=addPart(e,{id:'husk',r:24,hp:e.maxhp*0.05,kind:'husk'});
+   if(q){ q.lx=undefined; q.x=e.x; q.y=e.y; }
+   rings.push({x:e.x,y:e.y,r:e.r,maxR:e.r+80,spd:260,dmg:0,hit:true});
+   addFloater(e.x,calloutY(e),'BASILISK SHEDS ITS SKIN · break the husk',K.red); SFX.alarm(); },
+  update(e,C){ const H=e.parts.find(q=>q.kind==='husk');
+   if(!H) return 'broken';
+   // the husk draws seeking rounds off the hull
+   for(const b of bullets){ if(!b.turn) continue;
+    const dx=H.x-b.x, dy=H.y-b.y, l=Math.hypot(dx,dy);
+    if(l<340&&l>1){ const na=turnTo(Math.atan2(b.vy,b.vx),Math.atan2(dy,dx),6*C.dt);
+     const sp=Math.hypot(b.vx,b.vy); b.vx=Math.cos(na)*sp; b.vy=Math.sin(na)*sp; } }
+   // and it slithers away while the husk stands
+   const dx=e.x-C.p.x, dy=e.y-C.p.y, l=Math.hypot(dx,dy)||1;
+   const sv=steer(e,dx/l,dy/l), v=e.sp*1.2*C.spdM*C.sF;
+   e.x+=sv[0]*v*C.dt; e.y+=sv[1]*v*C.dt; e.intent+=v*C.dt;
+   bossHeal(e,e.maxhp*0.022*C.dt);
+   return e.healPool<=0?'mended':false; },
+  end(e,why){ e.parts=e.parts.filter(q=>q.kind!=='husk');
+   addFloater(e.x,calloutY(e),why==='broken'?'HUSK BROKEN':'SKIN SHED',why==='broken'?K.gold:K.red); } },
+ label(e){ if(e.atk==='flare') return 'HOOD FLARE'; if(e.atk==='gaze') return 'GAZE';
+  if(e.atk==='strike') return 'STRIKE'; if(e.atk==='spit') return 'SPIT'; return null; },
+ post(e,dt){
+  const p=player;
+  if(p) e.ba.face=turnTo(e.ba.face,Math.atan2(p.y-e.y,p.x-e.x),2.2*dt);
+  if(!(e.atk==='flare'&&e.baF&&e.baF.st==='spread')) e.ba.flare=Math.max(0.25,e.ba.flare-dt*0.4);
+  if(e.baF2!=null){ e.baF2-=dt; // P2: the second ring, 0.6 s later
+   if(e.baF2<=0){ e.baF2=null;
+    shockwave(e,e.x,e.y,{maxR:260,spd:300,dmg:Math.round(e.dmg*0.6),fx:'freeze',dur:1.2,warn:0.5,w:16,what:'HOOD FLARE'});
+    SFX.ring(); } } },
+ under(e){
+  const F=e.baF;
+  if(e.atk==='flare'&&F&&F.st==='spread'){ ctx.save(); ctx.globalAlpha=0.8;
+   ctx.strokeStyle=K.red; ctx.lineWidth=1.5; ctx.setLineDash([8,6]);
+   ctx.beginPath(); ctx.arc(e.x,e.y,260,0,6.283); ctx.stroke(); ctx.setLineDash([]); ctx.restore(); }
+  const K2=e.baK, p=player;
+  if(e.atk==='strike'&&K2&&K2.st==='wind'&&p){ const ex=e.x+K2.dx*300, ey=e.y+K2.dy*300;
+   ctx.save(); ctx.globalAlpha=0.85; tickedLine(e.x,e.y,ex,ey,K.red,1.5,20,4); ctx.restore(); }
+  const S=e.baS;
+  if(e.atk==='spit'&&S&&S.st==='wind'&&p){ ctx.save(); ctx.globalAlpha=0.8;
+   tickedLine(e.x,e.y,p.x,p.y,K.red,1,20,3); ctx.restore(); } },
+ draw(e,g){ // a cobra-hood face from above: flared hood, eye-spots, head forward
+  const R=g.R, a=e.ba?e.ba.face:0, f=e.ba?e.ba.flare:0.25;
+  const hot=e.atk==='flare'&&e.baF&&e.baF.st==='spread';
+  ctx.save(); ctx.rotate(a);
+  for(const s of [-1,1]){ ctx.save(); ctx.scale(1,s);
+   ctx.rotate(0.5+f*0.55);
+   polyPts([[R*0.1,-R*0.12],[R*1.0,-R*0.72],[R*1.18,-R*0.18],[R*0.9,R*0.12],[R*0.2,R*0.26]]);
+   ctx.fillStyle=g.body; ctx.fill(); ctx.strokeStyle=hot?K.redHi:g.col; ctx.lineWidth=hot?2:g.lw; ctx.stroke();
+   ctx.strokeStyle=g.dim; ctx.lineWidth=1; ctx.beginPath(); ctx.moveTo(R*0.3,-R*0.1); ctx.lineTo(R*0.95,-R*0.5); ctx.stroke();
+   ctx.restore(); }
+  // eye-spots on the hood
+  for(const s of [-1,1]){ ctx.fillStyle=g.dim; ctx.beginPath(); ctx.arc(R*0.42,s*R*0.42,4.5,0,6.283); ctx.fill();
+   ctx.fillStyle=g.col; ctx.beginPath(); ctx.arc(R*0.42,s*R*0.42,1.8,0,6.283); ctx.fill(); }
+  // the head, forward
+  polyPts([[R*1.15,0],[R*0.55,-R*0.3],[R*0.35,-R*0.18],[R*0.35,R*0.18],[R*0.55,R*0.3]]);
+  ctx.fillStyle=e.baG&&e.baG.st==='fire'?K.red:g.body; ctx.fill();
+  ctx.strokeStyle=e.baG&&e.baG.st==='fire'?K.redHi:g.col; ctx.lineWidth=g.lw; ctx.stroke();
+  ctx.fillStyle=g.col; ctx.beginPath(); ctx.arc(R*0.72,0,2.2,0,6.283); ctx.fill();
+  ctx.restore();
+ },
+ // the hood's lobes and the head reach past the core circle
+ hitParts:{ rot:e=>e.ba?e.ba.face:0, c:[[0.9,0,0.28],[0.3,-0.85,0.24],[0.3,0.85,0.24]] }
 };
 // ===== END BOSS: BASILISK =====
 
@@ -4781,6 +4900,7 @@ function update(dt){
   for(let i=hazards.length-1;i>=0;i--){ const h=hazards[i]; h.t+=dt;
    if(h.t>=(h.warn||0)&&dist2(p.x,p.y,h.x,h.y)<h.r*h.r){
     if(h.jam) applyStatus('jam',0.6);
+    if(h.slow) applyStatus('slow',0.7,{mul:h.slow});
     if(h.dmg>0){ h.tick-=dt; if(h.tick<=0){ h.tick=0.6; hurtPlayer(h.dmg,false,h.src); } }
    }
    if(h.t>=h.life) hazards.splice(i,1);
@@ -5781,6 +5901,7 @@ function drawWorld(th){
   ctx.strokeStyle=K.red; ctx.lineWidth=1.5; if(arming) ctx.setLineDash([7,6]);
   ctx.beginPath(); ctx.arc(h.x,h.y,h.r,0,6.283); ctx.stroke(); ctx.setLineDash([]);
   if(h.jam){ ctx.textAlign='center'; inkText('JAM',h.x,h.y+4,K.red,fD(10)); }
+  else if(h.slow){ ctx.textAlign='center'; inkText('SLOW',h.x,h.y+4,K.red,fD(10)); }
   ctx.restore(); }
  drawBossUnder(th); // boulders, trail discs, erase zones, currents, marks, beams
  // what a god trails behind its hull (LEVIATHAN's body), beneath every hull

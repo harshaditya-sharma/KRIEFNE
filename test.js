@@ -3479,7 +3479,6 @@ function suiteKits2() {
   ok(k + ': a codex field note, tells and counter, and a debut line naming its rank', !!(kit.codex.lore && kit.codex.tell && kit.codex.counter && kit.lore.indexOf(api0.tierNames[kit.def.tier]) >= 0));
  };
  const pinAt = (p, x, y) => () => { p.x = x; p.y = y; };
- const jumpWatch = b => { let last = { x: b.x, y: b.y }, worst = 0; return () => { worst = Math.max(worst, Math.hypot(b.x - last.x, b.y - last.y)); last = { x: b.x, y: b.y }; return worst; }; };
 
  // ---------------- HYDRA ----------------
  basics('hydra');
@@ -4043,6 +4042,7 @@ function suiteKits3() {
   ok(k + ': a codex field note, tells and counter, and a debut line naming its rank', !!(kit.codex.lore && kit.codex.tell && kit.codex.counter && kit.lore.indexOf(api0.tierNames[kit.def.tier]) >= 0));
  };
  const pinAt = (p, x, y) => () => { p.x = x; p.y = y; };
+ const jumpWatch = b => { let last = { x: b.x, y: b.y }, worst = 0; return () => { worst = Math.max(worst, Math.hypot(b.x - last.x, b.y - last.y)); last = { x: b.x, y: b.y }; return worst; }; };
 
  // ---------------- COLOSSUS ----------------
  basics('colossus');
@@ -4135,6 +4135,121 @@ function suiteKits3() {
   a.killEnemy(a.enemies.indexOf(s[0])); b.hp = b.hpSeen = b.maxhp * 0.34; kitRun(a, 1.5);
   s = a.enemies.filter(e => e.summoned);
   ok('and again at 35%', s.length === 1 && s[0].kind === 'archon');
+ }
+
+ // ---------------- BASILISK ----------------
+ basics('basilisk');
+ {
+  const B = KITS.basilisk;
+  ok("BASILISK's coil, line-charge and spikes are gone", !B.attacks.linecharge && !B.attacks.spikes && B.cycle.every(n => ['linecharge', 'spikes'].indexOf(n) < 0));
+  const { a, p, b } = kitRoom('basilisk', 59, { dx: 150 });
+  b.forcedAttack = 'flare'; b.sumLeft = []; const pin = pinAt(p, p.x, p.y);
+  let spread = 0, ring = null, froze = false;
+  const hits = kitRun(a, 3.0, () => { pin(); noChaff(a); spread = Math.max(spread, b.ba.flare);
+   const g = a.rings.find(g => g.owner === b && g.src && g.src.what === 'HOOD FLARE');
+   if (g && !ring) ring = { warn: g.delay, fx: g.fx, dur: g.fxDur };
+   if (p.status.freeze > 0) froze = true; });
+  range('HOOD FLARE: the hood spreads over 0.9s', spread, 0.95, 1.0);
+  ok('then a ring, previewed, that freezes 1.2s', !!ring && ring.warn >= 0.5 - 1e-9 && ring.fx === 'freeze' && ring.dur >= 1.2 - 1e-9);
+  ok('and a ship in range is held', (hits['HOOD FLARE'] || 0) >= 1 && froze, JSON.stringify(hits));
+ }
+ {
+  const { a, p, b } = kitRoom('basilisk', 59, { dx: 150 });
+  b.forcedAttack = 'flare'; b.sumLeft = []; b.hp = b.hpSeen = b.maxhp * 0.65; const pin = pinAt(p, p.x, p.y);
+  kitRun(a, 1.0, () => { pin(); noChaff(a); });
+  ok('PHASE II at 66%', b.ph === 2);
+  let rings = 0; const seen = new Set();
+  kitRun(a, 2.6, () => { pin(); noChaff(a); for (const g of a.rings) if (g.owner === b && g.src && g.src.what === 'HOOD FLARE' && !seen.has(g)) { seen.add(g); rings++; } });
+  atLeast('Phase II: a double flare — the second ring 0.6s later', rings, 2);
+  const s = kitRoom('basilisk', 59, { summoned: true, dx: 150 }); s.b.forcedAttack = 'flare'; s.b.sumLeft = [];
+  let two = 0; const seen2 = new Set();
+  kitRun(s.a, 3.0, () => { noChaff(s.a); s.p.x = s.b.x - 150; s.p.y = s.b.y;
+   for (const g of s.a.rings) if (g.owner === s.b && g.src && g.src.what === 'HOOD FLARE' && !seen2.has(g)) { seen2.add(g); two++; } });
+  ok('a summoned BASILISK never flares twice (Phase I kit only)', two <= 1);
+ }
+ {
+  const { a, p, b } = kitRoom('basilisk', 59, { dx: 250 });
+  b.forcedAttack = 'gaze'; b.sumLeft = []; const pin = pinAt(p, p.x, p.y);
+  kitRun(a, 0.4, () => { pin(); noChaff(a); });
+  ok('GAZE: a ruled cone while it aims', !!b.gaze && !kitRenders(a));
+  const hits = kitRun(a, 1.2, () => { pin(); noChaff(a); });
+  atLeast('damage only, on a ship inside it', hits.GAZE || 0, 1);
+  ok('never a freeze, never a root', p.status.freeze <= 0 && p.status.freezeImm <= 0 && p.status.root <= 0);
+  const r2 = kitRoom('basilisk', 59, { dx: 250 }); r2.b.forcedAttack = 'gaze'; r2.b.sumLeft = [];
+  const px = r2.p.x, py = r2.p.y;
+  kitRun(r2.a, 0.8, () => { noChaff(r2.a); r2.p.x = px; r2.p.y = py; });
+  const miss = kitRun(r2.a, 0.8, () => { noChaff(r2.a); r2.p.x = r2.b.x; r2.p.y = r2.b.y + 300; });
+  eq('a ship out of the locked cone is untouched', miss.GAZE || 0, 0);
+ }
+ {
+  const r3 = kitRoom('basilisk', 59, { dx: 250 }); r3.b.forcedAttack = 'gaze'; r3.b.sumLeft = [];
+  r3.b.hp = r3.b.hpSeen = r3.b.maxhp * 0.32;
+  kitRun(r3.a, 2.6, () => noChaff(r3.a));
+  ok('PHASE III at 33%', r3.b.ph === 3);
+  const px = r3.p.x, py = r3.p.y; let a0 = null, swept = 0;
+  kitRun(r3.a, 0.6, () => { noChaff(r3.a); r3.p.x = px; r3.p.y = py;
+   const S = r3.b.baG; if (S && S.st === 'fire') { if (a0 === null) a0 = S.a; swept = Math.max(swept, Math.abs(wrapA(S.a - a0))); } });
+  ok('Phase III: the gaze sweeps while it burns', swept > 0.2, swept.toFixed(2));
+ }
+ {
+  const { a, p, b } = kitRoom('basilisk', 59, { dx: 240 });
+  b.forcedAttack = 'strike'; b.sumLeft = [];
+  const px = p.x, py = p.y, jw = jumpWatch(b); let worst = 0, wind = 0, minD = 1e9;
+  const hits = kitRun(a, 2.2, () => { noChaff(a); p.x = px; p.y = py; worst = jw();
+   const S = b.baK; if (S && S.st === 'wind') wind += 1 / 60; minD = Math.min(minD, Math.hypot(b.x - px, b.y - py)); });
+  const endD = Math.hypot(b.x - (px + 240), b.y - py);
+  range('STRIKE: a ruled line held 0.5s', wind, 0.45, 0.55);
+  ok('then a lunge that reaches the ship', minD < 120, minD.toFixed(0));
+  atMost('and recoils to where it started', endD, 150);
+  atLeast('the lunge lands on a ship in its path', hits.STRIKE || 0, 1);
+  atMost('the lunge and recoil never jump (px a frame)', worst, a.bossMaxSpeed(b) / 60 * 3);
+ }
+ {
+  const { a, p, b } = kitRoom('basilisk', 59, { dx: 260 });
+  b.forcedAttack = 'spit'; b.sumLeft = []; const pin = pinAt(p, p.x, p.y);
+  kitRun(a, 0.3, () => { pin(); noChaff(a); });
+  ok('SPIT: the aim draws while it winds', !kitRenders(a));
+  kitRun(a, 0.6, () => { pin(); noChaff(a); });
+  const venom = roundsBy(a, 'SPIT');
+  atLeast('a five-round venom fan', venom.length, 5);
+  const pools = a.hazards.filter(h => h.src && h.src.what === 'SPIT');
+  eq('that leaves two slowing pools', pools.length, 2);
+  ok('one on the ship, both slowing and telegraphed', pools.some(h => Math.hypot(h.x - p.x, h.y - p.y) < 1) && pools.every(h => h.slow > 0 && h.warn >= 0.5));
+  const hits = kitRun(a, 1.5, () => { pin(); noChaff(a); });
+  ok('standing in venom slows the ship', p.status.slow > 0 || (hits.SPIT || 0) >= 1, JSON.stringify(hits));
+ }
+ {
+  const { a, p, b } = kitRoom('basilisk', 59, { dx: 260 });
+  b.forcedAttack = 'gaze'; b.sumLeft = []; b.fightT = 20;
+  b.hp = b.hpSeen = b.maxhp * 0.54;
+  kitRun(a, 1.2, () => noChaff(a));
+  const husk = () => b.parts.find(q => q.kind === 'husk');
+  ok('at 55% BASILISK SHEDS ITS SKIN: a husk decoy', b.mode === 'recover' && a.bossLabel(b) === 'SHED SKIN' && !!husk());
+  const h0 = b.hp; kitRun(a, 1, () => noChaff(a));
+  ok('it mends while the husk stands', b.hp > h0);
+  const H = husk(), hh = H.hp, hb = b.hp;
+  a.bullets.push(mkRound({ x: H.x - 80, y: H.y, vx: 640, vy: 0, dmg: 30 }));
+  kitRun(a, 0.3, () => noChaff(a));
+  ok('the husk absorbs rounds aimed through it', H.hp < hh && b.hp >= hb, 'husk ' + hh.toFixed(0) + ' -> ' + H.hp.toFixed(0));
+  b.x = H.x; b.y = H.y - 460;
+  const hh2 = H.hp;
+  a.bullets.push(mkRound({ x: H.x - 160, y: H.y - 100, vx: 400, vy: 0, dmg: 10, turn: 1 }));
+  kitRun(a, 0.8, () => noChaff(a));
+  ok('and draws a seeking round off its line into itself', H.hp < hh2, 'husk ' + hh2.toFixed(0) + ' -> ' + H.hp.toFixed(0));
+  a.breakPart(b, husk());
+  kitRun(a, 0.2, () => noChaff(a));
+  ok('breaking the husk breaks the shed', b.mode !== 'recover');
+  const h1 = b.hp; kitRun(a, 1, () => noChaff(a));
+  atMost('the mending stops', b.hp - h1, 1e-6);
+ }
+ {
+  const { a, b } = kitRoom('basilisk', 59);
+  b.hp = b.hpSeen = b.maxhp * 0.69; kitRun(a, 0.5);
+  let s = a.enemies.filter(e => e.summoned);
+  ok('at 70% BASILISK calls COLOSSUS', s.length === 1 && s[0].kind === 'colossus', s.map(e => e.kind).join(','));
+  a.killEnemy(a.enemies.indexOf(s[0])); b.hp = b.hpSeen = b.maxhp * 0.34; kitRun(a, 1.5);
+  s = a.enemies.filter(e => e.summoned);
+  ok('and again at 35%', s.length === 1 && s[0].kind === 'colossus');
  }
  return null;
 }
