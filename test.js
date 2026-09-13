@@ -468,13 +468,13 @@ function suiteUpgradePool() {
 }
 
 // ======================================================================
-//  SUITE 8 -- balance model
+//  reference drafts (the fight simulator's builds) and the DPS formula
 // ======================================================================
-// Two reference players per depth. GREEDY always takes the strongest offensive
-// card on offer and is the practical DPS ceiling; BALANCED spends roughly a
-// third of its picks on survivability and utility, like a real run. The enemy
-// curve has to sit between them: greedy should still be challenged, balanced
-// should still win until the endless ramp finally outgrows it.
+// GREEDY always takes the strongest offensive card on offer and is the
+// practical DPS ceiling; BALANCED spends roughly a third of its picks on
+// survivability and utility, like a real run. The analytic TTK model that used
+// to sit here (gunDps x 0.45 uptime) is retired: spec §10 makes the fight
+// simulator the source of truth.
 const GREEDY_ORDER = ['dmg', 'rate', 'array', 'crit', 'slug', 'overcharge', 'flak', 'minigun', 'split',
  'corrode', 'chain', 'adrenal', 'seek', 'pierce', 'surge', 'lance', 'orbital', 'tract', 'inc', 'cryo', 'rico', 'hp', 'vamp'];
 const BALANCED_ORDER = ['dmg', 'hp', 'rate', 'ward', 'array', 'vamp', 'crit', 'aegis', 'spd', 'shock',
@@ -521,147 +521,11 @@ function abilityDps(p) {
  return x;
 }
 function effDps(p) { return gunDps(p) + abilityDps(p); }
-// Analytic time-to-kill: total nest HP over sustained DPS, derated for the
-// fraction of a real fight spent moving, dodging and repositioning rather than
-// holding the trigger on the boss.
-const UPTIME = 0.45;
-// Drafts offer three rarity-weighted cards, so any single run is luck. Average
-// across seeds or the suite measures one unlucky build and calls it a balance
-// failure.
-const SAMPLES = 3;
-// Summoned HP the nest can add on top of its lead. The old model summed only
-// the bosses present at load, so every TTK it reported was optimistic the
-// moment summoning arrived. Assumes every call threshold fires and the whole
-// nest budget is spent down the chain (spec §2: the lead's calls first, then
-// each summoned god's one call while the chain depth allows), with each god's
-// real HP taken from mkSummoned so the per-link decay is the game's.
-function projectedLtHp(api, s, kinds) {
- const n = s + 1, D = api.bossdefs, maxD = api.maxChainDepth(n);
- let left = api.summonBudgetFor(n);
- if (!left) return { hp: 0, count: 0 };
- const lead = kinds[0], gate = k => D[k].debut <= n;
- const calls = api.summonsOf(lead).filter(gate), q = [];
- for (let t = 0; t < api.summonAt(lead).length; t++) for (const k of calls) q.push([k, 1]);
- let hp = 0, count = 0;
- while (q.length && left > 0) {
-  const [k, d] = q.shift();
-  hp += api.mkSummoned(k, 500, 500, s, d).maxhp; count++; left--;
-  const sub = d < maxD ? api.summonsOf(k).filter(gate)[0] : null;
-  if (sub) q.push([sub, d + 1]);
- }
- return { hp, count };
-}
-// picks-per-sector: 1.15 is a player who pushes forward; 1.4 is one who replays
-// cleared sectors to level up first — the user's "stall, level up, level up".
-function nestProfile(sector, order, rate) {
- let dps = 0, maxhp = 0, hp = 0, ltHp = 0, ltN = 0, dmg = 0, bosses = 0;
- for (let k = 0; k < SAMPLES; k++) {
-  const api = boot();
-  seedRandom(api, 8100 + sector * 97 + k * 7919);
-  api.startRun();
-  api.loadSector(0); api.forceState('playing');
-  draftBuild(api, Math.max(4, Math.round((sector + 1) * (rate || 1.15))), order);
-  dps += effDps(api.player); maxhp += api.player.maxhp;
-  api.loadSector(sector); api.forceState('playing');
-  const bs = bossesIn(api);
-  hp += bs.reduce((a, b) => a + b.maxhp, 0);
-  const lt = projectedLtHp(api, sector, bs.map(b => b.kind));
-  ltHp += lt.hp; ltN = lt.count;
-  dmg = Math.max(dmg, bs.reduce((a, b) => Math.max(a, b.dmg), 0));
-  bosses = bs.length;
- }
- dps /= SAMPLES; maxhp /= SAMPLES; hp /= SAMPLES; ltHp /= SAMPLES;
- return { dps, hp, ltHp, ltN, bosses, dmg, maxhp, ttk: (hp + ltHp) / (dps * UPTIME) };
-}
-// A nest is a wall when even this profile cannot finish it before the boss goes
-// RELENTLESS (180s) with margin, or when one boss hit takes half your bar.
-const WALL_TTK = 240;
-function isWall(r) { return r.ttk > WALL_TTK || r.dmg / r.maxhp >= 0.5; }
-function suiteBalance() {
- section('balance model');
- const depths = [4, 9, 14, 19, 24, 29, 34, 39, 44, 49, 54, 59, 64, 69, 74, 79, 84, 89, 94, 99,
-  104, 109, 114, 119, 124, 129, 134];
- const rows = [];
- for (const s of depths) rows.push({
-  s, g: nestProfile(s, GREEDY_ORDER, 1.15), b: nestProfile(s, BALANCED_ORDER, 1.15), f: nestProfile(s, BALANCED_ORDER, 1.4)
- });
- if (VERBOSE) {
-  console.log('  nest  bosses  +LT   ceilTTK  balTTK  farmTTK   bossHit  hit/farmHP');
-  for (const r of rows) console.log('  ' +
-   ('S' + (r.s + 1)).padEnd(6), String(r.b.bosses).padStart(5), String(r.b.ltN).padStart(4),
-   r.g.ttk.toFixed(1).padStart(9), r.b.ttk.toFixed(1).padStart(7), r.f.ttk.toFixed(1).padStart(8),
-   String(r.b.dmg).padStart(9), (r.f.dmg / r.f.maxhp).toFixed(2).padStart(11));
- }
- const n = r => r.s + 1;
- // The one-lead ladder (spec §1-§2) moved every nest from S50 on: summoned gods
- // now carry 45% of a lead per link (courts' lieutenants carried 22%) and the
- // S50+ chains are deeper, while §6 deliberately asks for LONGER fights there
- // (100-150s, 150-210s at the Apex). This model's caps and README pins were fit
- // to the courts, so from S50 on they are REPORTED, not asserted: spec §10 makes
- // the fight simulator the source of truth, and the HP fit is wave 3's.
- const soft = [], roster = (L, cond, detail) => { if (!cond) soft.push(L + (detail ? ' (' + detail + ')' : '')); };
- for (const r of rows) {
-  const L = 'S' + n(r), check = n(r) >= 50 ? roster : ok;
-  // Bands widen from S60 to S100: "harder every nest, but doable". A ceiling
-  // build is allowed twice the early time by S100, a farmer 1.4x — still well
-  // inside the 240s wall.
-  const late = n(r) <= 60 ? 0 : Math.min(1, (n(r) - 60) / 40);
-  const gCap = Math.round((75 + 25 * (r.g.bosses - 1)) * (1 + late));
-  const bCap = Math.round((150 + 40 * (r.b.bosses - 1)) * (1 + 0.4 * late));
-  atLeast(L + ' resists a ceiling build (TTK >= 6s)', r.g.ttk, 6);
-  if (n(r) > 100) continue; // past the Apex the wall assertions below take over
-  check(L + ' beatable by a ceiling build (TTK <= ' + gCap + 's)', r.g.ttk <= gCap, 'got ' + r.g.ttk.toFixed(1));
-  check(L + ' winnable for a farming build (TTK <= ' + bCap + 's)', r.f.ttk <= bCap, 'got ' + r.f.ttk.toFixed(1));
-  check(L + ' is not a wall for a farmer', !isWall(r.f), 'ttk ' + r.f.ttk.toFixed(0) + ' hit ' + (r.f.dmg / r.f.maxhp).toFixed(2));
-  atMost(L + ' boss hit stays under a third of a farmer\'s bar', r.f.dmg / r.f.maxhp, 0.34);
-  atLeast(L + ' is a real fight for a balanced build (TTK >= 8s)', r.b.ttk, 8);
-  // A player who never farms: fully winnable to S60, never walled to S90, and
-  // past S90 farming is allowed to be the price of the Apex.
-  if (n(r) <= 60) atMost(L + ' winnable without farming', r.b.ttk, bCap);
-  else if (n(r) <= 90) check(L + ' not a wall even without farming', !isWall(r.b), 'ttk ' + r.b.ttk.toFixed(0));
- }
- // Difficulty RISES toward S100: late nests take longer than early ones.
- const avg = (lo, hi) => { const xs = rows.filter(r => n(r) >= lo && n(r) <= hi); return xs.reduce((a, r) => a + r.b.ttk, 0) / xs.length; };
- const early = avg(5, 20), late = avg(80, 100);
- atLeast('difficulty climbs toward S100 (late/early TTK >= 1.2)', late / early, 1.2);
- atMost('but S100 is not an order of magnitude past S5 (late/early <= 5)', late / early, 5);
- // Past S100: a deliberate wall. A farmer still clears the first repeat, then
- // the run ends in a chosen band — not at S101, not never.
- const f105 = rows.find(r => n(r) === 105);
- ok('S105 is still clearable for a farmer', f105 && !isWall(f105.f), f105 && ('ttk ' + f105.f.ttk.toFixed(0)));
- const wall = rows.find(r => n(r) > 100 && isWall(r.f) && isWall(r.g));
- ok('a wall exists past S100', !!wall);
- if (wall) range('the wall lands in the S110-S130 band', n(wall), 110, 130);
- // and it stays a wall: nothing deeper becomes easier again
- if (wall) ok('every nest past the wall stays a wall', rows.filter(r => n(r) > n(wall)).every(r => isWall(r.f)));
-
- // README pins. These exact figures are quoted in the README balance table.
- // If a change moves any of them by more than 20%, this fails — so the docs are
- // updated alongside the code instead of silently going stale.
- const PINNED = [[5, 'f', 23.9], [10, 'f', 58.2], [50, 'g', 47.8], [50, 'f', 51.1],
-  [80, 'f', 93.2], [100, 'g', 144.6], [100, 'f', 171.7], [105, 'f', 206.7]];
- for (const [nn, prof, val] of PINNED) {
-  const r = rows.find(x => n(x) === nn);
-  // Relaxed for S5 only (spec §10: the fight sim is now the source of truth,
-  // this model a sanity check). Its 3-seed S5 farmer is pure draft luck —
-  // single seeds span 57-177 DPS — and the pacing/density overhauls changed how
-  // many random draws loading S1 takes, so the same seeds now draft other
-  // cards. Boss HP did not move; the pin is widened, not re-fitted (1.5 → 2.2
-  // after the Wave-3 alive-floor WIP moved the S1 draw count again).
-  const hiTol = nn === 5 ? 2.2 : 1.2;
-  const lbl = 'README pin: S' + nn + ' ' + (prof === 'g' ? 'ceiling' : 'farmer') + ' TTK ~' + val + 's';
-  if (nn >= 50) roster(lbl, r[prof].ttk >= val * 0.8 && r[prof].ttk <= val * hiTol, 'got ' + r[prof].ttk.toFixed(1));
-  else range(lbl, r[prof].ttk, val * 0.8, val * hiTol);
- }
- if (wall) roster('README pin: the wall is at S115', n(wall) === 115, 'got S' + n(wall));
- if (soft.length) console.log('  report: ' + soft.length + ' roster-dependent analytic checks outside their pre-ladder bands (spec §10, not asserted):\n    ' + soft.join('\n    '));
- return null;
-}
 
 // ======================================================================
 //  SUITE 8c -- fight simulator (spec §10)
 // ======================================================================
-// The analytic model above divides HP by gunDps x 0.45 uptime. That is wrong
+// The retired analytic model divided HP by gunDps x 0.45 uptime. That is wrong
 // both ways: a homing multi-barrel build lands nearly every round, and a normal
 // sector is not one target but a stream that has to be found and flown to. So
 // this suite runs the REAL update loop at a fixed dt with a scripted pilot and
@@ -689,8 +553,8 @@ const SIM_BUILDS = { hose: HOSE_ORDER, balanced: BALANCED_ORDER, greedy: GREEDY_
 const SIM_CAP = 400;           // simulated seconds before a fight is called
 const FIGHTSIM_STRICT = false; // nest bands (spec §6) report only; wave 3 turns this on after the boss HP fit
 const FIGHTSIM_FULL = process.argv.indexOf('--full') >= 0; // every build on every nest (slow)
-// Picks banked on arrival at sector n (1-based): the same 1.15 per cleared
-// sector the analytic model uses for a player who pushes forward.
+// Picks banked on arrival at sector n (1-based): 1.15 per cleared sector, a
+// player who pushes forward rather than replaying sectors to farm levels.
 function simPicks(n) { return Math.round((n - 1) * 1.15); }
 // Hunting across a debris field: a straight line plus the game's 48px steering
 // probe wedges on the far side of a wall from its target forever. So the pilot
@@ -930,6 +794,11 @@ function suiteFightsim() {
  if (VERBOSE) { console.log(head); for (const r of nests) console.log(simRow(r)); }
  const off = [];
  for (const r of nests.filter(x => x.build === 'hose')) {
+  // Asserted whatever the band fit: what the retired analytic model's
+  // "beatable by a ceiling build" and "resists a ceiling build" checks asked,
+  // measured on the real fight instead of HP / (gunDps x 0.45).
+  ok('S' + r.n + ' Homing Hose kills the lead inside the ' + SIM_CAP + 's cap', r.done, r.lead + ' still up after ' + SIM_CAP + 's');
+  atLeast('S' + r.n + ' lead is a real fight for the Homing Hose (>= 6s)', +r.t.toFixed(1), 6);
   const band = nestBand(r.n);
   if (!band) continue;
   const label = 'S' + r.n + ' Homing Hose kills the lead in the §6 band (' + band[0] + '-' + band[1] + 's)';
@@ -1300,6 +1169,22 @@ function suiteCombos() {
   atLeast('discharge still costs kills', p.shockNeed, 10);
   const burst = p.shockDmg * p.dmgMult;
   atMost('discharge burst stays under a boss health bar', burst, 6000);
+ }
+ // -- the other side of the envelope: no single boss hit takes a third of the
+ // bar of a player who farms (1.4 picks per cleared sector, BALANCED order).
+ // Drafts are luck, so the hull is averaged over three seeded drafts. (Kept from
+ // the retired balance model; it reads real boss damage and real drafted HP.)
+ for (let s = 4; s < 100; s += 5) {
+  let maxhp = 0, dmg = 0;
+  for (let k = 0; k < 3; k++) {
+   const f = boot(); seedRandom(f, 8100 + s * 97 + k * 7919);
+   f.startRun(); f.loadSector(0); f.forceState('playing');
+   draftBuild(f, Math.max(4, Math.round((s + 1) * 1.4)), BALANCED_ORDER);
+   maxhp += f.player.maxhp / 3;
+   f.loadSector(s); f.forceState('playing');
+   dmg = Math.max(dmg, bossesIn(f).reduce((m, b) => Math.max(m, b.dmg), 0));
+  }
+  atMost('S' + (s + 1) + ' boss hit stays under a third of a farmer\'s bar', dmg / maxhp, 0.34);
  }
  return a;
 }
@@ -5404,7 +5289,6 @@ const SUITES = [
  ['mobility', suiteBossMobility],
  ['procgen', suiteProcgen],
  ['pool', suiteUpgradePool],
- ['balance', suiteBalance],
  ['fightsim', suiteFightsim],
  ['roster', suiteBossRoster],
  ['hierarchy', suiteHierarchy],
