@@ -3876,6 +3876,9 @@ BOSS_KITS.archon={
  },
  hitParts:{ rot:()=>0, c:[[0,-1.0,0.26],[0.95,-0.31,0.24],[-0.95,-0.31,0.24],[0.59,0.81,0.2],[-0.59,0.81,0.2]] }
 };
+// The dispatcher's old name for the slam still loops it (the roster suite pins
+// `slam` on S50 to prove the DevX lever; the kit calls it GAVEL).
+BOSS_KITS.archon.attacks.slam=BOSS_KITS.archon.attacks.gavel;
 // ===== END BOSS: ARCHON =====
 
 // ===== BOSS: COLOSSUS =====
