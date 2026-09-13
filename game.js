@@ -3882,31 +3882,130 @@ BOSS_KITS.archon.attacks.slam=BOSS_KITS.archon.attacks.gavel;
 // ===== END BOSS: ARCHON =====
 
 // ===== BOSS: COLOSSUS =====
-// Placeholder kit (wave 2 builds the full one, spec §5): Triple Stomp only.
+// The Walled (spec §5). Signature ARMOUR QUADRANTS: four plates (parts) ring
+// it, each blocking rounds from its side until broken — pick a side and dig
+// in. Secondaries: TRIPLE STOMP (three staggered shockwaves), BOULDER THROW
+// (a marked landing that stays as a temporary boulder, never sealing — the
+// BFS check in placeTempObs) and QUAKE LINE (a fissure that runs along the
+// ground toward you, laying harm discs). P2 at 66%: the plates orbit slowly.
+// P3 at 33%: the plates shatter into an orbiting shrapnel ring (aimed fans,
+// never a radial) and it stomps faster. Recovery ENTRENTCH at 55% and 30%:
+// it sinks, regrows one broken plate, and mends while two or more plates
+// stand. Calls ARCHON at 70% and 35% (the rung below). No radial volleys.
+const CO_PLATE_HP=0.03, CO_STOMP_R=230;
+function coPlates(e){ return (e.parts||[]).filter(q=>q.kind==='plate'&&!q.dead); }
+function coAddPlates(e,ids){ const R=e.r*1.15;
+ const off=[[R,0],[0,R],[-R,0],[0,-R]];
+ for(const k of ids){ if(e.parts.some(q=>q.id==='plate'+k)) continue;
+  addPart(e,{id:'plate'+k,lx:off[k][0],ly:off[k][1],r:17,hp:e.maxhp*CO_PLATE_HP,kind:'plate'}); } }
 BOSS_KITS.colossus={
  def:{name:'COLOSSUS',epithet:'the Walled',tier:4,hp:1900,r:40,spd:0.70,shape:'fortress',pt:3.8,sig:'plates',chaff:['brute','stalker']},
  lore:'A SOVEREIGN THAT IS A WALL — COLOSSUS walks, and the ground takes notice.',
- codex:{role:'Fortress', threat:'Three rings per stomp',
-  tell:'It rears, a ring is ruled around it, then three concentric SHOCKWAVES roll out one after another.',
-  counter:'Count to three. The rings are bands, not discs: step over each one, or dash all three.',
+ codex:{role:'Fortress', threat:'Plates, then shrapnel; three phases',
+  tell:'Four PLATES ring it, each blocking its side. A dashed ring at its feet is the TRIPLE STOMP, three waves. A red mark near you is the BOULDER; a ruled line from its feet, the QUAKE fissure.',
+  counter:'Dig through one plate, then work that side. Count to three under the stomp. The boulder lands where marked and stays: keep your lanes open. When it entrenches, break the plates until fewer than two stand and the mending stops.',
   lore:'The Walled. A city that was told to leave and took itself. Its makers could not find a world to put it on and so never stopped walking. Everything it does is slow, because everything it is was built to stand still.'},
- cycle:['stomp','fan'],
- attacks:Object.assign(atk('fan'),{
-  stomp(e,C){ // a 0.6 s rear, then three staggered rings
-   C.mv(0.4); e.slamCd-=C.dt;
-   if(e.windup>0){ e.windup-=C.dt; if(e.windup<=0){ e.stompN=3; e.stompT=0; } }
-   else if(e.slamCd<=0&&C.d<420){ e.slamCd=C.enrage?3.2:4.4; e.windup=0.6; SFX.click(); }
-   if(e.stompN>0){ e.stompT-=C.dt; if(e.stompT<=0){ e.stompN--; e.stompT=0.45;
-    rings.push({x:e.x,y:e.y,r:24,maxR:230,spd:260,dmg:Math.round(e.dmg*0.8),hit:false,heavy:true}); SFX.ring(); if(settings.shake) shake=Math.min(10,shake+3); } } }
- }),
+ cycle:['stomp','boulder','quake'],
+ phases:[{},{at:0.66},{at:0.33,enter(e){
+  for(const q of coPlates(e).slice()) breakPart(e,q);
+  addFloater(e.x,calloutY(e),'PLATES SHATTER',K.red); SFX.brk(); }}],
+ init(e){ e.co={}; coAddPlates(e,[0,1,2,3]); },
+ attacks:{
+  stomp(e,C){ // a 0.6 s rear, then three staggered rings (faster in P3)
+   C.mv(0.3);
+   let S=e.coS; if(e.atkT===0||!S) S=e.coS={st:'rest',t:0.3};
+   S.t-=C.dt;
+   const fast=e.ph>=3&&!e.summoned;
+   if(S.st==='rest'){ if(S.t<=0&&C.d<430){ S.st='wind'; S.t=fast?0.4:0.6; SFX.click(); } }
+   else if(S.st==='wind'){ if(S.t<=0){ S.st='roll'; S.n=3; S.t=0; } }
+   else if(S.st==='roll'){ if(S.n>0){
+     if(S.t<=0){ S.n--; S.t=fast?0.28:0.45;
+      shockwave(e,e.x,e.y,{maxR:CO_STOMP_R,spd:260,dmg:Math.round(e.dmg*0.8),warn:0.5,w:16,what:'TRIPLE STOMP'});
+      SFX.ring(); if(settings.shake) shake=Math.min(10,shake+3); } }
+    else { S.st='rest'; S.t=C.enrage?2.2:3.0; } } },
+  boulder(e,C){ // a 0.7 s heave, a marked landing past you, then a boulder that stays
+   C.mv(0.35);
+   let S=e.coB; if(e.atkT===0||!S) S=e.coB={st:'wind',t:0.7};
+   S.t-=C.dt;
+   if(S.st==='wind'&&S.t<=0&&!e.coRock){ S.st='cool'; S.t=1.6;
+    const p=C.p, a=Math.atan2(p.y-e.y,p.x-e.x);
+    const tx=p.x+Math.cos(a)*200, ty=p.y+Math.sin(a)*200;
+    bossMarks(e,[{x:tx,y:ty,r:54}],{warn:0.7,dmg:Math.round(e.dmg*0.7),what:'BOULDER'});
+    e.coRock={x:tx,y:ty,t:0.7}; SFX.click(); }
+   else if(S.st==='cool'&&S.t<=0){ S.st='wind'; S.t=0.7; } },
+  quake(e,C){ // a ruled line held 0.6 s, then a fissure runs it laying harm
+   C.mv(0.3);
+   let S=e.coQ; if(e.atkT===0||!S) S=e.coQ={st:'wind',t:0.6,a:0};
+   S.t-=C.dt;
+   if(S.st==='wind'){ S.a=C.aim;
+    if(S.t<=0){ S.st='run'; S.t=1.2;
+     e.coFis={x:e.x+Math.cos(S.a)*e.r,y:e.y+Math.sin(S.a)*e.r,dx:Math.cos(S.a),dy:Math.sin(S.a),left:620,drop:0};
+     SFX.dash(); } }
+   else if(S.st==='run'&&S.t<=0){ S.st='wind'; S.t=C.enrage?1.2:1.8; } }
+ },
+ signature(e,C){ // P3 shrapnel: aimed fans off the orbiting ring, never a radial
+  if(e.ph>=3&&!e.summoned&&!e.rec){ e.coSh=(e.coSh||0)-C.dt;
+   if(e.coSh<=0){ e.coSh=C.enrage?0.8:1.1;
+    for(const k of [-1,0,1]) eshot(e,C.aim+k*0.12,240,5,0.8,3.0);
+    SFX.eshoot(); } } },
+ onPartBreak(e,q){
+  if(q&&q.kind==='plate') addFloater(q.x,q.y-20,'PLATE SHATTERED',K.gold); },
+ // ENTRENTCH: sink, regrow one broken plate, mend while two or more stand.
+ recover:{ at:[0.55,0.30], pool:0.08, label:'ENTRENCH', hold:true, max:9,
+  start(e){ const missing=[0,1,2,3].filter(k=>!e.parts.some(q=>q.id==='plate'+k));
+   coAddPlates(e,missing.slice(0,1));
+   rings.push({x:e.x,y:e.y,r:e.r,maxR:e.r+90,spd:260,dmg:0,hit:true});
+   addFloater(e.x,calloutY(e),'COLOSSUS ENTRENCHES · break the plates',K.red); SFX.alarm(); },
+  update(e,C){ if(coPlates(e).length<2) return 'broken';
+   bossHeal(e,e.maxhp*0.022*C.dt);
+   return e.healPool<=0?'mended':false; },
+  end(e,why){ addFloater(e.x,calloutY(e),why==='broken'?'PLATES BROKEN':'ENTRENCHED',why==='broken'?K.gold:K.red); } },
+ label(e){ if(e.atk==='stomp') return 'TRIPLE STOMP'; if(e.atk==='boulder') return 'BOULDER THROW';
+  if(e.atk==='quake') return 'QUAKE LINE'; return null; },
+ post(e,dt){
+  if(e.ph>=2&&!e.summoned) e.partRot=(e.partRot||0)+dt*0.35; // P2: the plates orbit
+  if(e.coRock){ e.coRock.t-=dt; // the thrown boulder lands and stays
+   if(e.coRock.t<=0){ const R=e.coRock; e.coRock=null;
+    if(placeTempObs(e,R.x,R.y,30,10)) spawnBurst(R.x,R.y,12,K.metal,160,0.5,3); } }
+  if(e.coFis){ const F=e.coFis, step=430*dt; // the fissure runs its line
+   F.x+=F.dx*step; F.y+=F.dy*step; F.left-=step; F.drop-=dt;
+   if(F.drop<=0){ F.drop=0.09;
+    dropDisc(e,F.x,F.y,34,{life:3.5,safe:0.25,dmg:Math.round(e.dmg*0.3),what:'QUAKE LINE'}); }
+   if(F.left<=0||F.x<PX0+10||F.x>PX1-10||F.y<PY0+10||F.y>PY1-10) e.coFis=null; } },
+ under(e){
+  const S=e.coS;
+  if(e.atk==='stomp'&&S&&S.st==='wind'){ ctx.save(); ctx.globalAlpha=0.8;
+   ctx.strokeStyle=K.red; ctx.lineWidth=1.5; ctx.setLineDash([8,6]);
+   ctx.beginPath(); ctx.arc(e.x,e.y,CO_STOMP_R,0,6.283); ctx.stroke(); ctx.setLineDash([]); ctx.restore(); }
+  const B=e.coB, p=player;
+  if(e.atk==='boulder'&&B&&B.st==='wind'&&p){ ctx.save(); ctx.globalAlpha=0.8;
+   tickedLine(e.x,e.y,p.x,p.y,K.red,1,20,3); ctx.restore(); }
+  const Q=e.coQ;
+  if(e.atk==='quake'&&Q&&Q.st==='wind'){ const ex=e.x+Math.cos(Q.a)*620, ey=e.y+Math.sin(Q.a)*620;
+   ctx.save(); ctx.globalAlpha=0.85; tickedLine(e.x,e.y,ex,ey,K.red,1,24,3); ctx.restore(); }
+  if(e.coFis){ const F=e.coFis; ctx.save(); ctx.globalAlpha=0.85;
+   ctx.strokeStyle=K.red; ctx.lineWidth=1.5; ctx.beginPath(); ctx.arc(F.x,F.y,30,0,6.283); ctx.stroke(); ctx.restore(); } },
  draw(e,g){ // a stacked octagon and square fortress
   const R=g.R;
   ctx.fillStyle=g.body; ctx.strokeStyle=g.col; ctx.lineWidth=g.lw; poly(8,R-3,0.3927); ctx.fill(); ctx.stroke();
   ctx.save(); ctx.rotate(0.7854+e.t*0.1); ctx.strokeStyle=g.dim; ctx.lineWidth=1.5; ctx.strokeRect(-R*0.5,-R*0.5,R,R); ctx.restore();
   ctx.strokeStyle=g.dim; ctx.lineWidth=1; poly(8,R*0.8,0.3927); ctx.stroke();
-  ctx.fillStyle=e.windup>0?K.redHi:g.col; ctx.fillRect(-4,-4,8,8);
-  if(e.windup>0){ ctx.strokeStyle=K.red; ctx.lineWidth=1.5; ctx.beginPath(); ctx.arc(0,0,230,0,6.283); ctx.stroke(); }
- }
+  ctx.fillStyle=(e.coS&&e.coS.st==='wind')?K.redHi:g.col; ctx.fillRect(-4,-4,8,8);
+  if(e.rec){ ctx.save(); ctx.strokeStyle=g.dim; ctx.lineWidth=1; ctx.setLineDash([5,5]);
+   ctx.beginPath(); ctx.arc(0,0,R+8,0,6.283); ctx.stroke(); ctx.setLineDash([]); ctx.restore(); }
+ },
+ drawPart(e,q,g){ // an armour plate, broad face out, its HP as an engraved arc
+  const a=Math.atan2(q.ly,q.lx);
+  ctx.save(); ctx.rotate(a);
+  ctx.fillStyle=q.flash>0?g.P.flash:g.body; ctx.strokeStyle=g.col; ctx.lineWidth=1.5;
+  ctx.beginPath(); ctx.arc(0,0,q.r+5,-0.72,0.72); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(Math.cos(-0.72)*(q.r+5),Math.sin(-0.72)*(q.r+5)); ctx.lineTo(Math.cos(-0.72)*(q.r-5),Math.sin(-0.72)*(q.r-5)); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(Math.cos(0.72)*(q.r+5),Math.sin(0.72)*(q.r+5)); ctx.lineTo(Math.cos(0.72)*(q.r-5),Math.sin(0.72)*(q.r-5)); ctx.stroke();
+  const f=clamp(q.hp/(q.maxhp||q.hp||1),0,1);
+  ctx.strokeStyle=g.dim; ctx.lineWidth=1.5; ctx.beginPath(); ctx.arc(0,0,q.r-7,-1.5708,-1.5708+f*6.283); ctx.stroke();
+  ctx.restore(); },
+ // the rotating square's corners reach past the core circle
+ hitParts:{ rot:e=>0.7854+e.t*0.1, c:[[0.5,-0.5,0.2],[0.5,0.5,0.2],[-0.5,0.5,0.2],[-0.5,-0.5,0.2]] }
 };
 // ===== END BOSS: COLOSSUS =====
 

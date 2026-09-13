@@ -4026,9 +4026,123 @@ function suiteKits2() {
  return null;
 }
 
+// ======================================================================
+//  SUITE 8b3 -- wave-2 kits, group 3: COLOSSUS, BASILISK, PROGENITOR, HARBINGER, KRAKEN
+// ======================================================================
+function suiteKits3() {
+ section('kits: S55-S75 (COLOSSUS, BASILISK, PROGENITOR, HARBINGER, KRAKEN)');
+ const api0 = boot(), KITS = api0.bossKits;
+ const RADIAL = ['burst', 'spiral', 'spiralwall'];
+ const basics = k => {
+  const kit = KITS[k];
+  ok(k + ': no radial burst, spiral or spiralwall in its kit', RADIAL.every(r => !kit.attacks[r] && kit.cycle.indexOf(r) < 0));
+  ok(k + ': every cycle slot is one of its own attacks', kit.cycle.every(n => typeof kit.attacks[n] === 'function'));
+  ok(k + ': a non-circular silhouette declares hitParts', !!(kit.hitParts && kit.hitParts.c.length));
+  const s = api0.mkSummoned(k, 500, 500, api0.bossdefs[k].debut - 1, 1);
+  ok(k + ': summoned at 85% size, with no recovery and no phases', Math.abs(s.r - kit.def.r * 0.85) < 1e-9 && s.recLeft.length === 0 && s.phAt.length === 0);
+  ok(k + ': a codex field note, tells and counter, and a debut line naming its rank', !!(kit.codex.lore && kit.codex.tell && kit.codex.counter && kit.lore.indexOf(api0.tierNames[kit.def.tier]) >= 0));
+ };
+ const pinAt = (p, x, y) => () => { p.x = x; p.y = y; };
+
+ // ---------------- COLOSSUS ----------------
+ basics('colossus');
+ const coPlates = b => b.parts.filter(q => q.kind === 'plate');
+ const coShoot = (a, x, y, vx, vy, dmg) => { const r = mkRound({ x, y, vx, vy, dmg: dmg || 20 }); a.bullets.push(r); return r; };
+ {
+  const { a, p, b } = kitRoom('colossus', 54);
+  kitRun(a, 0.05, () => noChaff(a));
+  const ps = coPlates(b);
+  eq('ARMOUR QUADRANTS: four plates', ps.length, 4);
+  ok('each with its own HP (3% of the body)', ps.every(q => Math.abs(q.hp - b.maxhp * 0.03) < 1e-6));
+  ok('the plates draw', !kitRenders(a));
+  b.forcedAttack = 'stomp'; b.coS = { st: 'rest', t: 99 };
+  const q = ps.find(q => Math.abs(q.x - b.x) < 2 && q.y < b.y), qh = q.hp, h0 = b.hp;
+  coShoot(a, q.x, q.y - 80, 0, 640, 40);
+  kitRun(a, 0.3, () => { noChaff(a); });
+  ok('a round from its side breaks on the plate, never reaching the hull', q.hp < qh && b.hp === h0, 'plate ' + qh.toFixed(0) + ' -> ' + q.hp.toFixed(0) + ', hull ' + (h0 - b.hp).toFixed(0));
+ }
+ {
+  const { a, p, b } = kitRoom('colossus', 54, { dx: 150 });
+  b.forcedAttack = 'stomp'; b.sumLeft = [];
+  let wind = 0;
+  const hits = kitRun(a, 4.5, () => { noChaff(a); p.x = b.x - 110; p.y = b.y; const S = b.coS; if (S && S.st === 'wind') wind += 1 / 60; });
+  range('TRIPLE STOMP: a 0.6s rear with the reach ruled', wind, 0.55, 0.65);
+  atLeast('then three rings, each landing on a ship in range', hits['TRIPLE STOMP'] || 0, 3);
+ }
+ {
+  const { a, p, b } = kitRoom('colossus', 54);
+  b.forcedAttack = 'boulder'; b.sumLeft = []; const pin = pinAt(p, p.x, p.y);
+  let mk = null;
+  kitRun(a, 1.0, () => { pin(); noChaff(a); const m = a.marks.find(m => m.owner === b); if (m && !mk) mk = { warn: m.warn }; });
+  ok('BOULDER THROW: a marked landing, telegraphed 0.7s', !!mk && mk.warn >= 0.7 - 1e-9);
+  kitRun(a, 0.6, () => { pin(); noChaff(a); });
+  const rocks = a.arena.obs.filter(o => o.temp);
+  eq('that lands as a temporary boulder', rocks.length, 1);
+  atLeast('a full 120px of its radius clear of the ship', Math.hypot(rocks[0].x - p.x, rocks[0].y - p.y) - rocks[0].r, 120);
+ }
+ {
+  const { a, p, b } = kitRoom('colossus', 54, { dx: 300 });
+  b.forcedAttack = 'quake'; b.sumLeft = []; const pin = pinAt(p, p.x, p.y);
+  kitRun(a, 0.3, () => { pin(); noChaff(a); });
+  ok('QUAKE LINE: the ruled line draws while it aims', !kitRenders(a));
+  const hits = kitRun(a, 3.0, () => { pin(); noChaff(a); });
+  atLeast('the fissure lays harm down the line onto a ship that stays', hits['QUAKE LINE'] || 0, 1);
+  const line = a.discs.filter(d => d.owner === b);
+  ok('as shrinking discs with a harmless first instant', line.length >= 5 && line.every(d => d.safe >= 0.25));
+ }
+ {
+  const { a, p, b } = kitRoom('colossus', 54);
+  b.forcedAttack = 'stomp'; b.sumLeft = [];
+  kitRun(a, 0.05, () => noChaff(a));
+  b.hp = b.hpSeen = b.maxhp * 0.65; kitRun(a, 1.0, () => noChaff(a));
+  ok('PHASE II at 66%', b.ph === 2);
+  const r0 = b.partRot || 0; kitRun(a, 1.0, () => noChaff(a));
+  ok('Phase II: the plates orbit', (b.partRot || 0) > r0 + 0.2);
+  b.hp = b.hpSeen = b.maxhp * 0.32; kitRun(a, 1.6, () => noChaff(a));
+  ok('PHASE III at 33%', b.ph === 3);
+  eq('Phase III: the plates shatter', coPlates(b).length, 0);
+  b.coS = { st: 'rest', t: 99 }; b.coSh = 99; a.ebullets.length = 0;
+  kitRun(a, 0.2, () => noChaff(a));
+  eq('no rounds while the stomp is held and the ring is quiet', a.ebullets.length, 0);
+  b.coSh = 0;
+  kitRun(a, 1.4, () => noChaff(a));
+  atLeast('the shrapnel ring keeps firing aimed fans', a.ebullets.length, 2);
+  const s = kitRoom('colossus', 54, { summoned: true }); kitRun(s.a, 0.05, () => noChaff(s.a));
+  s.b.hp = s.b.hpSeen = s.b.maxhp * 0.2; kitRun(s.a, 1.0, () => noChaff(s.a));
+  ok('a summoned COLOSSUS never orbits, shatters or phases (Phase I kit only)', s.b.ph === 1 && coPlates(s.b).length === 4);
+ }
+ {
+  const { a, p, b } = kitRoom('colossus', 54);
+  b.forcedAttack = 'stomp'; b.coS = { st: 'rest', t: 99 }; b.sumLeft = []; b.fightT = 20;
+  for (const q of coPlates(b).slice(0, 2)) a.breakPart(b, q);
+  eq('two plates broken going in', coPlates(b).length, 2);
+  b.hp = b.hpSeen = b.maxhp * 0.54;
+  kitRun(a, 1.0, () => noChaff(a));
+  ok('at 55% COLOSSUS ENTRENTCHES: one plate regrown', b.mode === 'recover' && a.bossLabel(b) === 'ENTRENCH' && coPlates(b).length === 3);
+  const h0 = b.hp; kitRun(a, 1, () => noChaff(a));
+  ok('it mends while two or more plates stand', b.hp > h0);
+  for (const q of coPlates(b).slice()) a.breakPart(b, q);
+  kitRun(a, 0.2, () => noChaff(a));
+  ok('breaking the plates breaks the Entrench', b.mode !== 'recover');
+  const h1 = b.hp; kitRun(a, 1, () => noChaff(a));
+  atMost('the mending stops', b.hp - h1, 1e-6);
+ }
+ {
+  const { a, b } = kitRoom('colossus', 54);
+  b.hp = b.hpSeen = b.maxhp * 0.69; kitRun(a, 0.5);
+  let s = a.enemies.filter(e => e.summoned);
+  ok('at 70% COLOSSUS calls ARCHON', s.length === 1 && s[0].kind === 'archon', s.map(e => e.kind).join(','));
+  a.killEnemy(a.enemies.indexOf(s[0])); b.hp = b.hpSeen = b.maxhp * 0.34; kitRun(a, 1.5);
+  s = a.enemies.filter(e => e.summoned);
+  ok('and again at 35%', s.length === 1 && s[0].kind === 'archon');
+ }
+ return null;
+}
+
 const SUITES = [
  ['kits1', suiteKits1],
  ['kits2', suiteKits2],
+ ['kits3', suiteKits3],
  ['xp', suiteXp],
  ['boot', suiteBoot],
  ['sectors', suiteSectors],
