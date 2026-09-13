@@ -4975,6 +4975,123 @@ function suiteKits4() {
   s = a.enemies.filter(e => e.summoned);
   ok('and again at 35%', s.length === 1 && s[0].kind === 'eclipse');
  }
+
+ // ---------------- CHORUS ----------------
+ basics('chorus');
+ const chorEchoesIn = a => a.enemies.filter(e => e.kind === 'chorus' && e.echo && !e.dead);
+ {
+  const { a, p, b } = kitRoom('chorus', 94);
+  b.forcedAttack = 'harmony'; b.sumLeft = [];
+  kitRun(a, 0.05, () => noChaff(a));
+  b.sumLeft = [];
+  b.hp = b.hpSeen = b.maxhp * 0.65; kitRun(a, 1.6, () => noChaff(a));
+  ok('SPLIT at 66%: two synced echoes', b.split === 1 && chorEchoesIn(a).length === 2);
+  const E0 = chorEchoesIn(a)[0];
+  ok('echoes are fragile and run no recovery, summons or phases',
+   E0.hp < b.maxhp * 0.25 && E0.recLeft.length === 0 && E0.sumLeft.length === 0 && E0.phAt.length === 0);
+  b.hp = b.hpSeen = b.maxhp * 0.32; kitRun(a, 1.6, () => noChaff(a));
+  ok('SPLIT at 33%: two more', b.split === 2 && chorEchoesIn(a).length === 4);
+  ok('the choir draws', !kitRenders(a));
+  const s = kitRoom('chorus', 94, { summoned: true }); kitRun(s.a, 0.05, () => noChaff(s.a));
+  s.b.hp = s.b.hpSeen = s.b.maxhp * 0.2; kitRun(s.a, 1.0, () => noChaff(s.a));
+  ok('a summoned CHORUS never splits (Phase I kit only)', chorEchoesIn(s.a).length === 0);
+ }
+ {
+  const { a, p, b } = kitRoom('chorus', 94);
+  b.forcedAttack = 'canon'; b.chN = { t: 99 }; b.sumLeft = [];
+  kitRun(a, 0.05, () => noChaff(a));
+  const px = p.x, py = p.y;
+  kitRun(a, 2.0, () => { p.x = px; p.y = py; noChaff(a); });
+  atLeast('solo, the original still sings aimed fans', a.ebullets.length, 3);
+ }
+ {
+  const { a, p, b } = kitRoom('chorus', 94);
+  b.forcedAttack = 'harmony'; b.sumLeft = [];
+  kitRun(a, 0.05, () => noChaff(a));
+  b.sumLeft = [];
+  b.hp = b.hpSeen = b.maxhp * 0.65; kitRun(a, 1.6, () => noChaff(a));
+  const px = p.x, py = p.y;
+  let volley = 0; const seenH = new Set();
+  kitRun(a, 4.0, () => { p.x = px; p.y = py; noChaff(a);
+   for (const r of a.ebullets) if (r.src && r.src.what === 'HARMONY' && !seenH.has(r)) { seenH.add(r); volley++; } });
+  atLeast('HARMONY: one synchronised crossfire from the whole choir', volley, 6);
+  ok('the echoes take triangulated spots', chorEchoesIn(a).some(o => !!o.chorSlot));
+ }
+ {
+  const { a, p, b } = kitRoom('chorus', 94);
+  b.forcedAttack = 'swap'; b.sumLeft = [];
+  kitRun(a, 0.05, () => noChaff(a));
+  b.sumLeft = [];
+  b.hp = b.hpSeen = b.maxhp * 0.65; kitRun(a, 1.6, () => noChaff(a));
+  const sibs = chorEchoesIn(a);
+  sibs[0].x = b.x - 150; sibs[0].y = b.y; sibs[1].x = b.x + 150; sibs[1].y = b.y;
+  const ax = sibs[0].x, bx = sibs[1].x;
+  const bA = sibs[0].blinkAt, bB = sibs[1].blinkAt;
+  let swapped = false, drewSwap = false, exec = false;
+  kitRun(a, 8.0, () => { noChaff(a);
+   const S = b.chS;
+   if (S && S.st === 'aim' && !drewSwap) { drewSwap = true; ok('SWAP aims a ruled line between the echoes', !kitRenders(a)); }
+   if (!exec && sibs[0].blinkAt !== bA && sibs[1].blinkAt !== bB) { exec = true;
+    swapped = Math.abs(sibs[0].x - bx) < 60 && Math.abs(sibs[1].x - ax) < 60; }
+   if (!exec) for (const o of sibs) { o.x = (o === sibs[0] ? ax : bx); o.y = b.y; } });
+  ok('SWAP: the echoes trade places', swapped);
+  ok('stamped as a legal swap', sibs.every(o => o.blinkAt > 0));
+ }
+ {
+  const { a, p, b } = kitRoom('chorus', 94);
+  b.forcedAttack = 'canon'; b.sumLeft = [];
+  kitRun(a, 0.05, () => noChaff(a));
+  b.sumLeft = [];
+  b.hp = b.hpSeen = b.maxhp * 0.65; kitRun(a, 1.6, () => noChaff(a));
+  const px = p.x, py = p.y;
+  b.chN = { t: 0.01 };
+  let early = 0, late = 0, t0 = -1; const seenC = new Set();
+  kitRun(a, 3.0, i => { p.x = px; p.y = py; noChaff(a);
+   for (const r of a.ebullets) if (r.src && r.src.what === 'CANON' && !seenC.has(r)) {
+    seenC.add(r); if (t0 < 0) t0 = i / 60;
+    if (i / 60 - t0 < 0.35) early++; else late++; } });
+  atLeast('CANON: the original fires its pattern', early, 5);
+  atLeast('each echo answers 0.5s later', late, 6);
+ }
+ {
+  const { a, p, b } = kitRoom('chorus', 94);
+  b.forcedAttack = 'canon'; b.chN = { t: 99 }; b.sumLeft = []; b.fightT = 20;
+  kitRun(a, 0.05, () => noChaff(a));
+  b.sumLeft = [];
+  b.hp = b.hpSeen = b.maxhp * 0.65; kitRun(a, 1.6, () => noChaff(a));
+  b.hp = b.hpSeen = b.maxhp * 0.54;
+  kitRun(a, 0.4, () => noChaff(a));
+  ok('at 55% CHORUS calls the RE-FORM', b.mode === 'recover' && a.bossLabel(b) === 'RE-FORM');
+  const n0 = chorEchoesIn(a).length, h0 = b.hp;
+  kitRun(a, 3.0, () => noChaff(a));
+  const left = chorEchoesIn(a).length;
+  ok('the echoes come home and rejoin', left < n0, left + ' of ' + n0 + ' left');
+  ok('each rejoin mends it', b.hp > h0);
+  atMost('from the capped pool', b.hp - h0, b.maxhp * 0.08 + 1);
+ }
+ {
+  const { a, p, b } = kitRoom('chorus', 94);
+  b.forcedAttack = 'canon'; b.chN = { t: 99 }; b.sumLeft = []; b.fightT = 20;
+  kitRun(a, 0.05, () => noChaff(a));
+  b.sumLeft = [];
+  b.hp = b.hpSeen = b.maxhp * 0.65; kitRun(a, 1.6, () => noChaff(a));
+  for (const o of chorEchoesIn(a).slice()) a.killEnemy(a.enemies.indexOf(o));
+  eq('the choir cut down first', chorEchoesIn(a).length, 0);
+  const h0 = b.hp = b.hpSeen = b.maxhp * 0.54;
+  kitRun(a, 1.5, () => noChaff(a));
+  kitRun(a, 1.0, () => noChaff(a));
+  ok('with no echoes the RE-FORM breaks', b.mode !== 'recover');
+  atMost('and nothing is mended', b.hp - h0, 1);
+ }
+ {
+  const { a, b } = kitRoom('chorus', 94);
+  b.hp = b.hpSeen = b.maxhp * 0.69; kitRun(a, 0.5);
+  let s = a.enemies.filter(e => e.summoned);
+  ok('at 70% CHORUS calls NULLIFIER', s.length === 1 && s[0].kind === 'nullifier', s.map(e => e.kind).join(','));
+  a.killEnemy(a.enemies.indexOf(s[0])); b.hp = b.hpSeen = b.maxhp * 0.34; kitRun(a, 1.5);
+  s = a.enemies.filter(e => e.summoned);
+  ok('and again at 35%', s.length === 1 && s[0].kind === 'nullifier');
+ }
  return null;
 }
 

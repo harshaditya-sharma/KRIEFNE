@@ -4950,17 +4950,66 @@ BOSS_KITS.nullifier={
 // ===== END BOSS: NULLIFIER =====
 
 // ===== BOSS: CHORUS =====
+// The Norn-Choir (spec §5). Signature SPLIT (kept): it fractures into
+// fragile synced echoes at 66% and 33% — the splits ARE its phases.
+// Secondaries: HARMONY (the echoes take triangulated spots round you and
+// fire one synchronised crossfire), SWAP (the echoes trade places — the
+// allow-list teleport) and CANON (each echo repeats the original's last
+// pattern 0.5 s later). Recovery RE-FORM at 55% and 30%: the echoes come
+// home, and one touching the original merges back and restores 4% HP —
+// kill them before they rejoin. Calls NULLIFIER at 70% and 35% (the rung
+// below). No radial volleys.
+function chorusEchoes(e){ const out=[]; for(const o of enemies) if(o!==e&&o.kind==='chorus'&&o.echo&&!o.dead) out.push(o); return out; }
+function chorusHome(){ for(const o of enemies) if(o.kind==='chorus'&&!o.echo&&!o.summoned&&!o.dead&&o.rec&&o.chorReform) return o; return null; }
 BOSS_KITS.chorus={
  def:{name:'CHORUS',epithet:'the Norn-Choir',tier:4,hp:1400,r:28,spd:1.05,shape:'triad',pt:3.0,sig:'split',chaff:['mite','drone']},
  lore:'A SOVEREIGN IN THREE VOICES — CHORUS was a people once. Every echo is true.',
- codex:{role:'Splitter', threat:'Fractures twice',
-  tell:'At 66% and 33% it FRACTURES into smaller synced echoes.',
-  counter:'Burst through the thresholds fast, or fight three at once. Echoes are fragile.',
-  lore:'The Norn-Choir. Not built by a people; it is one: the last of a species that copied itself into machines so it would not end. Three copies were made, to be safe. Each echo believes it is the original and is, in every sense that has ever been tested, correct.'},
+ codex:{role:'Splitter', threat:'Fractures twice; Re-form twice',
+  tell:'At 66% and 33% it FRACTURES into fragile synced echoes. Dashed slots triangulating you are the HARMONY, fired as one. A ticked line between echoes is the SWAP. One fan answered half a second later from every echo is the CANON. A RE-FORM call brings the echoes home.',
+  counter:'Burst through the thresholds or fight three at once. Break the triangulation before the volley. Every echo is fragile: spend one fan per echo. When it calls them home, kill them before they touch it — each one that rejoins mends it.',
+  lore:'The Norn-Choir. Not built by a people; it is one: the last of a species that copied itself into machines so it would not end. Three copies were made, to be safe. Each echo believes it is the original and is, in every sense that has ever been tested, correct. The re-form is not hunger. It is homesickness with a casualty count.'},
  // its splits are its phases (spec §5)
  phases:[{},{at:0.66},{at:0.33}],
- cycle:['fan','spiral','summon','burst'],
- attacks:atk('fan','spiral','summon','burst'),
+ cycle:['harmony','swap','canon'],
+ attacks:{
+  harmony(e,C){ // triangulated spots, one synchronised crossfire
+   C.mv(0.35);
+   let S=e.chH; if(e.atkT===0||!S) S=e.chH={t:0.5};
+   S.t-=C.dt;
+   if(S.t<=0){ S.t=C.enrage?2.2:3.0;
+    const sibs=e.echo?[]:chorusEchoes(e);
+    const src=srcOf(e,'HARMONY');
+    const fan=(o)=>{ const a=Math.atan2(C.p.y-o.y,C.p.x-o.x);
+     for(let k=-1;k<=1;k++){ const r=eshotAt(e,o.x,o.y,a+k*0.15,260,5,0.85,3.2); if(r) r.src=src; } };
+    if(!sibs.length){ for(let k=-2;k<=2;k++) eshot(e,C.aim+k*0.16,260,5); }
+    else { sibs.forEach((o,i)=>{ const a=C.aim+Math.PI/2+i*2.094;
+       o.chorSlot={x:C.p.x+Math.cos(a)*260,y:C.p.y+Math.sin(a)*260}; });
+     e.chorSync=0.6; fan(e); for(const o of sibs) if(!o.dead) fan(o); }
+    SFX.eshoot(); } },
+  swap(e,C){ // the echoes trade places (the allow-list)
+   if(e.echo) return;
+   C.mv(0.4);
+   let S=e.chS; if(e.atkT===0||!S) S=e.chS={st:'rest',t:1.2};
+   S.t-=C.dt;
+   if(S.st==='rest'&&S.t<=0){ const sibs=chorusEchoes(e);
+    if(sibs.length<2){ S.t=1.0; return; }
+    S.st='aim'; S.t=0.5; S.a=sibs[0]; S.b=sibs[1]; SFX.click(); }
+   else if(S.st==='aim'&&S.t<=0){ S.st='rest'; S.t=C.enrage?2.6:3.6;
+    const A=S.a, B=S.b;
+    if(A&&B&&!A.dead&&!B.dead&&enemies.indexOf(A)>=0&&enemies.indexOf(B)>=0){
+     const ax=A.x, ay=A.y;
+     if(bossBlink(A,B.x,B.y,'swap')) bossBlink(B,ax,ay,'swap');
+     addFloater(e.x,calloutY(e),'SWAP',K.red); SFX.portal(); } } },
+  canon(e,C){ // one pattern now, every echo answering 0.5 s later
+   C.mv(0.35);
+   let S=e.chN; if(e.atkT===0||!S) S=e.chN={t:0.5};
+   S.t-=C.dt;
+   if(S.t<=0){ S.t=C.enrage?2.2:3.0;
+    const src=srcOf(e,'CANON');
+    for(let k=-2;k<=2;k++){ const r=eshot(e,C.aim+k*0.16,260,5,1,3.4); if(r) r.src=src; }
+    if(!e.echo) (e.chorCanon=e.chorCanon||[]).push({t:0.5,aim:C.aim});
+    SFX.eshoot(); } }
+ },
  signature(e,C){ // fractures into synced copies at 66% and 33%
   const f=e.hp/e.maxhp;
   if(!e.summoned&&!e.echo&&((e.split===0&&f<=0.66)||(e.split===1&&f<=0.33))){
@@ -4977,7 +5026,48 @@ BOSS_KITS.chorus={
    }
    addFloater(e.x,calloutY(e),'CHORUS FRACTURES',K.red); SFX.brk();
   }
+  if(!e.echo&&e.chorSync>0) e.chorSync-=C.dt;
+  // CANON answers: every echo repeats the pattern 0.5 s later
+  if(!e.echo&&e.chorCanon) for(let i=e.chorCanon.length-1;i>=0;i--){ const q=e.chorCanon[i]; q.t-=C.dt;
+   if(q.t<=0){ e.chorCanon.splice(i,1);
+    const src=e.chorSrc||(e.chorSrc=srcOf(e,'CANON')), sibs=chorusEchoes(e);
+    for(const o of sibs) for(let k=-1;k<=1;k++){ const r=eshotAt(e,o.x,o.y,q.aim+k*0.15,260,5,0.85,3.2); if(r) r.src=src; }
+    if(sibs.length) SFX.eshoot(); } }
  },
+ // RE-FORM: the echoes come home, and one that touches it rejoins (+4% HP).
+ recover:{ at:[0.55,0.30], pool:0.08, label:'RE-FORM', hold:false, max:8,
+  start(e){ e.chorReform=true;
+   addFloater(e.x,calloutY(e),'CHORUS RE-FORMS · kill the echoes',K.red); SFX.alarm(); },
+  update(e,C){ const sibs=chorusEchoes(e);
+   if(!sibs.length) return e.healPool<e.maxhp*0.08-1e-9?'mended':'broken';
+   for(const o of sibs.slice()){ if(Math.hypot(o.x-e.x,o.y-e.y)<e.r+o.r+6){
+    const ix=enemies.indexOf(o); if(ix>=0) enemies.splice(ix,1);
+    o.dead=true; bossDied(o); // a merge, not a kill: no draft, no gems
+    bossHeal(e,e.maxhp*0.04);
+    addFloater(e.x,calloutY(e),'ECHO REJOINS',K.red); SFX.brk(); } }
+   return e.healPool<=0?'mended':false; },
+  end(e,why){ e.chorReform=false;
+   addFloater(e.x,calloutY(e),why==='broken'?'RE-FORM BROKEN':'RE-FORM ENDS',why==='broken'?K.gold:K.red); } },
+ label(e){ if(e.atk==='harmony') return 'HARMONY'; if(e.atk==='swap') return 'SWAP';
+  if(e.atk==='canon') return 'CANON'; return null; },
+ post(e,dt){ const p=player;
+  if(e.echo&&p){ // an echo takes its triangulation slot, or comes home
+   const O=chorusHome();
+   const goal=O?{x:O.x,y:O.y,home:true}:e.chorSlot;
+   if(goal){ const dx=goal.x-e.x, dy=goal.y-e.y, l=Math.hypot(dx,dy);
+    if(l>(goal.home?4:20)){ const v=Math.min(e.sp*(goal.home?1.5:1.2)*dt,l);
+     e.x=clamp(e.x+dx/l*v,PX0+e.r,PX1-e.r); e.y=clamp(e.y+dy/l*v,PY0+e.r,PY1-e.r);
+     e.intent+=v; } } } },
+ under(e){
+  if(e.chorSync>0&&player){ ctx.save(); ctx.globalAlpha=0.8; // the triangulation
+   ctx.strokeStyle=K.red; ctx.lineWidth=1; ctx.setLineDash([5,5]);
+   for(const o of chorusEchoes(e)){ if(!o.chorSlot) continue;
+    ctx.beginPath(); ctx.arc(o.chorSlot.x,o.chorSlot.y,26,0,6.283); ctx.stroke(); }
+   ctx.setLineDash([]); ctx.restore(); }
+  const S=e.chS;
+  if(e.atk==='swap'&&S&&S.st==='aim'&&S.a&&S.b&&!S.a.dead&&!S.b.dead){
+   ctx.save(); ctx.globalAlpha=0.85;
+   tickedLine(S.a.x,S.a.y,S.b.x,S.b.y,K.red,1.5,18,3); ctx.restore(); } },
  draw(e,g){ // three fused lobes around a shared core
   const R=g.R;
   for(let k=0;k<3;k++){ const a=e.t*0.8+k*2.094;
@@ -4986,6 +5076,7 @@ BOSS_KITS.chorus={
   ctx.strokeStyle=g.dim; ctx.lineWidth=1; for(let k=0;k<3;k++){ const a=e.t*0.8+k*2.094; ctx.beginPath(); ctx.arc(Math.cos(a)*R*0.42,Math.sin(a)*R*0.42,R*0.28,0,6.283); ctx.stroke(); }
   ctx.fillStyle=g.col; ctx.beginPath(); ctx.arc(0,0,R*0.14,0,6.283); ctx.fill();
  }
+ ,hitParts:{ rot:e=>e.t*0.8, c:[[0.42,0,0.5],[-0.21,0.36,0.5],[-0.21,-0.36,0.5]] }
 };
 // ===== END BOSS: CHORUS =====
 
