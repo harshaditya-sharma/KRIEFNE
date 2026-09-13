@@ -3771,25 +3771,97 @@ BOSS_KITS.sentinel={
 // ===== END BOSS: SENTINEL =====
 
 // ===== BOSS: ARCHON =====
+// The Lawspeaker (spec §5), three phases, no recovery — tanky. Signature
+// VERDICT: a twin-ended beam across the whole arena. A 1.2 s telegraph shows
+// both lines, then they go live and rotate 180–270° over ~4 s, with ticks
+// showing which way. Obstacles block them: hide behind cover, or dash through
+// one arm and then the other. Secondaries: DECREE (lines of slow rounds
+// marching with gaps), GAVEL (a close slam) and HOLMGANG CIRCLE (a ring round
+// you both for 6 s; leaving it hurts). P2 at 66%: Verdict and Decree in
+// combination, and the Circle shrinks. P3 at 33%: a four-armed Verdict that
+// reverses once mid-sweep. Calls SENTINEL at 75% and 25%. No radials.
 BOSS_KITS.archon={
- def:{name:'ARCHON',epithet:'the Lawspeaker',tier:4,hp:1800,r:34,spd:0.90,shape:'crown',pt:3.8,sig:'command',chaff:['stalker','sniper']},
+ def:{name:'ARCHON',epithet:'the Lawspeaker',tier:4,hp:1800,r:34,spd:0.90,shape:'crown',pt:3.8,sig:'verdict',chaff:['stalker','sniper']},
  lore:'THE FIRST SOVEREIGN — ARCHON the Lawspeaker wrote the holmgang you fight under.',
- codex:{role:'Commander', threat:'Calls SENTINEL twice',
-  tell:'Rotating cross-beams, and "ARCHON CALLS SENTINEL" as its bar crosses three quarters and one quarter.',
-  counter:'Deep down the trail its SENTINEL calls ORACLE in turn. Kill the ARCHON to stop the calls.',
+ codex:{role:'Commander', threat:'No recovery; three phases',
+  tell:'Both VERDICT lines rule out 1.2 s, then sweep. Slow DECREE lines march with a gap. A dashed ring at close range is the GAVEL; a ring round you both, the HOLMGANG CIRCLE.',
+  counter:'Hide from the Verdict behind cover, or dash through one arm then the other. Leave a Decree by its gap. Stay inside the Circle. It never mends: press it.',
   lore:'The Lawspeaker. Rank, rendered as a machine. It wrote the holmgang every god fights under, it has never fired the first shot in any holmgang it has won, and it regards this as the entire point of the office.'},
  summons:{at:[0.75,0.25]}, // decided timing (spec §2)
- cycle:['crossbeam','muster','burst','slam'],
- attacks:atk('crossbeam','muster','burst','slam'),
- draw(e,g){ // command crown with rank spikes
+ cycle:['verdict','decree','gavel','circle'],
+ phases:[{},{at:0.66},{at:0.33}],
+ attacks:{
+  verdict(e,C){ // twin-ended (four-armed in P3), rotating, blocked by cover
+   C.mv(0.25);
+   if(e.atkT!==0) return;
+   const p3=e.ph>=3&&!e.summoned, arms=p3?4:2;
+   const dir=Math.random()<0.5?1:-1, rot=dir*(0.8+Math.random()*0.4);
+   e.avDir=rot>0?1:-1;
+   bossBeam(e,{a:C.aim,warn:1.2,live:4,w:12,arms,rot,flip:p3?2:0,follow:true,dmg:Math.round(e.dmg*0.5),what:'VERDICT'});
+   SFX.alarm(); },
+  decree(e,C){ // lines of slow rounds marching across, with gaps
+   C.mv(0.3);
+   if(e.atkT===0){ e.acD={t:0,k:0}; SFX.click(); }
+   const S=e.acD; if(!S) return; S.t-=C.dt;
+   if(S.k<2&&S.t<=0){ S.t=0.7; S.k++;
+    const a=C.aim, nx=-Math.sin(a), ny=Math.cos(a), src=srcOf(e,'DECREE');
+    for(let k=-5;k<=5;k++){ if(Math.abs(k)<=1) continue; // the gap
+     const x=C.p.x+nx*k*60, y=C.p.y+ny*k*60;
+     if(x<PX0||x>PX1||y<PY0||y>PY1) continue;
+     const b=eshotAt(e,x,y,a,90,6,0.7,6); if(b) b.src=src; }
+    SFX.eshoot(); } },
+  gavel(e,C){ // a close slam
+   let S=e.acG; if(e.atkT===0||!S) S=e.acG={st:'close',t:0};
+   S.t-=C.dt;
+   if(S.st==='close'){ C.mv(0.8); if(C.d<210&&S.t<=0){ S.st='wind'; S.t=0.6;
+    shockwave(e,e.x,e.y,{maxR:195,spd:360,dmg:e.dmg,warn:0.6,w:16,what:'GAVEL'}); } }
+   else if(S.st==='wind'&&S.t<=0){ S.st='close'; S.t=C.enrage?0.8:1.4; } },
+  circle(e,C){ // a duelling ring round you both for 6 s; leaving it hurts (shrinks in P2+)
+   C.orbit(0.6);
+   if(e.atkT!==0||e.acC) return;
+   const mx=(e.x+C.p.x)/2, my=(e.y+C.p.y)/2;
+   e.acC={x:mx,y:my,r:Math.hypot(e.x-C.p.x,e.y-C.p.y)/2+90,t:0,end:6,tick:0};
+   rings.push({x:mx,y:my,r:20,maxR:e.acC.r,spd:300,dmg:0,hit:true});
+   addFloater(mx,my-40,'HOLMGANG CIRCLE — stay inside',K.red); SFX.alarm(); }
+ },
+ label(e){ if(e.atk==='verdict') return 'VERDICT'; if(e.atk==='decree') return 'DECREE';
+  if(e.atk==='gavel') return 'GAVEL'; if(e.atk==='circle') return 'HOLMGANG CIRCLE'; return null; },
+ post(e,dt){ // the Circle keeps its own time across slots
+  const S=e.acC; if(!S) return; const p=player;
+  S.t+=dt;
+  if(e.ph>=2&&!e.summoned) S.r=Math.max(120,S.r-25*dt); // it shrinks from P2
+  if(p&&S.t>0.5){ S.tick-=dt;
+   if(Math.hypot(p.x-S.x,p.y-S.y)>S.r&&S.tick<=0){ S.tick=0.5;
+    hurtPlayer(Math.round(e.dmg*0.6),true,srcOf(e,'HOLMGANG CIRCLE')); } }
+  if(S.t>=S.end) e.acC=null; },
+ under(e){
+  const S=e.acC;
+  if(S){ ctx.save(); ctx.strokeStyle=K.red; ctx.lineWidth=1.5; ctx.setLineDash([8,6]);
+   ctx.beginPath(); ctx.arc(S.x,S.y,S.r,0,6.283); ctx.stroke(); ctx.setLineDash([]);
+   ctx.strokeStyle=K.redDim; ctx.lineWidth=1; ctx.beginPath(); ctx.arc(S.x,S.y,Math.max(10,S.r-14),0,6.283); ctx.stroke();
+   ctx.restore(); }
+  // Verdict rotation ticks: which way the live beams turn
+  for(const b of bossBeams){ if(b.owner!==e||!b.src||b.src.what!=='VERDICT'||b.t<b.warn) continue;
+   const dir=e.avDir||1;
+   ctx.save(); ctx.translate(b.x,b.y); ctx.strokeStyle=K.red; ctx.lineWidth=1.5;
+   for(const s of [1,-1]){ ctx.beginPath(); ctx.arc(0,0,e.r+22+s*7,dir>0?-0.6:Math.PI-0.6,dir>0?0.6:Math.PI+0.6); ctx.stroke();
+    const a=dir>0?0.6:Math.PI+0.6, x=Math.cos(a)*(e.r+22+s*7), y=Math.sin(a)*(e.r+22+s*7);
+    line(x,y,x-Math.cos(a+dir*0.5)*10,y-Math.sin(a+dir*0.5)*10,K.redHi,2); }
+   ctx.restore(); } },
+ draw(e,g){ // a command crown of overlapping trapezoids
   const R=g.R;
-  ctx.save(); ctx.rotate(e.t*0.3); ctx.strokeStyle=g.dim; ctx.lineWidth=2; ctx.setLineDash([10,7]); ctx.beginPath(); ctx.arc(0,0,R+6,0,6.283); ctx.stroke(); ctx.setLineDash([]); ctx.restore();
-  ctx.fillStyle=g.body; ctx.strokeStyle=g.col; ctx.lineWidth=g.lw; poly(7,R-5,e.t*0.2); ctx.fill(); ctx.stroke();
-  ctx.fillStyle=g.col;
-  for(let k=0;k<5;k++){ const a=-1.5708+(k-2)*0.42;
-   ctx.beginPath(); ctx.moveTo(Math.cos(a)*R*0.66,Math.sin(a)*R*0.66); ctx.lineTo(Math.cos(a-0.09)*R*1.16,Math.sin(a-0.09)*R*1.16); ctx.lineTo(Math.cos(a+0.09)*R*1.16,Math.sin(a+0.09)*R*1.16); ctx.closePath(); ctx.fill(); }
-  ctx.strokeStyle=g.col; ctx.lineWidth=1; ctx.beginPath(); ctx.arc(0,0,R*0.3,0,6.283); ctx.stroke();
- }
+  ctx.save(); ctx.rotate(e.t*0.2); ctx.strokeStyle=g.dim; ctx.lineWidth=1.5; ctx.setLineDash([10,7]);
+  ctx.beginPath(); ctx.arc(0,0,R+8,0,6.283); ctx.stroke(); ctx.setLineDash([]); ctx.restore();
+  for(let k=0;k<5;k++){ const a=-1.5708+(k-2)*0.5;
+   ctx.save(); ctx.rotate(a);
+   polyPts([[-R*0.3,-R*0.5],[R*0.3,-R*0.5],[R*0.42,-R*1.12],[-R*0.42,-R*1.12]]);
+   ctx.fillStyle=g.body; ctx.fill(); ctx.strokeStyle=g.col; ctx.lineWidth=g.lw; ctx.stroke();
+   ctx.strokeStyle=g.dim; ctx.lineWidth=1; ctx.beginPath(); ctx.moveTo(-R*0.2,-R*0.6); ctx.lineTo(R*0.2,-R*0.6); ctx.stroke();
+   ctx.restore(); }
+  ctx.fillStyle=g.body; ctx.strokeStyle=g.col; ctx.lineWidth=g.lw; poly(5,R*0.55,e.t*0.15); ctx.fill(); ctx.stroke();
+  ctx.fillStyle=e.atk==='verdict'?K.redHi:g.col; ctx.beginPath(); ctx.arc(0,0,4,0,6.283); ctx.fill();
+ },
+ hitParts:{ rot:()=>0, c:[[0,-1.0,0.26],[0.95,-0.31,0.24],[-0.95,-0.31,0.24],[0.59,0.81,0.2],[-0.59,0.81,0.2]] }
 };
 // ===== END BOSS: ARCHON =====
 
