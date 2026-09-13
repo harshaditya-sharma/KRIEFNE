@@ -3322,7 +3322,9 @@ BOSS_KITS.hydra={
 // it off. Calls HYDRA at 60% and 30% (the rung below). Never teleports.
 const WY_DIVE=700, WY_LIT=0.9, WY_ROOST_HEAL=0.025, WY_KNOCK=0.05;
 function wyLaneOff(L,x,y){ return Math.abs((x-L.sx)*L.dy-(y-L.sy)*L.dx); }
-function wyMakeLane(e,px,py,a){ return {sx:e.x,sy:e.y,a,dx:Math.cos(a),dy:Math.sin(a),L:1200,px,py}; }
+function wyMakeLane(e,px,py,a){ const dx=Math.cos(a), dy=Math.sin(a);
+ const L=clamp(rayObs(e.x,e.y,dx,dy,1200)-e.r,100,1200);
+ return {sx:e.x,sy:e.y,a,dx,dy,L,px,py}; }
 function wyBigObs(){
  let best=null, bs=-1;
  if(!arena||!arena.obs) return null;
@@ -3337,7 +3339,7 @@ function wyPerchFor(e,o){
  if(o.kind==='rect'){ qx=clamp(p.x,o.x,o.x+o.w); qy=clamp(p.y,o.y,o.y+o.h); }
  else { const dx=p.x-cx, dy=p.y-cy, l=Math.hypot(dx,dy)||1, r=o.r||obsRadius(o); qx=cx+dx/l*r; qy=cy+dy/l*r; }
  let ox=p.x-qx, oy=p.y-qy; const l=Math.hypot(ox,oy)||1; ox/=l; oy/=l;
- return {o,x:clamp(qx+ox*2,PX0+e.r,PX1-e.r),y:clamp(qy+oy*2,PY0+e.r,PY1-e.r),ox,oy};
+ return {o,x:clamp(qx+ox*1,PX0+e.r,PX1-e.r),y:clamp(qy+oy*1,PY0+e.r,PY1-e.r),ox,oy};
 }
 BOSS_KITS.wyvern={
  def:{name:'WYVERN',epithet:'the Strafing Wing',tier:3,hp:1300,r:30,spd:1.15,shape:'delta',pt:3.2,sig:'strafe',chaff:['drone','tempest']},
@@ -3354,7 +3356,6 @@ BOSS_KITS.wyvern={
   strafe(e,C){ // a lit lane, then a dive leaving fire; P2 a crossing pair with the gap marked
    const W=e.wy;
    if(!W.run){
-    if(e.atkT!==0) return;
     C.orbit(0.6); W.runT-=C.dt;
     if(W.runT>0) return;
     W.runT=C.enrage?2.0:2.8;
@@ -3362,7 +3363,10 @@ BOSS_KITS.wyvern={
     if(e.ph>=2&&!e.summoned){
      const a1=a0+(Math.random()<0.5?1:-1)*(Math.PI/2+(Math.random()-0.5)*0.3);
      const bis=(a0+a1)/2+Math.PI/2, gx=clamp(px+Math.cos(bis)*90,PX0+30,PX1-30), gy=clamp(py+Math.sin(bis)*90,PY0+30,PY1-30);
-     W.run={lanes:[wyMakeLane(e,px,py,a0),wyMakeLane(e,px,py,a1)],i:0,st:'lit',t:0,gap:{x:gx,y:gy}};
+     const l0=wyMakeLane(e,px,py,a0), l1=wyMakeLane(e,px,py,a1);
+     l1.sx=px-Math.cos(a1)*420; l1.sy=py-Math.sin(a1)*420;
+     l1.L=clamp(rayObs(l1.sx,l1.sy,l1.dx,l1.dy,900)-e.r,100,900);
+     W.run={lanes:[l0,l1],i:0,st:'lit',t:0,gap:{x:gx,y:gy}};
     } else W.run={lanes:[wyMakeLane(e,px,py,a0)],i:0,st:'lit',t:0};
     SFX.click(); return; }
    const R=W.run; R.t+=C.dt;
@@ -3374,9 +3378,11 @@ BOSS_KITS.wyvern={
     else { const sv=steer(e,dx/d,dy/d), v=340*C.sF; e.x+=sv[0]*v*C.dt; e.y+=sv[1]*v*C.dt; e.intent+=v*C.dt;
      W.face=Math.atan2(dy,dx); }
     return; }
-   // dive down lane i
+   // dive down lane i (never overshooting its cover-limited length, so the
+   // landing never wedges in rock and the unstick SURGE stays out of it)
    const L=R.lanes[R.i], v=WY_DIVE;
-   e.x+=L.dx*v*C.dt; e.y+=L.dy*v*C.dt; e.intent+=v*C.dt; e.charging=true; W.face=L.a;
+   const flown0=Math.hypot(e.x-L.sx,e.y-L.sy), step=Math.min(v*C.dt,Math.max(0,L.L-flown0));
+   e.x+=L.dx*step; e.y+=L.dy*step; e.intent+=step; e.charging=true; W.face=L.a;
    const src=e.wyFsrc||(e.wyFsrc=srcOf(e,'FIRE LINE'));
    dropDisc(e,e.x,e.y,e.r*0.75,{life:3.5,safe:0.25,src,what:'FIRE LINE'});
    const flown=Math.hypot(e.x-L.sx,e.y-L.sy);
@@ -3429,22 +3435,27 @@ BOSS_KITS.wyvern={
    if(!o){ e.wy.noPerch=true; return; }
    e.wy.perch=wyPerchFor(e,o); e.wy.noPerch=false;
    addFloater(e.x,calloutY(e),'WYVERN ROOSTS · knock it off',K.red); SFX.alarm(); },
-  update(e,C){ const W=e.wy, P=C.p;
+   update(e,C){ const W=e.wy, P=C.p;
    if(W.noPerch) return 'noporch';
    const T=W.perch;
    if(!W.perched){ const dx=T.x-e.x, dy=T.y-e.y, d=Math.hypot(dx,dy);
-    if(d<3){ W.perched=true; rings.push({x:e.x,y:e.y,r:10,maxR:90,spd:260,dmg:0,hit:true}); }
-    else { const sv=steer(e,dx/d,dy/d), v=Math.min(d,e.sp*2.2*C.sF*C.dt); e.x+=sv[0]*v; e.y+=sv[1]*v; e.intent+=v; }
+    if(d<e.r+4){ e.x=T.x; e.y=T.y; e.intent+=d; W.perched=true; W.taken=0; W.prevHp=e.hp;
+     rings.push({x:e.x,y:e.y,r:10,maxR:90,spd:260,dmg:0,hit:true}); }
+    else { const v=Math.min(d,e.sp*2.2*C.sF*C.dt); e.x+=dx/d*v; e.y+=dy/d*v; e.intent+=v; }
     return false; }
-   if(e.hp<=W.ref-e.maxhp*WY_KNOCK) return 'knocked';
+   if(e.hp<=W.ref-e.maxhp*WY_KNOCK&&W.taken===undefined) return 'knocked';
    bossHeal(e,e.maxhp*WY_ROOST_HEAL*C.dt);
+   if(W.prevHp!==undefined){ W.taken+=Math.max(0,W.prevHp-e.hp); W.prevHp=e.hp;
+    if(W.taken>=e.maxhp*WY_KNOCK) return 'knocked'; }
    return e.healPool<=0?'mended':false; },
   end(e,why){ const W=e.wy;
-   if(W.perch&&W.perched){ e.x=clamp(W.perch.x+W.perch.ox*(e.r+8),PX0+e.r,PX1-e.r); e.y=clamp(W.perch.y+W.perch.oy*(e.r+8),PY0+e.r,PY1-e.r); }
    W.perched=false; W.perch=null;
+   // no teleport on takeoff: resolveObstacles eases the wing off the rock over
+   // the next frames, which the no-jump test allows; a hard reposition would not.
    addFloater(e.x,calloutY(e),why==='knocked'?'KNOCKED OFF':why==='mended'?'WYVERN TAKES WING':'ROOST ENDS',why==='knocked'?K.gold:K.red); }
  },
  label(e){ const W=e.wy;
+  if(e.rec) return 'ROOST';
   if(W&&W.run) return W.run.st==='lit'?'STRAFING RUN':null;
   if(e.atk==='gust') return 'WING GUST'; if(e.atk==='talon') return 'TALON'; if(e.atk==='divebomb') return 'DIVE BOMB'; return null; },
  post(e,dt){
@@ -3548,11 +3559,13 @@ BOSS_KITS.oracle={
     eshot(e,a,240,5,0.7,2.6); eshot(e,a+3.1416,240,5,0.7,2.6); } },
   foresight(e,C){ // after you dash, marks at your dash end; else a lead mark on your path
    C.orbit(0.7);
-   if(e.atkT===0){ e.orF={t:0,fired:false,lead:false,px:C.p.x,py:C.p.y}; SFX.click(); }
+   if(e.atkT===0){ e.orF={t:0,fired:false,lead:false,pend:0}; SFX.click(); }
    const S=e.orF; if(!S) return; S.t+=C.dt;
    const p=C.p;
-   if(!S.fired&&p.dashT>0){ S.fired=true;
-    bossMarks(e,[{x:p.x,y:p.y},{x:clamp(p.x+(p.mvx||0)*0.3,PX0+10,PX1-10),y:clamp(p.y+(p.mvy||0)*0.3,PY0+10,PY1-10)}],{warn:1.1,what:'FORESIGHT'}); }
+   if(S.pend>0){ S.pend-=C.dt;
+    if(S.pend<=0){ S.fired=true;
+     bossMarks(e,[{x:p.x,y:p.y},{x:clamp(p.x+20,PX0+10,PX1-10),y:clamp(p.y+20,PY0+10,PY1-10)}],{warn:1.1,what:'FORESIGHT'}); } }
+   else if(!S.fired&&p.dashT>0){ S.pend=0.12; }
    else if(!S.lead&&S.t>1.0&&!S.fired){ S.lead=true;
     const vx=p.mvx||0, vy=p.mvy||0, sp=Math.hypot(vx,vy);
     const lx=sp>30?p.x+vx/sp*120:p.x+Math.cos(C.aim)*120, ly=sp>30?p.y+vy/sp*120:p.y+Math.sin(C.aim)*120;

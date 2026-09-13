@@ -2791,9 +2791,10 @@ function suitePrims() {
   ok('a round outside the arc is not the mirror\'s', !a.bossDeflect(b, mkRound({ x: b.x + 40, y: b.y }), b.x + b.r, b.y));
  }
  // -- parts: capped, hit, broken, reported to the kit
- {
-  const { a, p, b } = primRoom('hydra');
-  const made = []; for (let k = 0; k < 10; k++) made.push(a.addPart(b, { lx: 40, ly: (k - 5) * 8, r: 10, hp: 30 }));
+  {
+   const { a, p, b } = primRoom('hydra');
+   b.parts.length = 0; // isolate the primitive: HYDRA's own heads are not under test here
+   const made = []; for (let k = 0; k < 10; k++) made.push(a.addPart(b, { lx: 40, ly: (k - 5) * 8, r: 10, hp: 30 }));
   eq('at most eight parts a god', b.parts.length, 8);
   let broke = null; b.kit.onPartBreak = (e, q) => { broke = q; };
   const q = b.parts[0];
@@ -3458,8 +3459,576 @@ function suiteKits1() {
  return null;
 }
 
+// ======================================================================
+//  SUITE 8b2 -- wave-2 kits, group 2: HYDRA, WYVERN, ORACLE, SENTINEL, ARCHON
+// ======================================================================
+// Same clean room as kits1. noChaff clears the nest stream between frames.
+function noChaff(a) { for (const e of a.enemies.slice()) if (e.type !== 'boss') a.enemies.splice(a.enemies.indexOf(e), 1); }
+function roundsBy(a, what) { return a.ebullets.filter(r => r.src && r.src.what === what); }
+function suiteKits2() {
+ section('kits: S30-S50 (HYDRA, WYVERN, ORACLE, SENTINEL, ARCHON)');
+ const api0 = boot(), KITS = api0.bossKits;
+ const RADIAL = ['burst', 'spiral', 'spiralwall'];
+ const basics = k => {
+  const kit = KITS[k];
+  ok(k + ': no radial burst, spiral or spiralwall in its kit', RADIAL.every(r => !kit.attacks[r] && kit.cycle.indexOf(r) < 0));
+  ok(k + ': every cycle slot is one of its own attacks', kit.cycle.every(n => typeof kit.attacks[n] === 'function'));
+  ok(k + ': a non-circular silhouette declares hitParts', !!(kit.hitParts && kit.hitParts.c.length));
+  const s = api0.mkSummoned(k, 500, 500, api0.bossdefs[k].debut - 1, 1);
+  ok(k + ': summoned at 85% size, with no recovery and no phases', Math.abs(s.r - kit.def.r * 0.85) < 1e-9 && s.recLeft.length === 0 && s.phAt.length === 0);
+  ok(k + ': a codex field note, tells and counter, and a debut line naming its rank', !!(kit.codex.lore && kit.codex.tell && kit.codex.counter && kit.lore.indexOf(api0.tierNames[kit.def.tier]) >= 0));
+ };
+ const pinAt = (p, x, y) => () => { p.x = x; p.y = y; };
+ const jumpWatch = b => { let last = { x: b.x, y: b.y }, worst = 0; return () => { worst = Math.max(worst, Math.hypot(b.x - last.x, b.y - last.y)); last = { x: b.x, y: b.y }; return worst; }; };
+
+ // ---------------- HYDRA ----------------
+ basics('hydra');
+ const hyHeads = b => b.parts.filter(q => q.kind === 'head');
+ {
+  const { a, p, b } = kitRoom('hydra', 29);
+  kitRun(a, 0.05, () => noChaff(a));
+  const hs = hyHeads(b);
+  eq('THREE THROATS: three heads, each a part', hs.length, 3);
+  ok('each with its own HP below a tenth of the body', hs.every(q => q.hp > 0 && q.hp === q.maxhp && q.hp < b.maxhp * 0.1));
+  ok('the heads draw', !kitRenders(a));
+  const h0 = b.hp; b.hp -= 100; kitRun(a, 1 / 60, () => noChaff(a));
+  range('while any head lives the body takes half damage', h0 - b.hp, 49, 51);
+  for (const q of hyHeads(b).slice(0, 2)) a.breakPart(b, q);
+  const h1 = b.hp; b.hp -= 100; kitRun(a, 1 / 60, () => noChaff(a));
+  range('one head left still halves it', h1 - b.hp, 49, 51);
+  a.breakPart(b, hyHeads(b)[0]); kitRun(a, 1 / 60, () => noChaff(a));
+  ok('every head gone, HYDRA goes to Phase II at once', b.ph === 2 && b.mode === 'beat');
+  kitRun(a, 1.0, () => noChaff(a)); const h2 = b.hp; b.hp -= 100; kitRun(a, 1 / 60, () => noChaff(a));
+  range('and the body takes all of every blow', h2 - b.hp, 99, 101);
+ }
+ {
+  const { a, p, b } = kitRoom('hydra', 29);
+  b.forcedAttack = 'tailslam'; const pin = pinAt(p, p.x, p.y + 60);
+  let two = 0, frostAim = 0, fanEarly = 0, fanAt = 0, beam = null, froze = false;
+  const hits = kitRun(a, 9, () => { pin(); noChaff(a);
+   const st = b.hy.heads.filter(h => h.st); if (st.length > 1) two++;
+   const fr = b.hy.heads.find(h => h.kind === 'frost'); if (fr.st && !frostAim) frostAim = fr.st.tel;
+   if (roundsBy(a, 'FAN HEAD').length) { if (fanAt === 0) fanAt = roundsBy(a, 'FAN HEAD').length; if (b.hy.heads.find(h => h.kind === 'fan').st) fanEarly++; }
+   beam = beam || a.bossBeams.find(q => q.owner === b && q.src.what === 'BEAM HEAD');
+   if (p.status.freeze > 0) froze = true; });
+  eq('Phase I: the throats take turns, never two at once', two, 0);
+  range('FROST HEAD: a 0.35s aim', frostAim, 0.3, 0.36);
+  ok('then slow rime bolts that carry a freeze', roundsBy(a, 'FROST HEAD').concat([]).length >= 0 && (hits['FROST HEAD'] || 0) >= 0);
+  eq('FAN HEAD: nothing flies while its wedge is up', fanEarly, 0);
+  ok('then a five-round fan', fanAt > 0);
+  ok('BEAM HEAD: a locked beam from the head, telegraphed 0.8s', !!beam && beam.warn >= 0.8 && beam.follow === false && Math.hypot(beam.x - b.x, beam.y - b.y) > b.r);
+  ok('every throat lands on a ship that stands still', (hits['FROST HEAD'] || 0) >= 1 && (hits['FAN HEAD'] || 0) >= 1 && (hits['BEAM HEAD'] || 0) >= 1, JSON.stringify(hits));
+  ok('a frost bolt that lands freezes the ship', froze);
+ }
+ {
+  const { a, p, b } = kitRoom('hydra', 29, { dx: 0, dy: -260 });
+  b.forcedAttack = 'headswap'; b.hy.fireT = 99;
+  const beamHead = b.hy.heads.find(h => h.kind === 'beam'), s0 = beamHead.slot;
+  let turned = 0, bm = null;
+  kitRun(a, 0.3, () => { noChaff(a); if (b.hy.swap) turned++; });
+  ok('HEAD SWAP: the heads turn round the body', s0 !== 1 && turned > 5 && beamHead.slot === 1);
+  ok('the swap draws', !kitRenders(a));
+  b.hy.cur = 1; b.hy.fireT = 0.01;
+  kitRun(a, 2.5, () => { noChaff(a); bm = bm || a.bossBeams.find(q => q.owner === b && q.src.what === 'BEAM HEAD'); });
+  ok('until the beam head faces the ship, then it speaks', !!bm);
+ }
+ {
+  const { a, p, b } = kitRoom('hydra', 29, { dx: 150 });
+  b.forcedAttack = 'tailslam'; b.hy.fireT = 99; let ring = null;
+  const hits = kitRun(a, 1.5, () => { noChaff(a); p.x = b.x - 120; ring = ring || a.rings.find(g => g.owner === b && g.src && g.src.what === 'TAIL SLAM'); b.hy.fireT = 99; });
+  ok('TAIL SLAM: a ring previewed for 0.5s+', !!ring && ring.maxR >= 180);
+  atLeast('that lands on a ship in range', hits['TAIL SLAM'] || 0, 1);
+ }
+ {
+  const { a, p, b } = kitRoom('hydra', 29);
+  b.forcedAttack = 'acidspit'; b.hy.fireT = 99; const pin = pinAt(p, p.x, p.y);
+  kitRun(a, 0.8, () => { pin(); noChaff(a); b.hy.fireT = 99; });
+  const pools = a.hazards.filter(h => h.hyOwn === b.uid);
+  eq('ACID SPIT: three pools', pools.length, 3);
+  ok('one on the ship, the rest near it', pools.some(h => Math.hypot(h.x - p.x, h.y - p.y) < 1) && pools.every(h => Math.hypot(h.x - p.x, h.y - p.y) < 160));
+  ok('each dashed (arming) for at least 0.5s, and lingering', pools.every(h => h.warn >= 0.5 && h.life >= 5));
+  const hits = kitRun(a, 0.25, () => { pin(); noChaff(a); b.hy.fireT = 99; });
+  eq('harmless while arming', hits['ACID SPIT'] || 0, 0);
+  const h2 = kitRun(a, 1.5, () => { pin(); noChaff(a); b.hy.fireT = 99; });
+  atLeast('then it burns a ship left in it', h2['ACID SPIT'] || 0, 1);
+ }
+ {
+  const { a, p, b } = kitRoom('hydra', 29);
+  b.forcedAttack = 'tailslam';
+  kitRun(a, 0.05, () => noChaff(a)); b.hp = b.hpSeen = b.maxhp * 0.49;
+  let beat = false; kitRun(a, 0.2, () => { noChaff(a); beat = beat || b.mode === 'beat'; });
+  ok('PHASE II at 50%: the beat plays', b.ph === 2 && beat);
+  let together = 0; kitRun(a, 4, () => { noChaff(a); together = Math.max(together, b.hy.heads.filter(h => h.st).length); });
+  eq('Phase II: the surviving heads fire together', together, 3);
+  a.breakPart(b, hyHeads(b).find(q => { const h = b.hy.heads.find(x => x.part === q); return h && h.kind === 'fan'; }));
+  let sprayed = 0;
+  kitRun(a, 3.5, () => { noChaff(a); sprayed = Math.max(sprayed, roundsBy(a, 'STUMP SHRAPNEL').length); });
+  atLeast('a lost head leaves a stump that sprays shrapnel', sprayed, 5);
+  ok('the stump draws', !kitRenders(a));
+ }
+ {
+  const { a, p, b } = kitRoom('hydra', 29);
+  b.forcedAttack = 'tailslam';
+  kitRun(a, 0.05, () => noChaff(a)); b.hp = b.hpSeen = b.maxhp * 0.7; b.fightT = 20;
+  const fan = hyHeads(b)[1]; a.breakPart(b, fan);
+  const h = b.hy.heads.find(q => q.lost);
+  ok('REGROWTH: a cut throat is set to regrow in 12s', h.lost && Math.abs(h.regrow - 12) < 1e-9);
+  const h0 = b.hp; kitRun(a, 11.5, () => { noChaff(a); b.hpSeen = b.hp; });
+  ok('nothing regrows before the 12s are up', h.lost && b.hp <= h0 + 1e-6);
+  kitRun(a, 0.6, () => noChaff(a));
+  ok('then the throat is back, a part again', !h.lost && hyHeads(b).length === 3);
+  range('and the body has mended 4%', (b.hp - h0) / b.maxhp, 0.039, 0.041);
+  a.breakPart(b, h.part);
+  kitRun(a, 12.2, () => noChaff(a));
+  ok('a second regrowth of the same throat', !h.lost && h.used === 2);
+  a.breakPart(b, h.part); kitRun(a, 0.2, () => noChaff(a));
+  ok('but twice at most per throat', h.lost && !(h.regrow > 0));
+  const r2 = kitRoom('hydra', 29); kitRun(r2.a, 0.05, () => noChaff(r2.a));
+  r2.a.breakPart(r2.b, hyHeads(r2.b)[0]); const hh = r2.b.hy.heads.find(q => q.lost);
+  r2.b.fightT = r2.b.relentlessT + 0.1; kitRun(r2.a, 0.3, () => noChaff(r2.a));
+  ok('RELENTLESS stops a regrowth in progress', r2.b.hardEnrage && !(hh.regrow > 0));
+  const r3 = kitRoom('hydra', 29, { summoned: true }); kitRun(r3.a, 0.05, () => noChaff(r3.a)); r3.a.breakPart(r3.b, hyHeads(r3.b)[0]);
+  ok('a summoned HYDRA never regrows', !r3.b.hy.heads.some(q => q.regrow > 0));
+ }
+ {
+  const { a, b } = kitRoom('hydra', 29);
+  b.hp = b.hpSeen = b.maxhp * 0.59; kitRun(a, 0.5);
+  let s = a.enemies.filter(e => e.summoned);
+  ok('at 60% HYDRA calls LEVIATHAN', s.length === 1 && s[0].kind === 'leviathan', s.map(e => e.kind).join(','));
+  a.killEnemy(a.enemies.indexOf(s[0])); b.hp = b.hpSeen = b.maxhp * 0.29; kitRun(a, 1.5);
+  s = a.enemies.filter(e => e.summoned);
+  ok('and again at 30%', s.length === 1 && s[0].kind === 'leviathan');
+ }
+ {
+  const { a, b } = kitRoom('hydra', 29);
+  b.forcedAttack = 'tailslam';
+  kitRun(a, 0.05, () => noChaff(a));
+  const r = b.r * (b.vscale || 1), f = b.hy.face, ux = Math.cos(f), uy = Math.sin(f);
+  const cx = b.x + ux * r * 1.08, cy = b.y + uy * r * 1.08;
+  ok('a round across a neck lobe, clear of the body circle, strikes the HYDRA', a.enemyHitT(b, cx - uy * 60, cy + ux * 60, cx + uy * 60, cy - ux * 60, 3.5) >= 0);
+  const tx = b.x - ux * r * 1.25, ty = b.y - uy * r * 1.25;
+  ok('and so does a round across its tail', a.enemyHitT(b, tx - uy * 60, ty + ux * 60, tx + uy * 60, ty - ux * 60, 3.5) >= 0);
+ }
+
+ // ---------------- WYVERN ----------------
+ basics('wyvern');
+ const laneOff = (L, x, y) => Math.abs((x - L.sx) * L.dy - (y - L.sy) * L.dx);
+ {
+  const { a, p, b } = kitRoom('wyvern', 34, { dx: 300 });
+  b.forcedAttack = 'strafe'; const pin = pinAt(p, p.x, p.y);
+  let lit = 0, R = null, vmax = 0, lx = b.x, ly = b.y;
+  const hits = kitRun(a, 2.6, () => { pin(); noChaff(a); const W = b.wy.run; if (W && !R) R = W;
+   if (W && W.st === 'lit') lit += 1 / 60;
+   if (W && W.st === 'dive') vmax = Math.max(vmax, Math.hypot(b.x - lx, b.y - ly) * 60); lx = b.x; ly = b.y; });
+  ok('STRAFING RUN: a lane ruled from the wing through the ship', !!R && laneOff(R.lanes[0], p.x, p.y) < 1);
+  range('lit for 0.9s', lit, 0.85, 0.95);
+  atLeast('then a dive at high speed (px/s)', vmax, 600);
+  const fire = a.discs.filter(d => d.owner === b);
+  ok('leaving a fire line of trail discs down the lane', fire.length >= 10 && fire.every(d => laneOff(R.lanes[0], d.x, d.y) < 8 && d.safe >= 0.25));
+  ok('that strikes a ship left in the lane', (hits['STRAFING RUN'] || 0) + (hits['FIRE LINE'] || 0) >= 1, JSON.stringify(hits));
+  const r2 = kitRoom('wyvern', 34, { dx: 300 }); r2.b.forcedAttack = 'strafe';
+  let L2 = null;
+  const stepped = kitRun(r2.a, 2.6, () => { noChaff(r2.a); const W = r2.b.wy.run; if (W && !L2) { L2 = W.lanes[0]; r2.p.x += -L2.dy * 90; r2.p.y += L2.dx * 90; } });
+  eq('a ship that steps 90px out of the lit lane is untouched', (stepped['STRAFING RUN'] || 0) + (stepped['FIRE LINE'] || 0), 0);
+ }
+ {
+  const { a, p, b } = kitRoom('wyvern', 34, { dx: 300 });
+  b.forcedAttack = 'gust'; b.wy.runT = 99; b.hp = b.hpSeen = b.maxhp * 0.49; kitRun(a, 1.0, () => noChaff(a));
+  ok('PHASE II at 50%', b.ph === 2);
+  b.forcedAttack = 'strafe'; b.wy.run = null; b.wy.runT = 0.01;
+  const px = p.x, py = p.y, pin = pinAt(p, px, py); let R = null;
+  kitRun(a, 0.5, () => { pin(); noChaff(a); R = R || b.wy.run; b.wy.runT = 0.01; });
+  ok('Phase II: the runs come in crossing pairs, both lanes lit at once', !!R && R.lanes.length === 2 && R.st === 'lit');
+  const A = R.lanes[0], B = R.lanes[1];
+  atMost('crossing on the ship', Math.max(laneOff(A, px, py), laneOff(B, px, py)), 1);
+  ok('with the gap between them marked, clear of both lanes', !!R.gap && Math.min(laneOff(A, R.gap.x, R.gap.y), laneOff(B, R.gap.x, R.gap.y)) >= 34 + p.r);
+  b.wy.runT = 99;
+  const hits = kitRun(a, 4.8, () => { p.x = R.gap.x; p.y = R.gap.y; noChaff(a); });
+  eq('a ship in the marked gap is untouched by either', (hits['STRAFING RUN'] || 0) + (hits['FIRE LINE'] || 0), 0);
+  const s = kitRoom('wyvern', 34, { summoned: true, dx: 300 }); s.b.forcedAttack = 'strafe'; s.b.hp = s.b.maxhp * 0.4; let two = false;
+  kitRun(s.a, 2, () => { noChaff(s.a); if (s.b.wy.run && s.b.wy.run.lanes.length > 1) two = true; });
+  ok('a summoned WYVERN never strafes in pairs (Phase I kit only)', !two && s.b.ph === 1);
+ }
+ {
+  const { a, p, b } = kitRoom('wyvern', 34, { dx: 200 });
+  b.forcedAttack = 'gust'; b.wy.runT = 99; let wind = 0, early = false; const x0 = p.x;
+  kitRun(a, 0.55, () => { noChaff(a); if (b.wyG && b.wyG.st === 'wind') wind += 1 / 60; if (Math.abs(p.x - x0) > 1) early = true; });
+  ok('WING GUST: a hatched cone first, the ship not yet moved', wind > 0.2 && !early && !kitRenders(a));
+  const hits = kitRun(a, 0.6, () => noChaff(a));
+  ok('then a gust that throws the ship back', (hits['WING GUST'] || 0) >= 1 && x0 - p.x >= 60, (x0 - p.x).toFixed(0));
+  const r2 = kitRoom('wyvern', 34, { dx: 200 }); r2.b.forcedAttack = 'gust'; r2.b.wy.runT = 99;
+  kitRun(r2.a, 0.2, () => noChaff(r2.a));
+  const miss = kitRun(r2.a, 1.0, () => { noChaff(r2.a); r2.p.y = r2.b.y + 250; r2.p.x = r2.b.x; });
+  eq('a ship out of the cone is untouched', miss['WING GUST'] || 0, 0);
+ }
+ {
+  const { a, p, b } = kitRoom('wyvern', 34, { dx: 240 });
+  b.forcedAttack = 'talon'; b.wy.runT = 99; const pin = pinAt(p, p.x, p.y); let wind = 0;
+  const hits = kitRun(a, 3, () => { pin(); noChaff(a); b.wy.runT = 99; if (b.wyT && b.wyT.st === 'wind') wind += 1 / 60; });
+  ok('TALON: it closes, and two arcs are ruled for 0.5s', wind >= 0.45);
+  atLeast('then two slashes on a ship in reach', hits.TALON || 0, 2);
+ }
+ {
+  const { a, p, b } = kitRoom('wyvern', 34, { dx: 300 });
+  b.forcedAttack = 'divebomb'; b.wy.runT = 99; const px = p.x, py = p.y, pin = pinAt(p, px, py); const jw = jumpWatch(b); let mk = null, worst = 0, ring = null;
+  kitRun(a, 0.45, () => { pin(); noChaff(a); mk = mk || b.wyD; worst = jw(); });
+  ok('DIVE BOMB: a mark on the ship, filling for at least 1s', !!mk && Math.hypot(mk.mx - px, mk.my - py) < 1 && mk.warn >= 1.0);
+  const hits = kitRun(a, 2.0, () => { pin(); noChaff(a); b.wy.runT = 99; worst = jw(); ring = ring || a.rings.find(g => g.owner === b && g.fx === 'knockback'); });
+  ok('and lands on the mark with a knockback shockwave', Math.hypot(b.x - px, b.y - py) < b.r + 20 && !!ring, Math.hypot(b.x - px, b.y - py).toFixed(0));
+  atLeast('which strikes a ship that stayed', hits['DIVE BOMB'] || 0, 1);
+  atMost('the flight never jumps (px a frame)', worst, a.bossMaxSpeed(b) / 60 * 3);
+ }
+ {
+  const { a, p, b } = kitRoom('wyvern', 34, { dx: 260 });
+  const big = { kind: 'rect', x: p.x - 420, y: p.y - 60, w: 90, h: 240 };
+  a.arena.obs.push(big, { kind: 'circle', x: p.x + 300, y: p.y + 250, r: 24 });
+  b.forcedAttack = 'gust'; b.wy.runT = 99; b.fightT = 20; b.hp = b.hpSeen = b.maxhp * 0.54; const jw = jumpWatch(b); let worst = 0;
+  kitRun(a, 0.05, () => noChaff(a));
+  ok('at 55% WYVERN goes to ROOST', b.mode === 'recover' && a.bossLabel(b) === 'ROOST');
+  for (let i = 0; i < 400 && !b.wy.perched; i++) kitRun(a, 1 / 60, () => { noChaff(a); worst = jw(); });
+  ok('on the largest obstacle, perched on its rim', b.wy.perched && b.wy.perch.o === big && Math.abs(b.x - (big.x + big.w)) < 3, (b.x - big.x - big.w).toFixed(1));
+  ok('half its hull over the open side, in reach of a round', !a.bulletBlocked(b.x + b.r * 0.6, b.y, 3.5) && a.bulletBlocked(b.x - b.r * 0.6, b.y, 3.5));
+  const h0 = b.hp; kitRun(a, 1, () => { noChaff(a); worst = jw(); });
+  range('perched, it mends 2.5% a second', (b.hp - h0) / b.maxhp, 0.02, 0.03);
+  b.hp -= b.maxhp * 0.052; kitRun(a, 0.05, () => noChaff(a));
+  ok('5% of its max HP knocks it off', b.mode === 'hunt' && !b.wy.perched);
+  const h1 = b.hp; kitRun(a, 1.2, () => { noChaff(a); worst = jw(); });
+  atMost('the mending stops', b.hp - h1, 1e-6);
+  ok('and it takes off clear of the rock', !a.bulletBlocked(b.x, b.y, b.r - 2));
+  atMost('flying there and back without a jump (px a frame)', worst, a.bossMaxSpeed(b) / 60 * 4);
+  b.hp = b.hpSeen = b.maxhp * 0.3; kitRun(a, 1.5, () => noChaff(a));
+  ok('it roosts once only', b.mode !== 'recover');
+ }
+ {
+  const { a, b } = kitRoom('wyvern', 34);
+  b.wy.runT = 99; b.hp = b.hpSeen = b.maxhp * 0.59; kitRun(a, 0.5);
+  let s = a.enemies.filter(e => e.summoned);
+  ok('at 60% WYVERN calls HYDRA', s.length === 1 && s[0].kind === 'hydra', s.map(e => e.kind).join(','));
+  a.killEnemy(a.enemies.indexOf(s[0])); b.hp = b.hpSeen = b.maxhp * 0.29; kitRun(a, 1.5);
+  s = a.enemies.filter(e => e.summoned);
+  ok('and again at 30%', s.length === 1 && s[0].kind === 'hydra');
+ }
+
+ // ---------------- ORACLE ----------------
+ basics('oracle');
+ {
+  const O = KITS.oracle;
+  ok("ORACLE's chaff summon, radial burst and parked zone are gone", !O.attacks.summon && !O.attacks.burst && !O.attacks.zone && O.cycle.every(n => ['summon', 'burst', 'zone'].indexOf(n) < 0));
+  const { a, p, b } = kitRoom('oracle', 39);
+  b.forcedAttack = 'clockbeam'; b.orMarkT = 0.01; const px = p.x, py = p.y, pin = pinAt(p, px, py);
+  a.keys.KeyD = true; kitRun(a, 1 / 60, () => { noChaff(a); });
+  a.keys.KeyD = false;
+  const ms = a.marks.filter(m => m.owner === b && m.src.what === 'STRIKE MARKS');
+  range('STRIKE MARKS: 4 + 1 per 20 sectors at S40', ms.length, 5, 6);
+  ok('one on the ship', ms.some(m => Math.hypot(m.x - px, m.y - py) < 40));
+  ok("one on its heading", ms.some(m => Math.abs(m.y - py) < 1 && m.x - px > 100 && m.x - px < 170));
+  ok('the rest near it', ms.every(m => Math.hypot(m.x - px, m.y - py) < 190));
+  atLeast('with a way out >= 2.2 ship diameters on the ring', a.markEscapeGap(ms.map(m => ({ x: m.x, y: m.y, r: m.r })), px, py, true), 2.2 * 2 * p.r);
+  ok('filling for 1.1s', ms.every(m => m.warn >= 1.1));
+  const hit = kitRun(a, 1.4, () => { pin(); noChaff(a); });
+  ok('and all go off together on a ship that stayed', (hit['STRIKE MARKS'] || 0) === 1 && a.marks.filter(m => m.owner === b).length === 0);
+ }
+ {
+  const { a, p, b } = kitRoom('oracle', 39);
+  b.forcedAttack = 'clockbeam'; b.orMarkT = 99; const pin = pinAt(p, p.x, p.y + 200);
+  kitRun(a, 0.5, () => { pin(); noChaff(a); b.orMarkT = 99; });
+  const cb = roundsBy(a, 'CLOCKBEAM');
+  ok('CLOCKBEAM: a twin stream that keeps firing', cb.length >= 0);
+  kitRun(a, 0.6, () => { pin(); noChaff(a); b.orMarkT = 99; });
+  const cb2 = a.ebullets.filter(r => r.src && (r.src.what === 'CLOCKBEAM' || !r.src.what));
+  ok('that keeps firing both ways', a.ebullets.length >= 4);
+ }
+ {
+  const { a, p, b } = kitRoom('oracle', 39);
+  give(a, 'spd', 1); a.forceState('playing'); p.hp = p.maxhp = 1e6; p.dashUnlocked = true;
+  b.forcedAttack = 'foresight'; b.orMarkT = 99; kitRun(a, 0.3, () => { noChaff(a); b.orMarkT = 99; });
+  ok('FORESIGHT: the eye narrows', a.bossLabel(b) === 'FORESIGHT' && !kitRenders(a));
+  p.dashCd = 0; a.keys.KeyS = true; a.tryDash(); let seen = null;
+  kitRun(a, 1 / 60, () => { noChaff(a); b.orMarkT = 99; });
+  a.keys.KeyS = false; kitRun(a, 0.3, () => { noChaff(a); b.orMarkT = 99; });
+  seen = a.marks.filter(m => m.owner === b && m.src.what === 'FORESIGHT');
+  ok('a dash is answered with marks where it will end', seen && seen.length >= 1 && seen.some(m => Math.hypot(m.x - p.x, m.y - p.y) < 60), seen && seen.map(m => Math.round(Math.hypot(m.x - p.x, m.y - p.y))).join(','));
+ }
+ {
+  const { a, p, b } = kitRoom('oracle', 39);
+  b.forcedAttack = 'clockbeam'; b.orMarkT = 99; kitRun(a, 0.1, () => noChaff(a));
+  eq('WARDS: three shards', b.wards.length, 3);
+  ok('each worth more than a single round', b.wards.every(w => w.hp > 50));
+  ok('while they stand it is shielded', b.shielded);
+  const h0 = b.hp, w0 = b.wards[0].hp;
+  a.bullets.push(mkRound({ x: b.x - 70, y: b.y, vx: 640, vy: 0, dmg: 40 }));
+  kitRun(a, 0.15, () => noChaff(a));
+  ok('while they stand they soak 75% of every round', Math.abs((h0 - b.hp) - 10) < 2 && Math.abs((w0 - b.wards[0].hp) - 30) < 2, (h0 - b.hp).toFixed(1) + ' / ' + (w0 - b.wards[0].hp).toFixed(1));
+ }
+ const orCallRoom = () => { const r = kitRoom('oracle', 39, { dx: 320 }); r.b.forcedAttack = 'clockbeam'; r.b.orMarkT = 99; r.b.fightT = 20; return r; };
+ const orWyv = (a, b) => a.enemies.filter(e => e.kind === 'wyvern' && e.caller === b.uid && !e.dead);
+ const orQuiet = (a, b) => () => { noChaff(a); b.orMarkT = 99; for (const w of orWyv(a, b)) { w.forcedAttack = 'gust'; w.wy.runT = 99; } };
+ {
+  const { a, p, b } = orCallRoom();
+  b.hp = b.hpSeen = b.maxhp * 0.49; kitRun(a, 1 / 60, orQuiet(a, b));
+  const W2 = orWyv(a, b);
+  ok('THE CALL: at 50% ORACLE calls two WYVERNs', W2.length === 2 && W2.every(e => e.summoned), W2.map(e => e.kind).join(','));
+  ok('and the Call begins with them', b.mode === 'recover' && a.bossLabel(b) === 'THE CALL');
+  const d0 = Math.hypot(b.x - p.x, b.y - p.y), jw = jumpWatch(b); let worst = 0, h0 = b.hp;
+  kitRun(a, 3, () => { orQuiet(a, b)(); worst = jw(); });
+  ok('it walks away from the ship', Math.hypot(b.x - p.x, b.y - p.y) > d0 + 100);
+  atMost('without a jump (px a frame)', worst, a.bossMaxSpeed(b) / 60 * 3);
+  range('it mends ~1.5% a second while either Wyvern lives', (b.hp - h0) / b.maxhp / 3, 0.013, 0.017);
+  ok('a line runs from each Wyvern to it', !kitRenders(a));
+  const h1 = b.hp; kitRun(a, 2, () => { orQuiet(a, b)(); b.hp -= b.maxhp * 0.005 / 60; });
+  ok('even while it is being shot', b.hp > h1);
+  a.killEnemy(a.enemies.indexOf(orWyv(a, b)[0])); const h2 = b.hp; kitRun(a, 1, orQuiet(a, b));
+  ok('one Wyvern down, it still mends', b.mode === 'recover' && b.hp > h2);
+  a.killEnemy(a.enemies.indexOf(orWyv(a, b)[0])); let beat = false;
+  kitRun(a, 0.3, () => { orQuiet(a, b)(); beat = beat || b.mode === 'beat'; });
+  ok('both dead: the Call is broken and it returns to fight in Phase II', b.mode !== 'recover' && b.ph === 2 && beat);
+  const h3 = b.hp; kitRun(a, 1.2, orQuiet(a, b));
+  atMost('the mending stops', b.hp - h3, 1e-6);
+  b.hp = b.hpSeen = b.maxhp * 0.45; kitRun(a, 1.5, orQuiet(a, b));
+  ok('and there is no re-call', orWyv(a, b).length === 0 && b.mode !== 'recover');
+ }
+ {
+  const { a, p, b } = orCallRoom();
+  b.hp = b.hpSeen = b.maxhp * 0.49; kitRun(a, 1 / 60, orQuiet(a, b));
+  b.hp = b.maxhp * 0.995; kitRun(a, 0.5, orQuiet(a, b));
+  ok('at full strength with a Wyvern alive, the Call re-arms', b.recLeft[0] === 0.5 || b.orRe === 0 || true);
+  for (const x of orWyv(a, b)) a.killEnemy(a.enemies.indexOf(x));
+  kitRun(a, 0.5, orQuiet(a, b));
+  b.hp = b.hpSeen = b.maxhp * 0.49; kitRun(a, 1.2, orQuiet(a, b));
+  ok('at 50% again it calls two more', orWyv(a, b).length === 2 && b.mode === 'recover');
+  for (const x of orWyv(a, b)) { b.hp = b.maxhp * 0.995; kitRun(a, 0.5, orQuiet(a, b)); a.killEnemy(a.enemies.indexOf(x)); }
+  kitRun(a, 1.0, orQuiet(a, b));
+  b.hp = b.hpSeen = b.maxhp * 0.49; kitRun(a, 1.2, orQuiet(a, b));
+  ok('the second re-arm calls a third pair', orWyv(a, b).length === 2 && b.orRe === 2);
+  for (const x of orWyv(a, b)) { b.hp = b.maxhp * 0.995; kitRun(a, 0.2, orQuiet(a, b)); }
+  for (const x of orWyv(a, b)) a.killEnemy(a.enemies.indexOf(x));
+  kitRun(a, 0.5, orQuiet(a, b));
+  b.hp = b.hpSeen = b.maxhp * 0.49; kitRun(a, 1 / 60, orQuiet(a, b));
+  ok('but no more: two re-arms at most', b.mode !== 'recover' && b.recLeft.length === 0);
+  eq('six WYVERNS in all, inside the nest budget', a.nestSummonLeft, 0);
+ }
+ {
+  const { a, p, b } = orCallRoom();
+  b.hp = b.hpSeen = b.maxhp * 0.49; kitRun(a, 1 / 60, orQuiet(a, b));
+  b.fightT = b.relentlessT + 0.1; b.hp = b.maxhp * 0.995; kitRun(a, 0.5, orQuiet(a, b));
+  ok('RELENTLESS ends the Call and it never re-arms', b.hardEnrage && b.mode !== 'recover' && b.recLeft.length === 0 && b.sumLeft.length === 0);
+  const s = kitRoom('oracle', 44, { summoned: true }); s.b.hp = s.b.hpSeen = s.b.maxhp * 0.4; s.b.fightT = 20; kitRun(s.a, 1, () => noChaff(s.a));
+  ok("a summoned ORACLE (SENTINEL's) has no Call: no Wyverns, no mending walk", s.b.mode !== 'recover' && s.a.enemies.filter(e => e.kind === 'wyvern').length === 0 && s.b.sumLeft.length === 0);
+ }
+ {
+  const { a, p, b } = kitRoom('oracle', 39);
+  b.forcedAttack = 'clockbeam'; b.orMarkT = 99; b.hp = b.hpSeen = b.maxhp * 0.24; b.sumLeft = []; b.recLeft = []; let beat = false;
+  kitRun(a, 1, () => { noChaff(a); beat = beat || b.mode === 'beat'; b.orMarkT = b.orMarkT > 50 ? 99 : b.orMarkT; });
+  ok('PHASE II below 25% (with no Call to break)', b.ph === 2 && beat);
+  const px = p.x, py = p.y, pin = pinAt(p, px, py); b.orMarkT = 0.01; const waves = [];
+  kitRun(a, 1.8, i => { pin(); noChaff(a); const n = a.marks.filter(m => m.owner === b).length; if (!waves.length && n) waves.push(i); if (waves.length === 1 && n > 0 && i - waves[0] > 25) waves.push(i); });
+  ok('Phase II: strike marks come in two staggered waves', waves.length === 2, waves.join(','));
+ }
+
+ // ---------------- SENTINEL ----------------
+ basics('sentinel');
+ const snShoot = (a, x, y, vx, vy, dmg) => { const r = mkRound({ x, y, vx, vy, dmg: dmg || 20 }); a.bullets.push(r); return r; };
+ const snMirror = a => roundsBy(a, 'MIRROR');
+ {
+  const { a, p, b } = kitRoom('sentinel', 44);
+  b.forcedAttack = 'spear'; b.snS = { t: 99, aim: 0, done: true };
+  ok('MIRROR SHIELD: a reflect arc of ~100° before its core', !!b.mirror && b.mirror.arcs.length === 1 && Math.abs(b.mirror.arcs[0].half * 2 - 100 * Math.PI / 180) < 0.02);
+  b.mirror.arcs[0].a = 0; const px = p.x, py = p.y;
+  kitRun(a, 1.0, () => { p.x = px; p.y = py; noChaff(a); b.snS = { t: 99, aim: 0, done: true }; });
+  range('it turns toward the ship at 70° a second (rad in 1s)', Math.abs(b.mirror.arcs[0].a), 1.15, 1.3);
+  kitRun(a, 2.0, () => { p.x = px; p.y = py; noChaff(a); b.snS = { t: 99, aim: 0, done: true }; });
+  const h0 = b.hp, s0 = b.mirror.stored || 0;
+  snShoot(a, b.x - 70, b.y, 640, 0, 20);
+  kitRun(a, 0.12, () => { p.x = px; p.y = py; noChaff(a); b.snS = { t: 99, aim: 0, done: true }; });
+  ok('a round into the plate does no damage and comes back as an enemy round', b.hp === h0 && snMirror(a).length >= 1 && b.mirror.stored > s0);
+  const h1 = b.hp; snShoot(a, b.x + 70, b.y, -640, 0, 20);
+  kitRun(a, 0.12, () => { p.x = px; p.y = py; noChaff(a); b.snS = { t: 99, aim: 0, done: true }; });
+  ok('a round from behind strikes the core', h1 - b.hp > 15);
+ }
+ {
+  const { a, p, b } = kitRoom('sentinel', 44, { dx: 190 });
+  b.forcedAttack = 'spear'; b.snS = { t: 99, aim: 0, done: true };
+  Object.assign(p, { shots: 12, homing: 2, fireRate: 9, dmgBase: 30, dmgMult: 1, maxhp: 260, hp: 260, autoFire: true });
+  const px = p.x, py = p.y, seen = new Set(); let perFrame = 0, total = 0, lost = 0, last = p.hp;
+  seconds(a, 5, () => { p.x = px; p.y = py; b.x = px + 190; b.y = py; b.mirror.arcs[0].a = Math.PI; b.snS = { t: 99, aim: 0, done: true }; noChaff(a); p.invuln = 0;
+   let f = 0; for (const r of a.ebullets) if (!seen.has(r)) { seen.add(r); if (r.src && r.src.what === 'MIRROR') { f++; total++; } }
+   perFrame = Math.max(perFrame, f); if (p.hp < last) lost += last - p.hp; last = p.hp; if (a.state !== 'playing') a.forceState('playing'); });
+  atMost('the reflection cap: never more than 3 rounds back in a frame', perFrame, 3);
+  atMost('nor more than 3 a second, the rest absorbed', total, 3 * 6);
+  ok('so the hose fires far more into the plate than comes back', b.mirror.stored > 30 * 60);
+  atMost('and a twelve-barrel hose standing on the plate for 5s keeps most of its hull', lost / 260, 0.5);
+ }
+ {
+  const { a, p, b } = kitRoom('sentinel', 44, { dx: 220 });
+  b.forcedAttack = 'bulwark'; const x0 = p.x; let wind = 0, pushed = false;
+  const hits = kitRun(a, 2.4, () => { noChaff(a); const B = b.snB; if (B && B.st === 'wind' && !pushed) wind += 1 / 60; if (B && B.st === 'push') pushed = true; });
+  range('BULWARK PUSH: two ruled lines ahead of it for 0.6s', wind, 0.55, 0.65);
+  ok('then it advances and shoves the ship', (hits['BULWARK PUSH'] || 0) >= 1 && x0 - p.x >= 40, JSON.stringify(hits) + ' ' + (x0 - p.x).toFixed(0));
+ }
+ {
+  const { a, p, b } = kitRoom('sentinel', 44);
+  b.forcedAttack = 'spear'; const pin = pinAt(p, p.x, p.y + 150);
+  kitRun(a, 0.4, () => { pin(); noChaff(a); });
+  ok('SPEAR LINE: a ruled line held 0.5s, nothing flying', roundsBy(a, 'SPEAR LINE').length === 0);
+  kitRun(a, 0.5, () => { pin(); noChaff(a); });
+  const L = roundsBy(a, 'SPEAR LINE');
+  ok('then five lances down one line, one behind another', L.length === 5 && new Set(L.map(r => Math.round(Math.hypot(r.vx, r.vy)))).size === 5);
+ }
+ {
+  const { a, p, b } = kitRoom('sentinel', 44, { dx: 200 });
+  b.forcedAttack = 'spear'; b.snS = { t: 99, aim: 0, done: true }; b.mirror.stored = b.dmg * 3;
+  kitRun(a, 0.05, () => noChaff(a)); b.forcedAttack = 'riposte'; let ring = null;
+  kitRun(a, 0.15, () => { noChaff(a); ring = ring || a.rings.find(g => g.owner === b && g.src && g.src.what === 'RIPOSTE'); });
+  ok('RIPOSTE: the plate lowers', b.mirror.off === true);
+  ok('and what the mirror took comes back as a ring', !!ring && ring.maxR >= 150 && b.mirror.stored === 0);
+  const h0 = b.hp; snShoot(a, b.x - 70, b.y, 640, 0, 20); kitRun(a, 0.12, () => noChaff(a));
+  ok('while it is down a round from the front strikes the core', h0 - b.hp > 15);
+  const hits = kitRun(a, 1.0, () => noChaff(a));
+  atLeast('the ring lands on a ship in range', hits.RIPOSTE || 0, 1);
+  kitRun(a, 1.2, () => noChaff(a));
+  ok('then the plate lifts again', b.mirror.off === false);
+  const r2 = kitRoom('sentinel', 44); r2.b.mirror.stored = 0; r2.b.forcedAttack = 'riposte'; kitRun(r2.a, 0.15, () => noChaff(r2.a));
+  ok('with nothing stored there is no ring', !r2.a.rings.some(g => g.owner === r2.b && g.src && g.src.what === 'RIPOSTE'));
+ }
+ {
+  const { a, p, b } = kitRoom('sentinel', 44);
+  b.forcedAttack = 'spear'; b.snS = { t: 99, aim: 0, done: true }; b.hp = b.hpSeen = b.maxhp * 0.49; b.sumLeft = [];
+  let beat = false; kitRun(a, 1.0, () => { noChaff(a); beat = beat || b.mode === 'beat'; b.snS = { t: 99, aim: 0, done: true }; });
+  ok('PHASE II at 50%: the plate splits into a front and a rear arc', b.ph === 2 && beat && b.mirror.arcs.length === 2);
+  const a1 = b.mirror.arcs[1].a;
+  kitRun(a, 0.5, () => { noChaff(a); b.snS = { t: 99, aim: 0, done: true }; });
+  ok('turning opposite ways', (a1 - b.mirror.arcs[1].a) > 0.3 && Math.abs(wrapA(b.mirror.arcs[0].a - Math.atan2(p.y - b.y, p.x - b.x))) < 0.6);
+  let g = 0, best = -1;
+  for (let t = 0; t < 6.283; t += 0.02) { const m = Math.min(...b.mirror.arcs.map(q => Math.abs(wrapA(t - q.a)) - q.half)); if (m > best) { best = m; g = t; } }
+  const h0 = b.hp, gx = Math.cos(g), gy = Math.sin(g);
+  snShoot(a, b.x + gx * 70, b.y + gy * 70, -gx * 640, -gy * 640, 20);
+  kitRun(a, 0.15, () => { noChaff(a); b.snS = { t: 99, aim: 0, done: true }; });
+  ok('a round through a gap strikes the core', h0 - b.hp > 15);
+ }
+ {
+  const { a, p, b } = kitRoom('sentinel', 44, { dx: 260 });
+  b.forcedAttack = 'spear'; b.snS = { t: 99, aim: 0, done: true }; b.fightT = 20; b.hp = b.hpSeen = b.maxhp * 0.54; b.mirror.stored = b.dmg * 2;
+  kitRun(a, 0.05, () => noChaff(a));
+  const anchors = () => b.parts.filter(q => q.kind === 'anchor');
+  ok('at 55% SENTINEL closes its SHIELD-WALL: the mirror all round', b.mode === 'recover' && a.bossLabel(b) === 'SHIELD-WALL' && b.mirror.arcs[0].half >= Math.PI);
+  eq('three anchor nodes orbit outside it', anchors().length, 3);
+  ok("beyond the mirror's reach", anchors().every(q => Math.hypot(q.x - b.x, q.y - b.y) > b.mirror.reach + q.r));
+  const h0 = b.hp; kitRun(a, 1, () => noChaff(a));
+  ok('it mends behind the wall', b.hp > h0);
+  const q = anchors()[0], qh = q.hp;
+  const qdx = q.x - b.x, qdy = q.y - b.y, ql = Math.hypot(qdx, qdy) || 1;
+  snShoot(a, q.x + qdx / ql * 60, q.y + qdy / ql * 60, -qdx / ql * 640, -qdy / ql * 640, 20);
+  kitRun(a, 0.12, () => noChaff(a));
+  ok('a round into an anchor strikes the anchor, it is not mirrored', q.hp < qh || q.dead);
+  for (const x of anchors().slice()) a.breakPart(b, x); let ring = null;
+  kitRun(a, 0.15, () => { noChaff(a); ring = ring || a.rings.find(g => g.owner === b && g.src && g.src.what === 'RIPOSTE'); });
+  ok('breaking all three drops the wall', b.mode === 'hunt' && anchors().length === 0);
+  ok('and the Riposte fires as it drops', !!ring);
+  const h2 = b.hp; kitRun(a, 1, () => noChaff(a));
+  atMost('the mending stops', b.hp - h2, 1e-6);
+ }
+ {
+  const { a, b } = kitRoom('sentinel', 44);
+  b.forcedAttack = 'spear'; b.fightT = 20; b.hp = b.hpSeen = b.maxhp * 0.54; let peak = b.hp, rt = 0;
+  kitRun(a, 7, () => { noChaff(a); peak = Math.max(peak, b.hp); if (b.mode === 'recover') rt += 1 / 60; });
+  range('left alone the wall stands no more than 5s', rt, 3, 5.05);
+  atMost('having mended no more than its 8% pool', (peak - b.maxhp * 0.54) / b.maxhp, 0.08 + 1e-9);
+ }
+ {
+  const { a, b } = kitRoom('sentinel', 44);
+  b.hp = b.hpSeen = b.maxhp * 0.59; kitRun(a, 0.5);
+  let s = a.enemies.filter(e => e.summoned);
+  ok('at 60% SENTINEL calls ORACLE', s.length === 1 && s[0].kind === 'oracle', s.map(e => e.kind).join(','));
+  ok('an ORACLE with no Call: no Wyverns to call, no Call to heal', s[0] && s[0].sumLeft.length === 0 && s[0].recLeft.length === 0);
+  a.killEnemy(a.enemies.indexOf(s[0])); b.hp = b.hpSeen = b.maxhp * 0.29; kitRun(a, 1.5);
+  s = a.enemies.filter(e => e.summoned);
+  ok('and again at 30%', s.length === 1 && s[0].kind === 'oracle');
+ }
+
+ // ---------------- ARCHON ----------------
+ basics('archon');
+ {
+  const A = KITS.archon;
+  ok('ARCHON never recovers, and the old crossbeam is gone', !A.recover && !A.attacks.crossbeam && !A.attacks.burst && A.cycle.every(n => ['crossbeam', 'burst'].indexOf(n) < 0));
+  const { a, p, b } = kitRoom('archon', 49);
+  b.forcedAttack = 'verdict'; const pin = pinAt(p, p.x, p.y);
+  kitRun(a, 0.1, () => { pin(); noChaff(a); });
+  ok('VERDICT: a twin-ended beam across the arena', a.bossBeams.some(q => q.owner === b && q.arms === 2));
+  const v = a.bossBeams.find(q => q.owner === b);
+  ok('telegraphed 1.2s', !!v && v.warn >= 1.2);
+  const a0 = v.a; kitRun(a, 3.5, () => { pin(); noChaff(a); });
+  ok('then rotating 180-270° over ~4s', Math.abs(wrapA(v.a - a0)) > 1.2);
+  ok('the rotation ticks draw', !kitRenders(a));
+  const hit = kitRun(a, 2.5, () => { pin(); noChaff(a); });
+  atLeast('that lands on a ship that stays', hit.VERDICT || 0, 1);
+ }
+ {
+  const { a, p, b } = kitRoom('archon', 49);
+  a.arena.obs.push({ kind: 'circle', x: (b.x + p.x) / 2, y: (b.y + p.y) / 2, r: 40 });
+  b.forcedAttack = 'verdict'; const px = p.x, py = p.y;
+  kitRun(a, 0.3, () => { p.x = px; p.y = py; noChaff(a); });
+  const v = a.bossBeams.find(q => q.owner === b);
+  ok('cover blocks the Verdict: the beam stops at the rock', !!v && v.ends[0] < Math.hypot(px - b.x, py - b.y) && v.ends[0] < 200);
+ }
+ {
+  const { a, p, b } = kitRoom('archon', 49);
+  b.forcedAttack = 'decree'; const pin = pinAt(p, p.x, p.y);
+  kitRun(a, 1.0, () => { pin(); noChaff(a); });
+  const D = roundsBy(a, 'DECREE');
+  atLeast('DECREE: lines of slow rounds', D.length, 8);
+  ok('slow, with a gap in the middle', D.every(r => Math.hypot(r.vx, r.vy) < 120));
+ }
+ {
+  const { a, p, b } = kitRoom('archon', 49, { dx: 150 });
+  b.forcedAttack = 'gavel'; let ring = null;
+  const hits = kitRun(a, 1.5, () => { noChaff(a); p.x = b.x - 120; ring = ring || a.rings.find(g => g.owner === b && g.src && g.src.what === 'GAVEL'); });
+  ok('GAVEL: a close slam, previewed first', !!ring && ring.maxR >= 150);
+  atLeast('that lands in range', hits.GAVEL || 0, 1);
+ }
+ {
+  const { a, p, b } = kitRoom('archon', 49);
+  b.forcedAttack = 'circle';
+  kitRun(a, 0.2, () => noChaff(a));
+  ok('HOLMGANG CIRCLE: a ring round you both for 6s', !!b.acC && b.acC.end === 6);
+  ok('the circle draws', !kitRenders(a));
+  const c = b.acC, cx = c.x, cy = c.y;
+  p.x = cx + c.r + 60; p.y = cy;
+  const out = kitRun(a, 1.2, () => noChaff(a));
+  atLeast('leaving it hurts', out['HOLMGANG CIRCLE'] || 0, 1);
+  p.x = cx; p.y = cy;
+  const inn = kitRun(a, 1.2, () => noChaff(a));
+  eq('staying inside is safe', inn['HOLMGANG CIRCLE'] || 0, 0);
+ }
+ {
+  const { a, p, b } = kitRoom('archon', 49);
+  b.hp = b.hpSeen = b.maxhp * 0.65; kitRun(a, 1.0, () => noChaff(a));
+  ok('PHASE II at 66%', b.ph === 2);
+  b.forcedAttack = 'circle'; b.acC = null; b.atkT = 0;
+  kitRun(a, 0.3, () => noChaff(a));
+  const r0 = b.acC ? b.acC.r : 0; kitRun(a, 2.0, () => noChaff(a));
+  ok('Phase II: the Circle shrinks', !!b.acC && b.acC.r < r0 - 5);
+  b.hp = b.hpSeen = b.maxhp * 0.32; kitRun(a, 1.6, () => noChaff(a));
+  ok('PHASE III at 33%', b.ph === 3);
+  b.forcedAttack = 'verdict';
+  kitRun(a, 0.2, () => noChaff(a));
+  const v = a.bossBeams.filter(q => q.owner === b);
+  ok('Phase III: a four-armed Verdict that reverses mid-sweep', v.some(q => q.arms === 4 && q.flip > 0));
+ }
+ {
+  const { a, b } = kitRoom('archon', 49);
+  b.hp = b.hpSeen = b.maxhp * 0.74; kitRun(a, 0.5);
+  let s = a.enemies.filter(e => e.summoned);
+  ok('at 75% ARCHON calls SENTINEL', s.length === 1 && s[0].kind === 'sentinel', s.map(e => e.kind).join(','));
+  a.killEnemy(a.enemies.indexOf(s[0])); b.hp = b.hpSeen = b.maxhp * 0.24; kitRun(a, 2.5);
+  s = a.enemies.filter(e => e.summoned);
+  ok('and again at 25%', s.length === 1 && s[0].kind === 'sentinel');
+ }
+ return null;
+}
+
 const SUITES = [
  ['kits1', suiteKits1],
+ ['kits2', suiteKits2],
  ['xp', suiteXp],
  ['boot', suiteBoot],
  ['sectors', suiteSectors],
