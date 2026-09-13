@@ -4758,7 +4758,113 @@ function suiteKits4() {
   s = a.enemies.filter(e => e.summoned);
   ok('and again at 35%', s.length === 1 && s[0].kind === 'kraken');
  }
-  return null;
+ // ---------------- ECLIPSE ----------------
+ basics('eclipse');
+ {
+  const { a, p, b } = kitRoom('eclipse', 84);
+  b.forcedAttack = 'corona'; b.ecC = { t: 99 }; b.sumLeft = [];
+  kitRun(a, 0.05, () => noChaff(a));
+  const moons = () => b.parts.filter(q => q.kind === 'moon');
+  eq('MOON-SHIELD: one moon riding guard', moons().length, 1);
+  ok('that blocks rounds', moons()[0].block === true);
+  ok('the moon draws', !kitRenders(a));
+  // a round down the moon's line dies on the moon, never reaching the hull
+  const bx = b.x, by = b.y;
+  const M = moons()[0], h0 = b.hp, mh0 = M.hp;
+  shoot(a, M.x + 120, M.y, -640, 0, 40); // from outside, so the moon is met first
+  kitRun(a, 0.5, () => { noChaff(a); b.x = bx; b.y = by; });
+  ok('rounds aimed through the moon break on it', M.hp < mh0 && b.hp === h0, 'moon ' + mh0.toFixed(0) + ' -> ' + M.hp.toFixed(0));
+  a.bullets.length = 0;
+  const px = p.x, py = p.y;
+  let volley = 0; const seenM = new Set();
+  kitRun(a, 4.0, () => { p.x = px; p.y = py; noChaff(a);
+   for (const r of a.ebullets) if (r.src && r.src.what === 'MOON-SHIELD' && !seenM.has(r)) { seenM.add(r); volley++; } });
+  atLeast('and the moon fires its own aimed bursts', volley, 3);
+ }
+ {
+  const { a, p, b } = kitRoom('eclipse', 84, { dx: 200 });
+  b.forcedAttack = 'corona'; b.sumLeft = []; const pin = pinAt(p, p.x, p.y);
+  kitRun(a, 0.6, () => { pin(); noChaff(a); });
+  const bm = a.bossBeams.find(q => q.owner === b && q.src && q.src.what === 'CORONA');
+  ok('CORONA: twin rim beams, telegraphed 0.8s', !!bm && bm.arms === 2 && bm.warn >= 0.8 && bm.off > 0);
+  ok('the beams draw', !kitRenders(a));
+  const hits = kitRun(a, 5.0, () => { pin(); noChaff(a); });
+  atLeast('the turning rim beams sweep a ship that stands still', hits.CORONA || 0, 1);
+ }
+ {
+  const { a, p, b } = kitRoom('eclipse', 84);
+  b.forcedAttack = 'totality'; b.sumLeft = [];
+  kitRun(a, 0.8, () => noChaff(a));
+  ok('TOTALITY opens with a ruled warning', !!b.ecTot && b.ecTot.st === 'warn');
+  ok('the closing ring draws', !kitRenders(a));
+  kitRun(a, 0.6, () => { p.x = b.x; p.y = b.y; noChaff(a); });
+  ok('the ring shuts over 4s', !!b.ecTot && b.ecTot.st === 'close' && b.ecTot.r < 420);
+  const safe = kitRun(a, 2.0, () => { p.x = b.x + 60; p.y = b.y; noChaff(a); });
+  eq('a ship held inside the ring is untouched', safe.TOTALITY || 0, 0);
+  const out = kitRun(a, 2.0, () => { p.x = b.x + 600; p.y = b.y; noChaff(a); });
+  atLeast('a ship caught outside burns', out.TOTALITY || 0, 1);
+ }
+ {
+  const { a, p, b } = kitRoom('eclipse', 84);
+  b.forcedAttack = 'crescent'; b.sumLeft = [];
+  kitRun(a, 0.05, () => noChaff(a));
+  const M0 = b.parts.find(q => q.kind === 'moon');
+  kitRun(a, 0.6, () => noChaff(a));
+  ok('CRESCENT aims off the moon first', b.ecCr && b.ecCr.st === 'aim' && !kitRenders(a));
+  let peak = 0;
+  kitRun(a, 2.5, () => { noChaff(a); const M = b.parts.find(q => q.kind === 'moon');
+   if (M) peak = Math.max(peak, Math.hypot(M.x - b.x, M.y - b.y)); });
+  atLeast('the moon is flung out like a boomerang', peak, 150);
+  const M1 = b.parts.find(q => q.kind === 'moon');
+  atMost('and it comes back', M1 ? Math.hypot(M1.x - b.x, M1.y - b.y) : 1e9, 80);
+  ok('the moon still guards', !!M1 && !M0.dead);
+ }
+ {
+  const { a, p, b } = kitRoom('eclipse', 84);
+  b.forcedAttack = 'corona'; b.ecC = { t: 99 }; b.sumLeft = [];
+  kitRun(a, 0.05, () => noChaff(a));
+  b.sumLeft = [];
+  b.hp = b.hpSeen = b.maxhp * 0.65; kitRun(a, 1.6, () => noChaff(a));
+  ok('PHASE II at 66%', b.ph === 2);
+  eq('Phase II: two moons', b.parts.filter(q => q.kind === 'moon').length, 2);
+  b.hp = b.hpSeen = b.maxhp * 0.32; kitRun(a, 1.6, () => noChaff(a));
+  ok('PHASE III at 33%', b.ph === 3);
+  eq('Phase III: the moons are gone', b.parts.filter(q => q.kind === 'moon').length, 0);
+  eq('broken into a ring of six fragments', b.parts.filter(q => q.kind === 'frag').length, 6);
+  ok('the fragments draw', !kitRenders(a));
+  a.ebullets.length = 0;
+  let fragVolley = 0; const seenF = new Set();
+  kitRun(a, 3.0, () => { noChaff(a);
+   for (const r of a.ebullets) if (r.src && r.src.what === 'FRAGMENTS' && !seenF.has(r)) { seenF.add(r); fragVolley++; } });
+  atLeast('the fragment ring shoots', fragVolley, 6);
+  const s = kitRoom('eclipse', 84, { summoned: true }); kitRun(s.a, 0.05, () => noChaff(s.a));
+  s.b.hp = s.b.hpSeen = s.b.maxhp * 0.2; kitRun(s.a, 1.0, () => noChaff(s.a));
+  ok('a summoned ECLIPSE keeps one moon and never fragments (Phase I kit only)', s.b.ph === 1 && s.b.parts.filter(q => q.kind === 'moon').length === 1);
+ }
+ {
+  const { a, p, b } = kitRoom('eclipse', 84);
+  b.forcedAttack = 'corona'; b.ecC = { t: 99 }; b.sumLeft = []; b.fightT = 20;
+  const x0 = b.x, y0 = b.y;
+  b.hp = b.hpSeen = b.maxhp * 0.54;
+  kitRun(a, 1.5, () => noChaff(a));
+  ok('at 55% ECLIPSE takes the TOTALITY STEP', b.mode === 'recover' && a.bossLabel(b) === 'TOTALITY STEP');
+  atLeast('vanishing across the field', Math.hypot(b.x - x0, b.y - y0), 200);
+  ok('behind a fresh Totality', !!b.ecTot);
+  const h0 = b.hp; kitRun(a, 2.0, () => noChaff(a));
+  ok('mending for 4s', b.hp > h0);
+  kitRun(a, 2.5, () => noChaff(a));
+  ok('the step ends on its own', b.mode !== 'recover');
+ }
+ {
+  const { a, b } = kitRoom('eclipse', 84);
+  b.hp = b.hpSeen = b.maxhp * 0.69; kitRun(a, 0.5);
+  let s = a.enemies.filter(e => e.summoned);
+  ok('at 70% ECLIPSE calls JUGGERNAUT', s.length === 1 && s[0].kind === 'juggernaut', s.map(e => e.kind).join(','));
+  a.killEnemy(a.enemies.indexOf(s[0])); b.hp = b.hpSeen = b.maxhp * 0.34; kitRun(a, 1.5);
+  s = a.enemies.filter(e => e.summoned);
+  ok('and again at 35%', s.length === 1 && s[0].kind === 'juggernaut');
+ }
+ return null;
 }
 
 const SUITES = [

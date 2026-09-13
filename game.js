@@ -4689,29 +4689,161 @@ BOSS_KITS.juggernaut={
 // ===== END BOSS: JUGGERNAUT =====
 
 // ===== BOSS: ECLIPSE =====
-// Placeholder kit (wave 2 builds the full one, spec §5): Corona from the rim.
+// The Dimming (spec §5). Signature MOON-SHIELD: a moon (a part) orbits it,
+// blocks rounds and fires its own aimed bursts. Secondaries: CORONA (twin
+// rim beams, occluded by cover), TOTALITY (a slow-closing harm ring that
+// shrinks the safe arena, clearly drawn) and CRESCENT (the moon is flung
+// out like a boomerang and returns, burning what it touches). P2 at 66%:
+// two moons. P3 at 33%: the moon breaks into a ring of six fragments that
+// orbit and shoot. Recovery TOTALITY STEP at 55% and 30% (the teleport
+// allow-list): it vanishes mid-Totality and reappears at the far side,
+// healing for 4 s while the tracker still shows it. Calls JUGGERNAUT at
+// 70% and 35% (the rung below). No radial volleys.
+const EC_MOON_R=1.5, EC_REGROW=12;
+function ecMoons(e){ return (e.parts||[]).filter(q=>q.kind==='moon'&&!q.dead); }
+function ecMoonAdd(e,id){ const q=addPart(e,{id:id||('moon'+ecMoons(e).length),r:14,hp:e.maxhp*0.05,kind:'moon',block:true});
+ if(q){ q.ang=Math.random()*6.283; } return q; }
+function ecTotality(e){ // the closing ring; the attack and the recovery share it
+ if(e.ecTot) return false;
+ e.ecTot={st:'warn',t:0.6,r0:420,r:420,tick:0};
+ addFloater(e.x,calloutY(e),'TOTALITY — HOLD THE DIM',K.red); SFX.alarm();
+ return true; }
 BOSS_KITS.eclipse={
  def:{name:'ECLIPSE',epithet:'the Dimming',tier:4,hp:1400,r:32,spd:0.90,shape:'ringmoon',pt:3.6,sig:'moon',chaff:['sniper','drone']},
  lore:'A SOVEREIGN THAT TAKES THE LIGHT — ECLIPSE turns, and the field goes dim.',
- codex:{role:'Rim caster', threat:'Streams from its rim',
-  tell:'Two CORONA streams pour from opposite points of its rim and turn slowly around it.',
-  counter:'Walk with the streams, not against them, and fire through the gap between.',
-  lore:'The Dimming. A sunshade built to cool a star-lit world, left in orbit after the world went dark on its own. It still passes between you and the light out of habit. The makers thought of it as a parasol. Everyone since has thought of it as the end of the day.'},
- cycle:['corona','fan'],
- attacks:Object.assign(atk('fan'),{
-  corona(e,C){ // twin streams from opposite points of the rim, slowly turning
-   C.mv(0.3); e.spirT-=C.dt;
-   if(e.spirT<=0){ e.spirT=C.enrage?0.09:0.12; const a=e.phaseT*0.9;
-    for(const o of [0,3.1416]){ const q=a+o; eshotAt(e,e.x+Math.cos(q)*e.r,e.y+Math.sin(q)*e.r,q+0.6,230,5,0.7,2.8); } } }
- }),
- draw(e,g){ // a ring with a crescent moon
+ codex:{role:'Rim caster', threat:'Two moons; Totality Step twice',
+  tell:'A MOON orbits it, eating rounds and firing its own bursts. Twin CORONA beams pour from its rim and turn. A dashed circle closing on it is the TOTALITY — be inside when it shuts. A ticked line off the moon is the CRESCENT, flung out and back. In P3 the moon breaks into six FRAGMENTS.',
+  counter:'Kill the moon and its bursts stop for 12 s. Walk with the Corona, not against it. Hold inside the Totality ring. Step off the Crescent line. When it steps across the field, the tracker still shows it: follow the chevron.',
+  lore:'The Dimming. A sunshade built to cool a star-lit world, left in orbit after the world went dark on its own. It still passes between you and the light out of habit. The moon is not a weapon; it is ballast that learned to shoot. The makers thought of the whole thing as a parasol. Everyone since has thought of it as the end of the day.'},
+ cycle:['corona','totality','crescent'],
+ phases:[{},{at:0.66,enter(e){ if(ecMoons(e).length<2) ecMoonAdd(e,'moon2'); }},
+  {at:0.33,enter(e){ // the moon breaks into a ring of fragments
+   e.parts=e.parts.filter(q=>q.kind!=='moon');
+   for(let k=0;k<6;k++){ const q=addPart(e,{id:'frag'+k,r:9,hp:e.maxhp*0.02,kind:'frag',block:false});
+    if(q){ q.ang=k*1.0472; q.shotT=1+k*0.35; } }
+   e.ec.regrow=0; e.ecFly=null;
+   addFloater(e.x,calloutY(e),'THE MOON BREAKS',K.red); SFX.brk(); }}],
+ init(e){ e.ec={ma:0,burstT:1.4,regrow:0}; e.ecTot=null; e.ecFly=null; ecMoonAdd(e,'moon'); },
+ attacks:{
+  corona(e,C){ // twin beams from opposite points of the rim, slowly turning
+   C.mv(0.3);
+   let S=e.ecC; if(e.atkT===0||!S) S=e.ecC={t:0.5};
+   S.t-=C.dt;
+   if(S.t<=0){ S.t=C.enrage?2.8:4;
+    bossBeam(e,{a:e.t*0.9,arms:2,rot:0.5,w:12,off:e.r*0.8,warn:0.8,live:3,dmg:Math.round(e.dmg*0.5),what:'CORONA'});
+    SFX.click(); } },
+  totality(e,C){ // the safe arena shrinks for a few seconds
+   C.mv(0.3);
+   let S=e.ecT; if(e.atkT===0||!S) S=e.ecT={t:0.5};
+   S.t-=C.dt;
+   if(S.t<=0){ S.t=C.enrage?5:7; ecTotality(e); } },
+  crescent(e,C){ // the moon flung out like a boomerang, then back
+   C.mv(0.3);
+   let S=e.ecCr; if(e.atkT===0||!S) S=e.ecCr={st:'rest',t:0.4};
+   S.t-=C.dt;
+   const M=ecMoons(e)[0];
+   if(e.ph>=3&&!e.summoned){ // P3: no moon left — the fragments volley instead
+    if(S.t<=0){ S.t=C.enrage?1.6:2.4;
+     const src=e.ecCsrc||(e.ecCsrc=srcOf(e,'CRESCENT'));
+     for(const q of (e.parts||[])) if(q.kind==='frag'&&!q.dead){
+      const r=eshotAt(e,q.x,q.y,Math.atan2(C.p.y-q.y,C.p.x-q.x),240,5,0.8,3.2); if(r) r.src=src; }
+     SFX.eshoot(); }
+    return; }
+   if(!M){ S.st='rest'; S.t=0.5; return; } // moon broken: it fires nothing
+   if(S.st==='rest'&&S.t<=0){ S.st='aim'; S.t=0.5; S.ang=Math.atan2(C.p.y-M.y,C.p.x-M.x); SFX.click(); }
+   else if(S.st==='aim'&&S.t<=0){ S.st='fly'; S.t=1.8;
+    e.ecFly={t:0,dur:1.8,dx:Math.cos(S.ang),dy:Math.sin(S.ang),tick:0};
+    addFloater(e.x,calloutY(e),'CRESCENT',K.red); SFX.eshoot(); }
+   else if(S.st==='fly'&&S.t<=0){ S.st='rest'; S.t=C.enrage?1.6:2.4; } }
+ },
+ signature(e,C){ // the moon's own bursts, aimed, while it stands guard
+  if(e.rec||e.ecFly) return;
+  e.ec.burstT-=C.dt;
+  if(e.ec.burstT<=0){ e.ec.burstT=C.enrage?1.3:1.8;
+   const src=e.ecSrc||(e.ecSrc=srcOf(e,'MOON-SHIELD'));
+   for(const M of ecMoons(e)){ const a=Math.atan2(C.p.y-M.y,C.p.x-M.x);
+    for(let k=-1;k<=1;k++){ const r=eshotAt(e,M.x,M.y,a+k*0.14,250,5,0.75,3.2); if(r) r.src=src; } }
+   if(ecMoons(e).length) SFX.eshoot(); } },
+ onPartBreak(e,q){
+  if(q&&q.kind==='moon'){ addFloater(e.x,calloutY(e),'MOON SHATTERED · reforms in 12s',K.gold);
+   if(e.ph<3||e.summoned) e.ec.regrow=EC_REGROW; } },
+ // TOTALITY STEP (the allow-list): vanish mid-Totality, reappear far side,
+ // mend for 4 s. The tracker still shows it.
+ recover:{ at:[0.55,0.30], pool:0.08, label:'TOTALITY STEP', hold:true, max:5,
+  start(e){ ecTotality(e);
+   const nx=clamp(PX0+PX1-e.x,PX0+e.r,PX1-e.r), ny=clamp(PY0+PY1-e.y,PY0+e.r,PY1-e.r);
+   bossBlink(e,nx,ny,'recover');
+   addFloater(e.x,calloutY(e),'ECLIPSE STEPS ACROSS — follow the tracker',K.red); SFX.portal(); },
+  update(e,C){ bossHeal(e,e.maxhp*0.02*C.dt); return e.rec.t>=4?'stepped':false; },
+  end(e,why){ addFloater(e.x,calloutY(e),why==='stepped'?'STEP SPENT':'STEP ENDS',why==='stepped'?K.gold:K.red); } },
+ label(e){ if(e.atk==='corona') return 'CORONA'; if(e.atk==='totality') return 'TOTALITY';
+  if(e.atk==='crescent') return 'CRESCENT'; return null; },
+ post(e,dt){ const p=player;
+  // the moons orbit; a shattered one reforms in 12 s (never past the break)
+  if(e.ec.regrow>0&&(e.ph<3||e.summoned)){ e.ec.regrow-=dt;
+   if(e.ec.regrow<=0){ e.ec.regrow=0;
+    if(ecMoons(e).length<2){ ecMoonAdd(e); addFloater(e.x,calloutY(e),'THE MOON REFORMS',K.red); } } }
+  e.ec.ma+=dt*0.7;
+  const F=e.ecFly;
+  for(const q of e.parts||[]){
+   if(q.kind==='moon'){ // held on its orbit, or riding the boomerang out
+    if(F){ const f=F.t/F.dur, d=f<0.5?f*2*380:(1-f)*2*380;
+     q.lx=F.dx*d; q.ly=F.dy*d; }
+    else { const a=e.ec.ma+(q.id==='moon2'?Math.PI:0);
+     q.lx=Math.cos(a)*e.r*EC_MOON_R; q.ly=Math.sin(a)*e.r*EC_MOON_R; } }
+   else if(q.kind==='frag'){ q.ang=(q.ang||0)+dt*0.9; // the fragment ring turns
+    q.lx=Math.cos(q.ang)*e.r*1.7; q.ly=Math.sin(q.ang)*e.r*1.7;
+    if(!e.rec&&p){ q.shotT-=dt; // each fragment shoots on its own beat
+     if(q.shotT<=0){ q.shotT=2.2;
+      const r=eshotAt(e,q.x,q.y,Math.atan2(p.y-q.y,p.x-q.x),240,5,0.8,3.2);
+      if(r) r.src=e.ecFsrc||(e.ecFsrc=srcOf(e,'FRAGMENTS')); SFX.eshoot(); } } } }
+  if(F){ F.t+=dt; // the crescent burns what it touches
+   const M=ecMoons(e)[0];
+   if(M&&p){ F.tick-=dt;
+    if(F.tick<=0&&Math.hypot(p.x-M.x,p.y-M.y)<M.r+p.r+4){ F.tick=0.5;
+     hurtPlayer(Math.round(e.dmg*0.8),true,srcOf(e,'CRESCENT')); } }
+   if(F.t>=F.dur) e.ecFly=null; }
+  // TOTALITY: the safe circle shuts over 4 s; outside it burns
+  const T=e.ecTot;
+  if(T){ T.t-=dt;
+   if(T.st==='warn'&&T.t<=0){ T.st='close'; T.t=4; }
+   else if(T.st==='close'){ T.r=T.r0+(150-T.r0)*(1-T.t/4);
+    if(p){ T.tick-=dt;
+     if(T.tick<=0){ T.tick=0.5;
+      if(Math.hypot(p.x-e.x,p.y-e.y)>T.r) hurtPlayer(Math.round(e.dmg*0.7),true,srcOf(e,'TOTALITY')); } }
+    if(T.t<=0) e.ecTot=null; } } },
+ under(e){ const p=player;
+  const S=e.ecCr, M=ecMoons(e)[0];
+  if(e.atk==='crescent'&&S&&S.st==='aim'&&M){ // the crescent's line
+   ctx.save(); ctx.globalAlpha=0.85;
+   tickedLine(M.x,M.y,M.x+Math.cos(S.ang)*420,M.y+Math.sin(S.ang)*420,K.red,1.5,24,3);
+   ctx.restore(); }
+  const T=e.ecTot; // the closing ring, clearly drawn
+  if(T){ ctx.save(); ctx.globalAlpha=T.st==='warn'?0.7:0.9;
+   ctx.strokeStyle=K.red; ctx.lineWidth=T.st==='warn'?1.5:2;
+   if(T.st==='warn') ctx.setLineDash([8,6]);
+   ctx.beginPath(); ctx.arc(e.x,e.y,Math.max(1,T.r),0,6.283); ctx.stroke(); ctx.setLineDash([]);
+   ctx.strokeStyle=K.redDim; ctx.lineWidth=1;
+   ctx.beginPath(); ctx.arc(e.x,e.y,Math.max(1,T.r)-10,0,6.283); ctx.stroke();
+   ctx.restore(); } },
+ draw(e,g){ // a ring with a crescent moon (the moon itself rides as a part)
   const R=g.R;
   ctx.fillStyle=g.body; ctx.strokeStyle=g.col; ctx.lineWidth=g.lw; ctx.beginPath(); ctx.arc(0,0,R*0.8,0,6.283); ctx.fill(); ctx.stroke();
   ctx.fillStyle=K.ground; ctx.beginPath(); ctx.arc(0,0,R*0.46,0,6.283); ctx.fill(); ctx.strokeStyle=g.dim; ctx.lineWidth=1; ctx.stroke();
-  const m=e.t*0.8, mx=Math.cos(m)*R*0.95, my=Math.sin(m)*R*0.95;
-  ctx.fillStyle=g.col; ctx.beginPath(); ctx.arc(mx,my,R*0.24,0,6.283); ctx.fill();
-  ctx.fillStyle=g.body; ctx.beginPath(); ctx.arc(mx+Math.cos(m)*R*0.1,my+Math.sin(m)*R*0.1,R*0.2,0,6.283); ctx.fill();
- }
+  ctx.strokeStyle=g.dim; ctx.lineWidth=1; ctx.beginPath(); ctx.arc(0,0,R*0.63,0,6.283); ctx.stroke();
+  ctx.fillStyle=g.col; ctx.beginPath(); ctx.arc(0,-R*0.8,2.5,0,6.283); ctx.fill();
+ },
+ drawPart(e,q,g){ // the moon: a crescent worth breaking
+  if(q.kind==='frag'){ ctx.fillStyle=q.flash>0?g.P.flash:g.body; ctx.strokeStyle=g.col; ctx.lineWidth=1.5;
+   ctx.beginPath(); ctx.arc(0,0,q.r,0,6.283); ctx.fill(); ctx.stroke();
+   ctx.fillStyle=g.col; ctx.beginPath(); ctx.arc(0,0,2,0,6.283); ctx.fill(); return; }
+  ctx.fillStyle=q.flash>0?g.P.flash:g.body; ctx.strokeStyle=g.col; ctx.lineWidth=1.5;
+  ctx.beginPath(); ctx.arc(0,0,q.r,0,6.283); ctx.fill(); ctx.stroke();
+  ctx.fillStyle=g.body; ctx.beginPath(); ctx.arc(q.r*0.42,0,q.r*0.8,0,6.283); ctx.fill();
+  const f=clamp(q.hp/(q.maxhp||q.hp||1),0,1);
+  ctx.strokeStyle=g.dim; ctx.lineWidth=1.5; ctx.beginPath(); ctx.arc(0,0,q.r*0.55,-1.5708,-1.5708+f*6.283); ctx.stroke(); },
+ // the rim reaches past the core circle
+ hitParts:{ rot:()=>0, c:[[0.9,0,0.22],[-0.9,0,0.22],[0,0.9,0.22],[0,-0.9,0.22]] }
 };
 // ===== END BOSS: ECLIPSE =====
 
