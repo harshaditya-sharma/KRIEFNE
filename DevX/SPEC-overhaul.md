@@ -877,7 +877,18 @@ Headless Chrome needs `window.__kriefne.forceState('playing')`. Kill stray serve
 | 6 | full pass and the user's playtest | |
 
 ### Now in progress
-**Step 2: thralls (spec §8).** Started 2026-09-14 by one agent, working directly on `wave3`. Nothing is committed for Step 2 yet. The agent overwrites this block as it goes, saying what's done, what it's doing now and what's left.
+**Step 2: thralls (spec §8).** Started 2026-09-14 by one agent, working directly on `wave3`.
+
+Plan, in order:
+- [ ] 1. Engine: a thrall section next to `mkSummoned` (`THRALL` knobs, `thrallKinds`/`thrallCap`/`thrallCount`, `mkThrall` through `bossCore`), `type:'thrall'` dispatch in the enemy loop (`thrallUpdate`, `bossPost`), generic thrall kit (signature + one secondary), `killEnemy`/`srcOf`/codex/draw/lab touch-points.
+- [ ] 2. Per-kit `thrall:{...}` entries for the 17 eligible gods (OVERLORD…ECLIPSE), `thrall:false` on NULLIFIER, CHORUS, SINGULARITY; kit-side `!e.summoned` guards that must also skip thralls (War Cry, REVENANT pod, HYDRA regrow/phase).
+- [ ] 3. Director: thralls carved out of the `compTotal` roster into `spawnQueue` (never in the opening wave), alive cap in the wave director, nest chaff draws them.
+- [ ] 4. Draw: parent silhouette at 60%, thin line, no rank rings, HP pip; no name/label/tracker.
+- [ ] 5. Pigment rule + test for kinds that can now co-occur.
+- [ ] 6. `suiteThralls` + the 60 s per-kind run; `node test.js`, then `--only fightsim` (adjust thrall density/HP if Hose bands drift).
+- [ ] 7. Visual check (lab deep links + a natural S60), then the end-of-step handoff.
+
+Representation (decided at step start): a **new `type:'thrall'`** with `kind` = the parent and `e.thrall=true`, built by `bossCore`. Every "must not" (bonus bank, lead/nest head, boss XP/heal/draft, boss bar, tracker, `bossesIn` in the tests, SINGULARITY's lead check) is gated on `type==='boss'` today, so a new type is excluded from all of them by default; the "should" list (update/post dispatch, `under`/draw, `bossDied` cleanup, srcOf naming, lab) is short and enumerable. A flag on `type:'boss'` would have needed an opt-out at ~20 sites and in every test that loops `type==='boss'`.
 
 ### Open items
 Each is tagged with the step that owns it; resolved items are removed.
