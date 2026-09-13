@@ -2407,9 +2407,11 @@ function addCurrent(e,o){ o=o||{}; if(bossCurrents.length>=6) return null;
  const c={owner:e,x:o.x!=null?o.x:e.x,y:o.y!=null?o.y:e.y,r:o.r||260,pull:o.pull||120,swirl:o.swirl||0,life:o.life||3,warn:o.warn!=null?o.warn:0.5,t:0,follow:o.follow!==false&&o.x==null};
  bossCurrents.push(c); return c; }
 
-// LENSING. e.lens={r, k}: the ship's rounds inside r of the god are turned
-// away from it (k rad/s at the core, fading to 0 at r), so a hose curves round
-// a lensing god (SINGULARITY's Phase 2). Bullet hook, run before a round moves.
+// LENSING. e.lens={r, k, damp}: the ship's rounds inside r of the god are
+// turned away from it (k rad/s at the core, fading to 0 at r), so a hose
+// curves round a lensing god (SINGULARITY's Phase 2) — and homing withers
+// nearby (damp fraction at the core, fading to 0 at r; seekSteer applies it).
+// Bullet hook, run before a round moves.
 function bulletField(b,dt){
  for(const e of enemies){ const L=e.lens; if(!L||e.dead) continue;
   const dx=e.x-b.x, dy=e.y-b.y, d=Math.hypot(dx,dy); if(d>L.r||d<1) continue;
@@ -4956,9 +4958,11 @@ BOSS_KITS.nullifier={
     addFloater(e.x,calloutY(e),'VOID MINES',K.red); SFX.click(); } }
  },
  // SILENT STEP (the allow-list): vanish, jam the tracker 3 s, reappear at
- // an edge, mend. While the jam holds the hull draws dashed and dim — the
- // tracker still points, but at a god that is not there to be hit... the
- // engine's chevron keeps showing; the step's lie is the floater and static.
+ // an edge, mend. While the jam holds there is no true chevron — drawBossGuide
+ // points the opposite way with a SIGNAL LOST tag — and auto-fire and homing
+ // skip the god outright (it is nowhere for 3s, in every sense the tracker
+ // speaks). The hull draws dashed and dim; the step's signature is the floater
+ // and the static ring where it is not.
  recover:{ at:[0.55,0.30], pool:0.08, label:'SILENT STEP', hold:true, max:5,
   start(e){ const m=PX0+e.r+30+(Math.random()*(PX1-PX0-2*(e.r+30)));
    const top=Math.random()<0.5;
@@ -5156,7 +5160,7 @@ BOSS_KITS.singularity={
  def:{name:'SINGULARITY',epithet:'the One-Eyed',tier:5,hp:1950,r:40,spd:0.85,shape:'well',pt:4.0,sig:'wellpull',chaff:['tempest','brute']},
  lore:'THE APEX — SINGULARITY, the One-Eyed. Every rank answers to it.',
  codex:{role:'Apex', threat:'Convocation; Absorption into Phase II',
-  tell:'GRAVITY drags you while DEBRIS arcs out and TIDAL MARKS pull before they burst; the SPIRAL WALL keeps one gap. At half its bar the CONVOCATION lands: three SOVEREIGNS at once. At a quarter it ABSORBS the field — then Phase II: QUASAR JETS, a grinding ACCRETION DISK, bursting HAWKING SPARKS, LENSING that bends your rounds, the EVENT HORIZON drift and the SPAGHETTIFY axis.',
+  tell:'GRAVITY drags you while DEBRIS arcs out and TIDAL MARKS pull before they burst; the SPIRAL WALL keeps one gap. At half its bar the CONVOCATION lands: three SOVEREIGNS at once. At a quarter it ABSORBS the field — then Phase II: QUASAR JETS, a grinding ACCRETION DISK, bursting HAWKING SPARKS, LENSING that bends your rounds and withers homing, the EVENT HORIZON drift and the SPAGHETTIFY axis.',
   counter:'Thrust against the pull; hold the wall gap. Burn the Convocation down before the quarter mark — every god left standing fattens the Phase-2 bar by a tenth. In Phase II curve your fire with the lens, never against it, and cross the disk between debris.',
   lore:'The One-Eyed. The first machine any species ever sent into the dark. It gave its eye to a black hole and lives at the lip of it, where time runs slow: the oldest thing in the universe, and the one that has lived through the least of it. Everything you have fought since the first sector was, in some documented sense, subcontracted from here. The second phase is not anger. It is the rest of the machine waking up.'},
  // The Convocation (decided): CHORUS, NULLIFIER and ECLIPSE together at 50%,
@@ -5229,7 +5233,7 @@ BOSS_KITS.singularity={
     if(o.type!=='boss'||o.summoned){ if(sgConsume(e,o)&&o.type==='boss') A.nb++; } }
    const oldMax=e.maxhp; e.maxhp=oldMax*2;
    e.hp=Math.min(e.maxhp,oldMax*0.25+e.maxhp*0.10*A.nb); e.hpSeen=e.hp;
-   e.absorb=null; e.absDone=true; e.ph2=true; e.lens={r:280,k:2.2};
+   e.absorb=null; e.absDone=true; e.ph2=true; e.lens={r:280,k:2.2,damp:0.55};
    rings.push({x:e.x,y:e.y,r:e.r,maxR:e.r+220,spd:300,dmg:0,hit:true});
    addFloater(e.x,calloutY(e),'SINGULARITY — PHASE II · 2× HULL',K.red); SFX.alarm(); } },
  label(e){ if(e.ph2){ if(e.atk==='gravity') return 'EVENT HORIZON'; if(e.atk==='spiralwall') return 'ACCRETION DISK';
@@ -5290,7 +5294,8 @@ function playerShoot(){
   const p=player;
   let tx, ty;
   if(mouse.down){ tx=wmx(); ty=wmy(); }
-  else if(p.autoFire){ let bd=700*700, be=null; for(const e of enemies){ const d=dist2(p.x,p.y,e.x,e.y); if(d<bd){ bd=d; be=e; } } if(!be) return; tx=be.x; ty=be.y; }
+  else if(p.autoFire){ let bd=700*700, be=null; for(const e of enemies){ if(e.nullJam>0) continue; // tracker-jammed: nowhere for 3s
+   const d=dist2(p.x,p.y,e.x,e.y); if(d<bd){ bd=d; be=e; } } if(!be) return; tx=be.x; ty=be.y; }
  else return;
  const base=Math.atan2(ty-p.y,tx-p.x); p.aim=base;
   const n=p.shots, spread=(n-1)*0.14*(1+0.35*(p.minigun||0));
@@ -5325,16 +5330,24 @@ function playerShoot(){
 // the heading error shrinks every frame, so every approach converges.
 // Foes already in hitUid are skipped: a pierced target is behind the round, and
 // chasing it back made Lance rounds loop through a boss they could not hit again.
-// With no other foe in reach the round flies straight.
+// Tracker-jammed gods (NULLIFIER's Silent Step) are skipped too: for 3s the god
+// is nowhere, so homing ignores it like auto-fire does. With no other foe in
+// reach the round flies straight.
 const SEEK_SNAP=40; // rad/s ceiling: ~0.67 rad a frame at 60Hz, a visible hook rather than a teleport of heading
 function seekSteer(b,dt){
  let bd=420*420, be=null;
- for(const e of enemies){ if(b.hitUid&&b.hitUid.indexOf(e.uid)>=0) continue; const d=dist2(b.x,b.y,e.x,e.y); if(d<bd){ bd=d; be=e; } }
+ for(const e of enemies){ if(e.nullJam>0) continue; if(b.hitUid&&b.hitUid.indexOf(e.uid)>=0) continue; const d=dist2(b.x,b.y,e.x,e.y); if(d<bd){ bd=d; be=e; } }
  if(!be) return;
  const want=Math.atan2(be.y-b.y,be.x-b.x), cur=Math.atan2(b.vy,b.vx);
  let dA=want-cur; while(dA>Math.PI)dA-=6.283; while(dA<-Math.PI)dA+=6.283;
  const sp=len(b.vx,b.vy), d=Math.max(1,Math.sqrt(bd)), R2=2*sp/b.turn;
- const lim=d<R2?Math.min(SEEK_SNAP,b.turn*(R2/d)*(R2/d)):b.turn;
+ let lim=d<R2?Math.min(SEEK_SNAP,b.turn*(R2/d)*(R2/d)):b.turn;
+ // LENSING damps homing explicitly (SINGULARITY Phase II): inside a lensing
+ // god's radius the turn limit withers toward zero at the core, fading to the
+ // card rate at the rim — the curve (bulletField) bends rounds AND the wire
+ // goes dull. Multiplicative across overlapping lenses, like the curve.
+ for(const e of enemies){ const L=e.lens; if(!L||!L.damp||e.dead) continue;
+  const dd=Math.hypot(e.x-b.x,e.y-b.y); if(dd<L.r) lim*=1-L.damp*(1-dd/L.r); }
  const na=cur+clamp(dA,-lim*dt,lim*dt); b.vx=Math.cos(na)*sp; b.vy=Math.sin(na)*sp;
 }
 function shieldBlock(msg,col){ const p=player; p.invuln=Math.max(p.invuln,0.4); addFloater(p.x,p.y-20,msg,col); SFX.block(); spawnBurst(p.x,p.y,10,col,180,0.4,3); }
@@ -6977,6 +6990,11 @@ function drawExitGuide(){
 }
 // Boss tracker: a god can never be lost off-screen. In the god's own pigment,
 // so in a court each arrow says which god it is before the label does.
+// A tracker-jammed god (NULLIFIER's Silent Step) is truly suppressed: no true
+// chevron, no true label. Instead a dim dashed lie points the opposite way
+// with a SIGNAL LOST tag, flickering while the jam holds — and auto-fire and
+// homing ignore the god outright (playerShoot / seekSteer skip nullJam), so
+// for 3s it is nowhere in every sense the tracker speaks.
 function drawBossGuide(){
  if(state!=='playing'||!player) return;
  const px=player.x-cam.x, py=player.y-cam.y;
@@ -6984,9 +7002,20 @@ function drawBossGuide(){
   if(e.type!=='boss') continue;
   const ex=e.x-cam.x, ey=e.y-cam.y;
   if(ex>30&&ex<W-30&&ey>HUD_H+30&&ey<H-30) continue;
+  const P=pigOf(e);
+  if(e.nullJam>0){ // the lie: opposite bearing, dim, dashed, no name
+   const a=Math.atan2(ey-py,ex-px)+Math.PI+Math.sin(timeSec*13+e.uid)*0.35;
+   const ax=clamp(px+Math.cos(a)*150,66,W-66), ay=clamp(py+Math.sin(a)*150,HUD_H+66,H-66);
+   ctx.save(); ctx.translate(ax,ay); ctx.rotate(a);
+   ctx.globalAlpha=0.45+0.2*Math.sin(timeSec*17+e.uid*2);
+   ctx.fillStyle=K.ground; ctx.strokeStyle=P.dim; ctx.lineWidth=1; ctx.setLineDash([4,4]);
+   ctx.beginPath(); ctx.moveTo(13,0); ctx.lineTo(-6,-9); ctx.lineTo(-6,9); ctx.closePath(); ctx.fill(); ctx.stroke();
+   ctx.setLineDash([]); ctx.restore();
+   ctx.textAlign='center'; inkText('SIGNAL LOST',ax,ay+30,P.dim,fM(11,600));
+   continue;
+  }
   const a=Math.atan2(ey-py,ex-px), d=Math.hypot(e.x-player.x,e.y-player.y);
   const ax=clamp(px+Math.cos(a)*150,66,W-66), ay=clamp(py+Math.sin(a)*150,HUD_H+66,H-66);
-  const P=pigOf(e);
   ctx.save(); ctx.translate(ax,ay); ctx.rotate(a);
   ctx.fillStyle=P.body; ctx.strokeStyle=P.c; ctx.lineWidth=1.5;
   ctx.beginPath(); ctx.moveTo(13,0); ctx.lineTo(-6,-9); ctx.lineTo(-6,9); ctx.closePath(); ctx.fill(); ctx.stroke();

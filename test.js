@@ -2691,6 +2691,41 @@ function suiteBullets() {
   const bf = mkRound({ x: m3.cx, y: m3.cy, life: 0.5 }); m3.api.bullets.push(bf);
   for (let f = 0; f < 8; f++) { m3.boss.x = m3.cx + 200; m3.boss.y = m3.cy + 30; roomStep(m3); }
   ok('bulletField: a lens bends a round away from the god', bf.vy < -20, 'vy ' + bf.vy.toFixed(1));
+  // seekSteer: a lens with damp withers homing explicitly (SINGULARITY P2).
+  // k=0 isolates the damp from the curve. Same geometry with and without the
+  // lens: deep inside a fully-damping lens the turn is a fraction of plain.
+  {
+   const turn = 5.4, sp = 640;
+   const probe = (lens) => {
+    const m = bulletRoom('warden', 9);
+    m.boss.x = m.cx + 50; m.boss.y = m.cy;
+    if (lens) m.boss.lens = lens;
+    m.p.x = m.cx - 600; m.p.y = m.cy;
+    const b = mkRound({ x: m.cx, y: m.cy, vx: 0, vy: -sp, turn, life: 0.5 });
+    m.api.bullets.length = 0; m.api.bullets.push(b); roomStep(m);
+    return Math.abs(wrapA(Math.atan2(b.vy, b.vx) - (-Math.PI / 2)));
+   };
+   const plain = probe(null), damped = probe({ r: 500, k: 0, damp: 1 });
+   ok('with no lens a close Seeker round steers hard onto the god', plain > 1e-9, 'turned ' + plain);
+   atMost('deep inside a fully-damping lens it turns at most a fifth as hard', damped, plain * 0.2);
+  }
+  // seekSteer + autoFire: a tracker-jammed god is nowhere (NULLIFIER step).
+  // With only the jammed god on the field a homing round flies straight.
+  {
+   const m = bulletRoom('nullifier', 89);
+   m.boss.x = m.cx + 200; m.boss.y = m.cy; m.boss.nullJam = 3;
+   m.p.x = m.cx - 600; m.p.y = m.cy;
+   const turn = 5.4, sp = 640;
+   const b = mkRound({ x: m.cx, y: m.cy, vx: 0, vy: -sp, turn, life: 0.5 });
+   m.api.bullets.length = 0; m.api.bullets.push(b); roomStep(m);
+   const bent = Math.abs(wrapA(Math.atan2(b.vy, b.vx) - (-Math.PI / 2)));
+   atMost('a homing round ignores a tracker-jammed god (flies straight)', bent, 1e-9);
+   m.boss.nullJam = 0;
+   const b2 = mkRound({ x: m.cx, y: m.cy, vx: 0, vy: -sp, turn, life: 0.5 });
+   m.api.bullets.length = 0; m.api.bullets.push(b2); roomStep(m);
+   const bent2 = Math.abs(wrapA(Math.atan2(b2.vy, b2.vx) - (-Math.PI / 2)));
+   ok('unjamed, the same round steers onto the god', bent2 > 1e-9, 'turned ' + bent2);
+  }
   // bulletErased: an armed erase zone deletes the round the frame it enters
   const m4 = bulletRoom('warden', 9); m4.boss.x = m4.cx + 600; m4.boss.y = m4.cy + 300;
   m4.api.eraseZone(m4.boss, m4.cx + 100, m4.cy + 200, 60, { warn: 0.5, life: 5 });
@@ -4995,6 +5030,27 @@ function suiteKits4() {
   ok('at 55% NULLIFIER takes the SILENT STEP', b.mode === 'recover' && a.bossLabel(b) === 'SILENT STEP');
   atLeast('vanishing across the field', Math.hypot(b.x - x0, b.y - y0), 200);
   ok('jamming the tracker for 3s', b.nullJam > 0);
+  // True suppression: while the jam holds the god is nowhere to auto-fire
+  // and homing (drawBossGuide's lie is visual; this is the engine half).
+  {
+   const m = bulletRoom('nullifier', 89);
+   m.boss.nullJam = 3; m.boss.x = m.cx + 200; m.boss.y = m.cy;
+   m.p.x = m.cx; m.p.y = m.cy;
+   // auto-fire aims at the nearest unjammed foe: park an unjammed drone
+   // farther than the jammed god and confirm the volley goes to the drone.
+   m.api.spawnEnemy('drone'); const dr = m.api.enemies.find(e => e.type === 'drone');
+   dr.hp = dr.maxhp = 1e6; dr.spawnT = 0; dr.x = m.cx + 100; dr.y = m.cy - 250;
+   m.keep.push(dr);
+   m.p.autoFire = true; m.p.fireCd = 0; m.p.shots = 1;
+   m.api.bullets.length = 0;
+   for (let f = 0; f < 5 && m.api.bullets.length === 0; f++) roomStep(m);
+   const v = m.api.bullets[0];
+   const toDrone = v ? Math.atan2(dr.y - m.p.y, dr.x - m.p.x) : 0;
+   const got = v ? Math.atan2(v.vy, v.vx) : 9;
+   ok('auto-fire aims past a tracker-jammed god at the next foe', !!v && Math.abs(wrapA(got - toDrone)) < 0.3,
+    'aim ' + (got * 57.3).toFixed(1) + 'deg vs drone ' + (toDrone * 57.3).toFixed(1) + 'deg');
+   m.p.autoFire = false;
+  }
   const wE = a.sectorWorld(89);
   const edgeD = Math.min(b.x - 24, wE.w - 24 - b.x, b.y - 80, wE.h - 24 - b.y);
   atMost('reappearing near an edge', edgeD, 150);
@@ -5180,6 +5236,7 @@ function suiteKits4() {
   eq('the bar refills to 2x max HP', b.maxhp, oldMax * 2);
   range('each absorbed boss +10% of the Phase-2 bar', b.hp / b.maxhp, 0.40, 0.45);
   ok('PHASE II wakes with its lens', b.ph2 === true && !!b.lens && b.lens.r >= 200);
+  ok('the lens damps homing explicitly, not just by curving rounds', b.lens.damp > 0 && b.lens.damp < 1, JSON.stringify(b.lens));
   ok('the hidden kit draws', !kitRenders(a));
  }
  {
