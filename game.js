@@ -1385,7 +1385,6 @@ function applySnap(r){
 // Codex entries still unlock: knowing a foe is not power.
 let replaySnap=null;   // the run as it entered the replay; null outside one
 let hubNote=null;      // {txt, at}: the hub says what a finished replay restored
-function inReplay(){ return !!replaySnap; }
 function endReplay(lost){
  const r=replaySnap; if(!r) return;
  replaySnap=null; applySnap(r);
@@ -3931,9 +3930,6 @@ BOSS_KITS.archon={
  },
  hitParts:{ rot:()=>0, c:[[0,-1.0,0.26],[0.95,-0.31,0.24],[-0.95,-0.31,0.24],[0.59,0.81,0.2],[-0.59,0.81,0.2]] }
 };
-// The dispatcher's old name for the slam still loops it (the roster suite pins
-// `slam` on S50 to prove the DevX lever; the kit calls it GAVEL).
-BOSS_KITS.archon.attacks.slam=BOSS_KITS.archon.attacks.gavel;
 // ===== END BOSS: ARCHON =====
 
 // ===== BOSS: COLOSSUS =====
@@ -7922,7 +7918,6 @@ function drawLevelUp(){
   }
   iconInk(false);
 }
-function wrapText(t,x,y,mw){ wrapLines(t,20).forEach((l,i)=>{ ctx.textAlign='center'; ctx.fillText(l,x,y+i*20); }); }
 // ---------- pause ----------
 function drawPaused(){
  try{ layoutPause(); }catch(e){}
@@ -8596,8 +8591,7 @@ try{ if(window.__KRIEFNE_DEV===true&&window.__kriefne){
   const s=arenaIdx; let mk=null, via=role;
   if(role==='lead') mk=(x,y)=>mkBoss(kind,x,y,s);
   else if(role==='summoned'){
-   if(typeof mkSummoned==='function'){ via='mkSummoned'; mk=(x,y)=>mkSummoned(kind,x,y,s,1); }
-   else { via='mkLieutenant'; mk=(x,y)=>mkLieutenant(kind,x,y,s,1,0); }
+   via='mkSummoned'; mk=(x,y)=>mkSummoned(kind,x,y,s,1);
   } else if(role==='thrall'){
    if(typeof mkThrall!=='function') return {ok:false,msg:'thrall: not available in this build (no mkThrall)'};
    via='mkThrall'; mk=(x,y)=>mkThrall(kind,x,y,s);

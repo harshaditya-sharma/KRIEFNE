@@ -977,8 +977,8 @@ function suiteBossRoster() {
  {
   const a = boot(); seedRandom(a, 4040); a.startRun(); a.loadSector(49); a.forceState('playing'); a.queue.length = 0;
   const b = bossesIn(a)[0];
-  b.forcedAttack = 'slam'; seconds(a, 8, () => immortal(a));
-  eq('a forced attack loops that attack past its slot', b.atk, 'slam');
+  b.forcedAttack = 'gavel'; seconds(a, 8, () => immortal(a));
+  eq('a forced attack loops that attack past its slot', b.atk, 'gavel');
   b.forcedAttack = null; b.forcedPhase = 3; seconds(a, 2, () => immortal(a));
   eq('a forced phase is honoured, one beat per phase', b.ph, 3);
   b.forcedPhase = 9; seconds(a, 1, () => immortal(a));
@@ -5431,8 +5431,15 @@ module.exports = { boot, seedRandom, fightNest, step, seconds, give, bossesIn, i
 
 if (require.main === module) {
   console.log('KRIEFNE QA harness\n------------------');
+ // The simulator and the fuzz are ~2 of the 3 minutes. Everyday runs skip them;
+ // `--all` (or `--full`, which also widens the simulator) is required before any
+ // merge to main. `--only fightsim` / `--only fuzz` still run them alone.
+ const SLOW = new Set(['fightsim', 'fuzz']);
+ const RUN_ALL = process.argv.indexOf('--all') >= 0 || FIGHTSIM_FULL;
+ const skipped = [];
  for (const [name, fn] of SUITES) {
   if (ONLY && ONLY !== name) continue;
+  if (!ONLY && !RUN_ALL && SLOW.has(name)) { skipped.push(name); continue; }
   try { fn(); }
   catch (e) { fail++; failures.push(name + ' > THREW: ' + (e && e.stack || e)); console.log('  THREW in ' + name + ': ' + (e && e.message || e)); }
  }
@@ -5441,6 +5448,7 @@ if (require.main === module) {
   console.log('FAILURES (' + failures.length + '):');
   for (const f of failures) console.log('  - ' + f);
  }
- console.log((fail === 0 ? 'ALL ' : '') + pass + ' passed, ' + fail + ' failed.');
+ console.log((fail === 0 ? 'ALL ' : '') + pass + ' passed, ' + fail + ' failed.' +
+  (skipped.length ? '  (skipped slow suites: ' + skipped.join(', ') + ' — run with --all before merging)' : ''));
  process.exit(fail === 0 ? 0 : 1);
 }

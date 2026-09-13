@@ -827,12 +827,38 @@ Each group also writes its lore, codex and silhouettes.
 
 ## 16. Progress log
 
-The newest entries go at the bottom.
+### Resume here
 
-**Standing rules:**
-- Agents run **one at a time**; parallel agents burn the usage window.
-- **After each step finishes, stop and wait for the user's go-ahead before the next.**
-- When an agent dies, commit its worktree as a WIP commit and merge what is green.
+This is the only status doc. `WAVE3_HANDOFF.md` was folded in here and deleted on 2026-09-14.
+
+**Where things are**
+- **Branch:** `wave3`, cut from `main` a7e8172, which is already pushed. It merges to `main` **only when the user says**, and only after `node test.js --all` is green.
+- **Repo:** one game file (`game.js`) and one test harness (`test.js`). This spec lives in `DevX/`; it's gitignored, but this file is force-tracked, so use `git add -f DevX/SPEC-overhaul.md`. The lab files stay local.
+- **Tests:**
+  - `node test.js`: the everyday run, about 45 s, skipping the `fightsim` and `fuzz` suites.
+  - `node test.js --all`: everything, about 3 minutes; required before merging.
+  - `--full`: everything, plus every build on every nest in the simulator.
+  - `--only <suite>`: one suite.
+- **Lab:** run `node DevX/serve.mjs`, then open `/DevX/lab.html?s=40&boss=oracle&build=hose&god=1&hit=1`. Headless Chrome needs `window.__kriefne.forceState('playing')`. Kill stray servers by PID.
+
+**Rules**
+- One agent at a time.
+- Small, self-contained commits.
+- After each step: run the tests, update this log, report, and **wait for the user's go-ahead**.
+- If an agent dies, commit its worktree as a WIP commit and merge only what is green.
+- Every commit ends with the `Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>` and `Claude-Session: https://claude.ai/code/session_01GoVrejqPHPJShPuKezViDX` lines.
+
+**Remaining steps** (approved plan, 2026-09-14)
+
+| Step | Work |
+|---|---|
+| 0 | housekeeping |
+| 1 | test consolidation (retire report-only `balance` analytics; fold `roster`/`live`/`mobility`/`recovery` into the new suites, with zero coverage loss) |
+| 2 | thralls (§8) |
+| 3 | hit-test gaps (lance, orbs, splash, tesla vs parts, segs and `hitParts`; spawn-pop scale) |
+| 4 | boss HP fit to §6 with the fight simulator, recovery tuning, `FIGHTSIM_STRICT=true` |
+| 5 | docs sweep (README, PRODUCT, LORE §7/§8/§11, DESIGN) |
+| 6 | full pass (`--all`, perf, lab captures, the user's playtest) |
 
 | Date | Stream | Status | Where |
 |---|---|---|---|
@@ -852,6 +878,7 @@ The newest entries go at the bottom.
 | 2026-09-14 | Wave 3, engine | **step (unmerged)**: NULLIFIER true tracker jam (`drawBossGuide` lies with SIGNAL LOST; auto-fire + homing skip `nullJam`, additive); SINGULARITY explicit homing damp (`lens.damp` 0.55 withers `seekSteer` turn toward zero at the core + codex tell); new asserts in `bullets` (damp/jam straight-flight) and `kits4` (auto-fire past jam, lens damp field); full harness 2421 green | `overhaul` (unmerged step) |
 | 2026-09-14 | $harden (audit) | **step (unmerged)**: settings rows + codex index mirrored as offscreen DOM buttons (draft pattern, same handlers, focus restore on rebuild, aria-current); `role="application"` kept deliberately with `main` landmark + offscreen h1; new `srmirror` suite (26); full harness 2447 green | `overhaul` (unmerged step) |
 | 2026-09-14 | merge to main | **done**: `main` fast-forwarded to `overhaul` 86d16a9 (Wave-3 density + engine, $harden mirrors); full harness 2447 green on `main`; 7 stale worktree checkouts removed, 6 merged `worktree-agent-*` branches deleted (`ae66187e` branch kept: unmerged alternate kit line + WIP 3f4f57c) | `main` 86d16a9 |
+| 2026-09-14 | Step 0, housekeeping | **done**: `wave3` branch; deleted the `overhaul` branch (merged) and `worktree-agent-ae66187e…` (superseded alternate HYDRA/WYVERN/ORACLE/SENTINEL line, tip 3f4f57c, recoverable from the reflog); removed the dead `mkLieutenant` lab fallback, `inReplay`, `wrapText` and ARCHON's legacy `slam` alias; fast default test run (45 s) plus `--all`; `WAVE3_HANDOFF.md` folded in here; `--all` 2447 green | `wave3` |
 
 **Wave-3 notes (user, 2026-09-13):**
 - Normal sectors got longer but feel empty: raise enemy presence, not just duration. A trickle of one enemy per ~5 s is wasteful — bigger packs / higher alive caps so the sector stays busy.
