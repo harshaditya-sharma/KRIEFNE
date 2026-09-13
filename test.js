@@ -4377,6 +4377,114 @@ function suiteKits3() {
   s = a.enemies.filter(e => e.summoned);
   ok('and again at 35%', s.length === 1 && s[0].kind === 'basilisk');
  }
+
+ // ---------------- HARBINGER ----------------
+ {
+  const H = KITS.harbinger;
+  ok('HARBINGER keeps the rationed spirals, never a plain radial burst', !!H.attacks.ricos && !!H.attacks.echowall && !H.attacks.burst && !H.attacks.fan && H.cycle.every(n => ['burst', 'fan', 'spiralwall', 'spiral'].indexOf(n) < 0));
+  ok('harbinger: every cycle slot is one of its own attacks', H.cycle.every(n => typeof H.attacks[n] === 'function'));
+  ok('harbinger: a non-circular silhouette declares hitParts', !!(H.hitParts && H.hitParts.c.length));
+  const s = api0.mkSummoned('harbinger', 500, 500, api0.bossdefs.harbinger.debut - 1, 1);
+  ok('harbinger: summoned at 85% size, with no recovery and no phases', Math.abs(s.r - H.def.r * 0.85) < 1e-9 && s.recLeft.length === 0 && s.phAt.length === 0);
+  ok('harbinger: a codex field note, tells and counter, and a debut line naming its rank', !!(H.codex.lore && H.codex.tell && H.codex.counter && H.lore.indexOf(api0.tierNames[H.def.tier]) >= 0));
+  ok('HARBINGER never recovers — it announces; it never hides', !H.recover);
+ }
+ {
+  const { a, p, b } = kitRoom('harbinger', 69);
+  b.forcedAttack = 'ricos'; b.sumLeft = []; const pin = pinAt(p, p.x, p.y);
+  kitRun(a, 1.0, () => { pin(); noChaff(a); });
+  const R = roundsBy(a, 'RICOCHET SPIRAL');
+  atLeast('RICOCHET SPIRAL: three-arm volleys', R.length, 9);
+  ok('every round bouncing twice off walls and cover', R.length > 0 && R.every(r => r.bounce === 2));
+  const angs = R.map(r => Math.atan2(r.vy, r.vx)).sort((x, y) => x - y);
+  let cov = 0; for (let k = 1; k < angs.length; k++) cov = Math.max(cov, angs[k] - angs[k - 1]);
+  ok('arms spread round the compass', cov < 2.5);
+ }
+ {
+  const { a, p, b } = kitRoom('harbinger', 69);
+  b.forcedAttack = 'meteor'; b.sumLeft = []; const pin = pinAt(p, p.x, p.y);
+  let mk = null;
+  kitRun(a, 0.6, () => { pin(); noChaff(a); const m = a.marks.find(m => m.owner === b); if (m && !mk) mk = { warn: m.warn, r: m.r }; });
+  ok('METEOR: telegraphed marks down your heading', !!mk && mk.warn >= 1.1 - 1e-9);
+  const ms = a.marks.filter(m => m.owner === b);
+  ok('three or more, with a way out on the ring', ms.length >= 3 && a.markEscapeGap(ms.map(m => ({ x: m.x, y: m.y, r: m.r })), p.x, p.y, true) >= 2.2 * 2 * p.r);
+  const hits = kitRun(a, 1.5, () => { pin(); noChaff(a); });
+  atLeast('that land on a ship that holds its heading', hits.METEOR || 0, 1);
+ }
+ {
+  const { a, p, b } = kitRoom('harbinger', 69, { dx: 250 });
+  b.forcedAttack = 'horn'; b.sumLeft = []; const pin = pinAt(p, p.x, p.y);
+  kitRun(a, 0.4, () => { pin(); noChaff(a); });
+  ok('HORN BLAST: the wide cone draws while it sounds', !kitRenders(a));
+  const x0 = p.x;
+  const hits = kitRun(a, 1.0, () => { noChaff(a); });
+  atLeast('the blast lands in the cone', hits['HORN BLAST'] || 0, 1);
+  atLeast('and throws the ship back', x0 - p.x, 40);
+  const r2 = kitRoom('harbinger', 69, { dx: 500 }); r2.b.forcedAttack = 'horn'; r2.b.sumLeft = [];
+  const px = r2.p.x, py = r2.p.y;
+  const miss = kitRun(r2.a, 2.0, () => { noChaff(r2.a); r2.p.x = px; r2.p.y = py; });
+  eq('out of reach the horn is only noise', miss['HORN BLAST'] || 0, 0);
+ }
+ {
+  const { a, p, b } = kitRoom('harbinger', 69);
+  b.forcedAttack = 'echowall'; b.sumLeft = []; const pin = pinAt(p, p.x, p.y);
+  kitRun(a, 0.3, () => { pin(); noChaff(a); });
+  const W = a.ebullets.filter(r => r.src && r.src.what === 'ECHO WALL');
+  atLeast('ECHO WALL: a dense ring', W.length, 8);
+  ok('every round bouncing once', W.length > 0 && W.every(r => r.bounce === 1));
+  const angs = W.map(r => Math.atan2(r.y - b.y, r.x - b.x)).sort((x, y) => x - y);
+  angs.push(angs[0] + 6.2832);
+  let gap = 0; for (let k = 1; k < angs.length; k++) gap = Math.max(gap, angs[k] - angs[k - 1]);
+  ok('with ONE gap in it', gap > 0.7, gap.toFixed(2));
+ }
+ {
+  const { a, p, b } = kitRoom('harbinger', 69, { dx: 250 });
+  b.forcedAttack = 'horn'; b.sumLeft = []; b.hp = b.hpSeen = b.maxhp * 0.65; const pin = pinAt(p, p.x, p.y);
+  kitRun(a, 1.2, () => { pin(); noChaff(a); });
+  ok('PHASE II at 66%', b.ph === 2);
+  kitRun(a, 1.0, () => { pin(); noChaff(a); });
+  ok('Phase II: the Horn leaves a sound-wall ring', !!b.hb.wall && b.hb.wall.r === 150);
+  ok('the wall draws', !kitRenders(a));
+  const W = b.hb.wall;
+  a.ebullets.push({ x: W.x + 50, y: W.y, vx: 300, vy: 0, r: 5, dmg: 10, life: 3, heavy: false });
+  kitRun(a, 0.6, () => { pin(); noChaff(a); });
+  const rb = a.ebullets.find(r => r.wallHit) || { vx: 1 };
+  ok('that turns its own rounds back', rb.vx < 0);
+ }
+ {
+  const vols = (sectorRoom, hpFrac) => {
+   const { a, p, b } = sectorRoom;
+   b.forcedAttack = 'ricos'; b.sumLeft = []; b.hp = b.hpSeen = b.maxhp * hpFrac; const pin = pinAt(p, p.x, p.y);
+   kitRun(a, hpFrac < 1 ? 2.0 : 0.05, () => { pin(); noChaff(a); });
+   let volleys = 0, last = a.ebullets.length;
+   a.ebullets.length = 0;
+   kitRun(a, 3.0, () => { pin(); noChaff(a); const n = a.ebullets.length; if (n >= last + 3) volleys++; last = n; });
+   return volleys;
+  };
+  const v1 = vols(kitRoom('harbinger', 69), 1);
+  range('the spiral keeps its calm cadence in Phase I', v1, 13, 17);
+  const v3 = vols(kitRoom('harbinger', 69), 0.32);
+  atLeast('Phase III LAST CALL: every cadence ×1.3', v3, 18);
+ }
+ {
+  const { a, p, b } = kitRoom('harbinger', 69);
+  b.forcedAttack = 'horn'; b.sumLeft = []; b.fightT = 20;
+  b.hp = b.hpSeen = b.maxhp * 0.2;
+  kitRun(a, 2.0, () => noChaff(a));
+  ok('wounded past every threshold, still no recovery', b.mode !== 'recover' && b.recLeft.length === 0);
+  const s = kitRoom('harbinger', 69, { summoned: true }); s.b.forcedAttack = 'ricos'; s.b.sumLeft = [];
+  s.b.hp = s.b.hpSeen = s.b.maxhp * 0.2; kitRun(s.a, 1.5, () => noChaff(s.a));
+  ok('a summoned HARBINGER runs the Phase I cadence', s.b.ph === 1);
+ }
+ {
+  const { a, b } = kitRoom('harbinger', 69);
+  b.hp = b.hpSeen = b.maxhp * 0.69; kitRun(a, 0.5);
+  let s = a.enemies.filter(e => e.summoned);
+  ok('at 70% HARBINGER calls PROGENITOR', s.length === 1 && s[0].kind === 'progenitor', s.map(e => e.kind).join(','));
+  a.killEnemy(a.enemies.indexOf(s[0])); b.hp = b.hpSeen = b.maxhp * 0.34; kitRun(a, 1.5);
+  s = a.enemies.filter(e => e.summoned);
+  ok('and again at 35%', s.length === 1 && s[0].kind === 'progenitor');
+ }
  return null;
 }
 

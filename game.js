@@ -4167,7 +4167,8 @@ function pgLaunch(e,n){ // every living bay puts out n fighters
  for(const q of e.parts||[]){ if(q.kind!=='bay'||q.dead) continue;
   for(let k=0;k<n;k++){ if(enemies.length>=CAP.enemies-1) return;
    const dx=q.x-e.x, dy=q.y-e.y, l=Math.hypot(dx,dy)||1;
-   const m=mkEnemy('fighter',q.x+dx/l*24,q.y+dy/l*24,arenaIdx); m.spawnT=0.9; enemies.push(m); } }
+   const m=mkEnemy('fighter',clamp(q.x+dx/l*24,PX0+10,PX1-10),clamp(q.y+dy/l*24,PY0+10,PY1-10),arenaIdx);
+   m.spawnT=0.9; enemies.push(m); } }
  SFX.eshoot(); }
 BOSS_KITS.progenitor={
  def:{name:'PROGENITOR',epithet:'the Brood-Hall',tier:4,hp:1600,r:36,spd:0.80,shape:'hull',pt:3.6,sig:'bays',chaff:['drone','mite']},
@@ -4217,6 +4218,7 @@ BOSS_KITS.progenitor={
     e.pg.tow.push(m.uid);
     const dx=e.x-m.x, dy=e.y-m.y, l=Math.hypot(dx,dy)||1, v=320*C.dt;
     m.x+=dx/l*Math.min(v,l); m.y+=dy/l*Math.min(v,l);
+    m.x=clamp(m.x,PX0+m.r,PX1-m.r); m.y=clamp(m.y,PY0+m.r,PY1-m.r); resolveObstacles(m);
     if(l<e.r+50){ m.hp=Math.min(m.maxhp,m.hp+m.maxhp*0.25);
      spawnBurst(m.x,m.y,6,pigOf(e).c,150,0.3,2); } } }
  },
@@ -4240,6 +4242,7 @@ BOSS_KITS.progenitor={
     const q=bays.length?bays.reduce((a2,b2)=>Math.hypot(m.x-a2.x,m.y-a2.y)<Math.hypot(m.x-b2.x,m.y-b2.y)?a2:b2):null;
     const tx=q?q.x:e.x, ty=q?q.y:e.y, dx=tx-m.x, dy=ty-m.y, l=Math.hypot(dx,dy)||1, v=(m.sp*1.3+60)*C.dt;
     m.x+=dx/l*Math.min(v,l); m.y+=dy/l*Math.min(v,l);
+    m.x=clamp(m.x,PX0+m.r,PX1-m.r); m.y=clamp(m.y,PY0+m.r,PY1-m.r); resolveObstacles(m);
     if(Math.hypot(tx-m.x,ty-m.y)<30){ m.dead=true; enemies.splice(enemies.indexOf(m),1);
      spawnBurst(tx,ty,8,pigOf(e).c,180,0.4,3); bossHeal(e,e.maxhp*0.015); e.pg.docked++;
      addFloater(tx,ty-20,'DOCKED',K.red); } }
@@ -4297,32 +4300,101 @@ BOSS_KITS.progenitor={
 // ===== END BOSS: PROGENITOR =====
 
 // ===== BOSS: HARBINGER =====
+// The Horn (spec §5). Signature RICOCHET SPIRAL: rotating three-arm spirals
+// whose rounds bounce off walls and cover up to twice — the one spiral the
+// rationing allows it (§3.9). Secondaries: HORN BLAST (a telegraphed wide
+// cone with knockback), METEOR (telegraphed marks down your heading) and
+// ECHO WALL (a one-gap ring whose rounds bounce once). P2 at 66%: the Horn
+// leaves a sound-wall ring that reflects its own rounds. P3 at 33%: LAST
+// CALL, every cadence ×1.3. No recovery — it announces; it never hides.
+// Calls PROGENITOR at 70% and 35% (the rung below).
 BOSS_KITS.harbinger={
- def:{name:'HARBINGER',epithet:'the Horn',tier:4,hp:1100,r:29,spd:1.00,shape:'star',pt:3.2,sig:null,chaff:['tempest','mite']},
+ def:{name:'HARBINGER',epithet:'the Horn',tier:4,hp:1100,r:29,spd:1.00,shape:'horn',pt:3.2,sig:'ricos',chaff:['tempest','mite']},
  lore:'A SOVEREIGN WHO SOUNDS THE HORN — HARBINGER wants you to see it coming.',
- codex:{role:'Bullet-hell caster', threat:'Never recovers',
-  tell:'Dense rotating walls with ONE gap, plus targeted meteors.',
-  counter:'Find the gap and travel with it. Do not try to out-run the wall.',
+ codex:{role:'Bullet-hell caster', threat:'Never recovers; three phases',
+  tell:'Three-arm RICOCHET spirals bounce twice off rock and rim. Ruled marks down your heading are the METEOR; a wide ruled cone, the HORN BLAST; a one-gap ring whose rounds bounce once, the ECHO WALL.',
+  counter:'Travel with the Echo gap. Let ricochets bounce out before you re-enter a lane. Dash the Horn cone, never tank it. From Phase II the Horn leaves a sound-wall that turns its own rounds: stand outside it. It never mends: press it.',
   lore:'The Horn. An announcement, not a warship: it was built so that a species could be seen from far away. Everything it does is legible from a distance, because the point was always that you would see it coming and understand what it meant.'},
- cycle:['spiralwall','meteor','fan','spiral'],
- attacks:Object.assign(atk('spiralwall','fan','spiral'),{
+ cycle:['ricos','meteor','horn','echowall'],
+ phases:[{},{at:0.66},{at:0.33}],
+ init(e){ e.hb={face:Math.atan2(player?player.y-e.y:0,player?player.x-e.x:1),wall:null}; },
+ attacks:{
+  ricos(e,C){ // the signature: three rotating arms, every round bouncing twice
+   C.mv(0.4); e.spirT-=C.dt;
+   if(e.spirT<=0){ e.spirT=(C.enrage?0.14:0.2)*(e.ph>=3&&!e.summoned?1/1.3:1);
+    const a0=e.t*2.2;
+    for(let k=0;k<3;k++) eshotB(e,a0+k*2.094,210,6,0.8,4.5,2);
+    SFX.eshoot(); } },
   meteor(e,C){ // telegraphed impact marks down your heading (spec §5)
    C.mv(0.35); e.burstT-=C.dt;
-   if(e.burstT<=0){ e.burstT=C.enrage?1.7:2.3;
+   if(e.burstT<=0){ e.burstT=(C.enrage?1.7:2.3)*(e.ph>=3&&!e.summoned?1/1.3:1);
     const p=C.p, v=Math.hypot(p.mvx||0,p.mvy||0), hx=v>30?p.mvx/v:Math.cos(C.aim), hy=v>30?p.mvy/v:Math.sin(C.aim);
     const n=3+Math.min(2,((arenaIdx+1)/40)|0), pts=[];
     for(let k=0;k<n;k++){ const d=40+k*95, j=(Math.random()-0.5)*60; pts.push({x:p.x+hx*d-hy*j,y:p.y+hy*d+hx*j,r:54}); }
-    bossMarks(e,pts,{warn:1.1,dmg:Math.round(e.dmg*0.9),what:'METEOR'}); } }
- }),
- draw(e,g){ // eight-point burst, inner ring counter-rotating
-  const R=g.R;
+    bossMarks(e,pts,{warn:1.1,dmg:Math.round(e.dmg*0.9),what:'METEOR'}); } },
+  horn(e,C){ // a wide cone held 0.7 s, then a blast that throws you back
+   C.mv(0.3);
+   let S=e.hbH; if(e.atkT===0||!S) S=e.hbH={st:'wind',t:0.7,a:0};
+   S.t-=C.dt;
+   const F=e.ph>=3&&!e.summoned?1/1.3:1; // P3 LAST CALL: every cadence ×1.3
+   if(S.st==='wind'){ S.a=C.aim;
+    if(S.t<=0){ S.st='cool'; S.t=2.2*F;
+     const da=Math.abs(angDiff(C.aim,S.a));
+     if(da<0.6&&C.d<380){ const l=Math.hypot(C.p.x-e.x,C.p.y-e.y)||1;
+      hurtPlayer(Math.round(e.dmg*0.9),true,srcOf(e,'HORN BLAST'));
+      applyStatus('knockback',0,{x:(C.p.x-e.x)/l*520,y:(C.p.y-e.y)/l*520}); }
+     for(let k=0;k<10;k++) pushPart({x:e.x+Math.cos(S.a)*k*36,y:e.y+Math.sin(S.a)*k*36,vx:0,vy:0,life:0.3,maxlife:0.3,col:K.red,r:5});
+     if(e.ph>=2&&!e.summoned){ e.hb.wall={x:e.x,y:e.y,r:150,t:6}; SFX.ring(); }
+     SFX.eshoot(); } }
+   else if(S.st==='cool'&&S.t<=0){ S.st='wind'; S.t=0.7; } },
+  echowall(e,C){ // a dense rotating wall with ONE gap; every round bounces once
+   C.mv(0.3); e.spirT-=C.dt;
+   if(e.spirT<=0){ e.spirT=(C.enrage?0.30:0.42)*(e.ph>=3&&!e.summoned?1/1.3:1);
+    const n=13, gap=(e.t*0.9)%6.283;
+    for(let k=0;k<n;k++){ const a=k/n*6.283;
+     let da=Math.abs(((a-gap+Math.PI)%6.283)-Math.PI);
+     if(da<0.55) continue; // the gap
+     eshotB(e,a+e.t*0.5,190,5,0.85,4,1); }
+    SFX.eshoot(); } }
+ },
+ label(e){ if(e.atk==='ricos') return 'RICOCHET SPIRAL'; if(e.atk==='meteor') return 'METEOR';
+  if(e.atk==='horn') return 'HORN BLAST'; if(e.atk==='echowall') return 'ECHO WALL'; return null; },
+ post(e,dt){
+  const p=player;
+  if(p) e.hb.face=turnTo(e.hb.face,Math.atan2(p.y-e.y,p.x-e.x),1.8*dt);
+  const W=e.hb.wall; // P2: the sound-wall, a circular mirror for its own rounds
+  if(W){ W.t-=dt; W.x=e.x; W.y=e.y;
+   if(W.t<=0) e.hb.wall=null;
+   else for(const rb of ebullets){ if(rb.wallHit||(rb.src&&rb.src.id!=='harbinger')) continue;
+    const dx=rb.x-W.x, dy=rb.y-W.y, d=Math.hypot(dx,dy);
+    if(Math.abs(d-W.r)<14&&d>1){ const nx=dx/d, ny=dy/d, dot=rb.vx*nx+rb.vy*ny;
+     rb.vx-=2*dot*nx; rb.vy-=2*dot*ny; rb.wallHit=true;
+     rb.x+=nx*8; rb.y+=ny*8; spawnBurst(rb.x,rb.y,2,K.red,120,0.2,2); } } } },
+ under(e){
+  const H=e.hbH, p=player;
+  if(e.atk==='horn'&&H&&H.st==='wind'&&p){ const a=H.a, w=0.6, r=380;
+   ctx.save(); ctx.beginPath(); ctx.moveTo(e.x,e.y); ctx.arc(e.x,e.y,r,a-w,a+w); ctx.closePath(); ctx.clip();
+   ctx.strokeStyle=K.redDim; ctx.lineWidth=1; ctx.beginPath();
+   for(let rr=60;rr<r;rr+=40){ ctx.moveTo(e.x+Math.cos(a-w)*rr,e.y+Math.sin(a-w)*rr); ctx.arc(e.x,e.y,rr,a-w,a+w); } ctx.stroke(); ctx.restore();
+   ctx.save(); ctx.strokeStyle=K.red; ctx.lineWidth=1.5; ctx.beginPath(); ctx.moveTo(e.x,e.y); ctx.arc(e.x,e.y,r,a-w,a+w); ctx.closePath(); ctx.stroke(); ctx.restore(); }
+  if(e.hb.wall){ const W=e.hb.wall; ctx.save(); ctx.globalAlpha=0.8;
+   ctx.strokeStyle=K.red; ctx.lineWidth=1.5; ctx.setLineDash([8,6]);
+   ctx.beginPath(); ctx.arc(W.x,W.y,W.r,0,6.283); ctx.stroke(); ctx.setLineDash([]); ctx.restore(); } },
+ draw(e,g){ // a flared horn: throat and core behind, mouth rings forward
+  const R=g.R, hot=e.atk==='horn'&&e.hbH&&e.hbH.st==='wind';
+  ctx.save(); ctx.rotate(e.hb?e.hb.face:0);
+  polyPts([[R*1.2,-R*0.78],[R*0.3,-R*0.3],[R*0.3,R*0.3],[R*1.2,R*0.78]]);
+  ctx.fillStyle=g.body; ctx.fill(); ctx.strokeStyle=hot?K.redHi:g.col; ctx.lineWidth=hot?2:g.lw; ctx.stroke();
+  ctx.strokeStyle=hot?K.redHi:g.dim; ctx.lineWidth=1;
+  for(const mx of [0.62,0.88,1.12]){ ctx.beginPath();
+   ctx.moveTo(mx*R,-R*(0.3+(mx-0.3)*0.62)); ctx.lineTo(mx*R,R*(0.3+(mx-0.3)*0.62)); ctx.stroke(); }
   ctx.fillStyle=g.body; ctx.strokeStyle=g.col; ctx.lineWidth=g.lw;
-  ctx.beginPath();
-  for(let k=0;k<16;k++){ const a=e.t*0.7+k*0.3927, rr=(k%2?R*0.48:R); const x=Math.cos(a)*rr, y=Math.sin(a)*rr; if(k) ctx.lineTo(x,y); else ctx.moveTo(x,y); }
-  ctx.closePath(); ctx.fill(); ctx.stroke();
-  ctx.strokeStyle=g.dim; ctx.lineWidth=1; ctx.save(); ctx.rotate(-e.t*1.4); poly(3,R*0.42,0); ctx.stroke(); ctx.restore();
-  ctx.fillStyle=g.col; ctx.beginPath(); ctx.arc(0,0,3.5,0,6.283); ctx.fill();
- }
+  poly(6,R*0.34,0.5236); ctx.fill(); ctx.stroke();
+  ctx.fillStyle=hot?K.redHi:g.col; ctx.beginPath(); ctx.arc(0,0,3,0,6.283); ctx.fill();
+  ctx.restore();
+ },
+ // the bell mouth reaches past the core circle
+ hitParts:{ rot:e=>e.hb?e.hb.face:0, c:[[1.0,0,0.3],[0.5,-0.32,0.2],[0.5,0.32,0.2]] }
 };
 // ===== END BOSS: HARBINGER =====
 
