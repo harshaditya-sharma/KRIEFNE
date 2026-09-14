@@ -623,7 +623,7 @@ function simRun(s, build, seed, tune) {
 const SIM_SECTORS = [1, 3, 6, 9, 12, 21, 31, 46, 61, 81, 99];
 const SIM_NESTS = []; for (let n = 5; n <= 100; n += 5) SIM_NESTS.push(n);
 // spec §7, Homing Hose clear time
-function sectorBand(n) { return n <= 9 ? [50, 70] : n <= 49 ? [75, 100] : [100, 130]; }
+function sectorBand(n) { return n <= 9 ? [50, 75] : n <= 49 ? [70, 105] : [100, 135]; }
 // spec §6, Homing Hose seconds-to-kill the lead; S5 and S10 stay "as now"
 function nestBand(n) { return n <= 10 ? null : n <= 20 ? [60, 80] : n <= 45 ? [75, 105] : n <= 95 ? [100, 150] : [150, 210]; }
 function simTop(r) {
