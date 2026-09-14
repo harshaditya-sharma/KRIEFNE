@@ -877,8 +877,8 @@ Headless Chrome needs `window.__kriefne.forceState('playing')`. Kill stray serve
 | 2c | one lab capture round of thralls (lesser look, pip legible, distinct from chaff) | |
 | 2d | run `--all` green; close Step 2 here (History row, open items) | **done (`--all` 2631 green)** |
 | 2e | fix the stream peak red: S81 scripted cull sees peak 1 simultaneous thrall, needs ≥ 2 (thrall spacing in the stream vs the 8 s cull) | **done** (cluster fix) |
-| 3a | route Prism Lance, orbs, splash and tesla through the part and segment hit path (`hitBossPart`, `e.segs`, `hitParts`) | |
-| 3b | clamp the spawn-in pop scale to the hitbox; extend the `bullets` suite | |
+| 3a | route Prism Lance, orbs, splash and tesla through the part and segment hit path (`hitBossPart`, `e.segs`, `hitParts`) | **done (`--all` 2657 green)** |
+| 3b | clamp the spawn-in pop scale to the hitbox; extend the `bullets` suite | **done (`spawnPop`, 24 new checks)** |
 | 4a | fit boss HP for S15–S45 to §6 with the fight simulator | |
 | 4b | fit boss HP for S50–S100 (SINGULARITY both phases) | |
 | 4c | tune the recovery numbers (plates, pod, heal rates) | |
@@ -890,7 +890,7 @@ Headless Chrome needs `window.__kriefne.forceState('playing')`. Kill stray serve
 | 7b | cards: ten new Legendary/Mythic stat variants (Overclock Dynamo/Reactor/Star, AP Sabot/Nova/Extinction, Nanoweave Bastion/Ark, Gun Array Mk III/Halo) + asserts + sim re-check | **done (code + 5 asserts + halved taxes + widened bands; `--all` green)** |
 
 ### Now in progress
-**Both user calls executed and green (`--all` 2633). No agent is running.** S51+ §7 band widened to 100–140 (`sectorBand` follows; loosening-only, fightsim 131/131). `drawEnd` reworked as one measured column: `wrapPx` wraps TELL/COUNTER/score/footers by `measureText` (short-H screens cap TELL at 2 lines, else 4); the killer line stacks when it doesn't fit; the icon grid is centered; record + buttons + hint are centered in the full height together. Pixel-verified in headless Chrome (worst-case SINGULARITY tell + 16-refit build, 960 + 420): no bleed, no overlap. Ready to commit both + this log, then push.
+**Step 3 done and green (`--all` 2657). No agent is running.** Prism Lance, Guardian orbs, splash and tesla resolve through the unified hit path (`damageAt` → `enemyHitT`/`HIT`: parts first, then LEVIATHAN segments at `SEG_PASS`, then body with `hitParts` counting as body). Splash keeps its exact old footprint (centre within r) against ordinary foes and only extends to nearest-surface where parts/segments/hitParts exist, so the fitted normal-sector pacing never moves; orbs dropped their body-only gate (a flung moon past body range is still hittable) with the cooldown now spent only on a connect. The spawn-in pop is clamped to the hitbox (`spawnPop`, `Math.min(1, …)`). `bullets` suite +24 checks (part/segment routing, wiring of all four sources, pop clamp, far-flung orb). Ready to commit + push; Step 4 (boss-HP fit) owns any band movement from here.
 
 **Verified state (2026-09-14, after band widening)**
 - Fast harness: **2498 green** (fightsim/fuzz skipped); `--all`: **2631 green** (fightsim 131/131, fuzz green).
@@ -929,7 +929,7 @@ Headless Chrome needs `window.__kriefne.forceState('playing')`. Kill stray serve
 Each is tagged with the step that owns it; resolved items are removed.
 - **[2]** The pigment rule is done: floors for mixed kinds (7a3075d). Remaining: 2c (visuals). 2a, 2b, 2d and 2e are done and green.
 - **[7, cards]** Done 2026-09-14: 7a (33 ability cards costed + physical-voice faces + `suiteCards`), 7b (ten L/M variants + 5 asserts), halved §2 taxes, widened §7 bands; `--all` 2631 green. Remaining: the README blurb commit/revert call (user).
-- **[3]** Prism Lance, orbs, splash and tesla ignore `hitParts`, `segs` and `parts`: they hit the body circle only, so parts such as WARDEN's plates or REVENANT's pod can't be damaged by them. The spawn-in pop draws up to 1.44× larger than the hitbox.
+- **[3]** Done 2026-09-14: 3a (unified `damageAt` path for Prism/orbs/splash/tesla; splash footprint preserved for ordinary foes) + 3b (`spawnPop` clamp); `bullets` +24, `--all` 2657 green.
 - **[4]**
   - Boss HP: nests die in 7–35 s against the §6 bands.
   - Flip `FIGHTSIM_STRICT`.
@@ -992,3 +992,4 @@ Each is tagged with the step that owns it; resolved items are removed.
 | 2026-09-14 | Revert hunt + verify | **done**: working-tree revert of the Toll Gate fix found via `kits1` red (172/173, two ~zero spans); `game.js` restored to HEAD → kits1 173, fast 2500 green; `--all` 2632 + S99 marginal (139 vs 100–135, user call open); README blurb committed | `wave3` |
 | 2026-09-14 | S99 band call | **done (user call: widen)**: S51+ §7 100–135→100–140, `sectorBand` follows (loosening-only); fightsim 131/131 | `wave3` |
 | 2026-09-14 | Death-screen rethink | **done (user approved)**: `drawEnd` as one measured column (`wrapPx`, stacked killer line, centered grid, full-height centering); headless-Chrome captures at 960 + 420 show no bleed/overlap; safety/voice/replay green; `--all` **2633 green** | `wave3` |
+| 2026-09-14 | Step 3, indirect hits + spawn pop | **done**: 3a `damageAt` unifies Prism/orbs/splash/tesla through `enemyHitT`/`HIT` (parts → segs at `SEG_PASS` → body); orbs lose the body-only gate, cooldown on connect only; splash keeps the exact old footprint where no parts exist (first cut moved S12/S21/S31 means via a wider blast footprint — caught by fightsim, fixed by the strict-body hybrid, 131/131 back); 3b `spawnPop` clamps the draw to the hitbox; `bullets` +24 checks; fast 2524, `--all` **2657 green** | `wave3` |

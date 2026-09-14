@@ -2692,9 +2692,108 @@ function suiteBullets() {
   for (let f = 0; f < 32; f++) roomStep(m4);
   const be = mkRound({ x: m4.cx, y: m4.cy + 200, life: 0.5 }); m4.api.bullets.push(be);
   let gone = -1; for (let f = 0; f < 20 && gone < 0; f++) { roomStep(m4); if (m4.api.bullets.indexOf(be) < 0) gone = f; }
-  ok('bulletErased: a round is deleted the frame it enters the zone', gone >= 0 && be.x > m4.cx + 40 && be.x < m4.cx + 40 + 640 * DT + 1, 'x ' + be.x.toFixed(1));
- }
- return null;
+   ok('bulletErased: a round is deleted the frame it enters the zone', gone >= 0 && be.x > m4.cx + 40 && be.x < m4.cx + 40 + 640 * DT + 1, 'x ' + be.x.toFixed(1));
+  }
+
+  // --- step 3a: indirect sources resolve through the part/segment hit path
+  {
+   const M = m => m.api.tokens.metal;
+   // unit rig: a part standing off the hull takes the whole ray, body untouched
+   const m = bulletRoom('warden', 9);
+   m.boss.vscale = 1; m.boss.x = m.cx + 200; m.boss.y = m.cy;
+   const part = { x: m.cx + 120, y: m.cy, r: 12, hp: 50 };
+   m.boss.parts = [part];
+   const hp0 = m.boss.hp;
+   const dealt = m.api.damageAt(m.boss, 46, M(m), m.cx, m.cy, m.cx + 200, m.cy, 0);
+   eq('damageAt: a part in the path takes the hit', Math.round(part.hp), 4);
+   eq('damageAt: the body behind a blocking part takes nothing', m.boss.hp, hp0);
+   eq('damageAt returns the damage dealt', dealt, 46);
+   // a pass-through part lets the ray fly on to the body (the part breaks)
+   part.block = false;
+   const hp1 = m.boss.hp;
+   m.api.damageAt(m.boss, 46, M(m), m.cx, m.cy, m.cx + 200, m.cy, 0);
+   eq('damageAt: the overkill breaks the pass-through part', part.hp, 0);
+   ok('damageAt: the broken part leaves the boss parts', m.boss.parts.indexOf(part) < 0);
+   eq('damageAt: the ray then reaches the body', m.boss.hp, hp1 - 46);
+   // segments pass SEG_PASS through, exactly like a round
+   const lay = r => { r.boss.x = r.cx; r.boss.y = r.cy; r.boss.segs.forEach((g, k) => { g.x = r.cx - (k + 1) * r.boss.r * 0.82; g.y = r.cy; }); };
+   const ml = bulletRoom('leviathan', 29); lay(ml);
+   const g = ml.boss.segs[2], hpL = ml.boss.hp;
+   ml.api.damageAt(ml.boss, 100, M(ml), g.x, g.y + 80, g.x, g.y, 0);
+   ok('damageAt: a segment hit passes SEG_PASS to the boss', Math.abs((hpL - ml.boss.hp) - 100 * ml.api.SEG_PASS) < 1e-6, 'dealt ' + (hpL - ml.boss.hp));
+   // clean air is a miss
+   const mm = bulletRoom('warden', 9);
+   mm.boss.vscale = 1; mm.boss.x = mm.cx + 200; mm.boss.y = mm.cy; mm.boss.parts = [];
+   const hpM = mm.boss.hp;
+   eq('damageAt: clean air deals nothing', mm.api.damageAt(mm.boss, 46, M(mm), mm.cx, mm.cy + 400, mm.cx + 200, mm.cy + 400, 0), 0);
+   eq('damageAt: clean air leaves the boss alone', mm.boss.hp, hpM);
+  }
+
+  // --- step 3a wiring: the real update path lands prism, orb, tesla and
+  // splash on parts, not just on the body circle
+  {
+   // PRISM LANCE down the aim line, part standing on the beam before the hull
+   const m = bulletRoom('warden', 9);
+   m.boss.vscale = 1;
+   m.p.x = m.cx - 300; m.p.y = m.cy; m.p.lanceLvl = 1; m.p.lanceT = 0; m.p.lanceCd = 999;
+   const part = { x: m.cx - 100, y: m.cy, r: 12, hp: 200 };
+   const hp0 = m.boss.hp;
+   for (let f = 0; f < 3; f++) { m.boss.x = m.cx + 100; m.boss.y = m.cy; m.boss.parts = [part]; aimAt(m.api, m.cx + 100, m.cy); roomStep(m); }
+   ok('PRISM LANCE damages a part on its beam', part.hp < 200, 'part hp ' + part.hp);
+   eq('PRISM LANCE stops at a blocking part, sparing the hull', m.boss.hp, hp0);
+   // GUARDIAN ORB sitting on a part worn proud of the hull
+   const m2 = bulletRoom('warden', 9);
+   m2.boss.vscale = 1;
+   const part2 = { x: m2.cx + 164, y: m2.cy, r: 12, hp: 50 };
+   m2.p.x = part2.x - 34; m2.p.y = part2.y; m2.p.orbs = 1; m2.p.orbAng = 0; m2.boss.orbCd = 0;
+   const hpO = m2.boss.hp;
+   for (let f = 0; f < 3; f++) { m2.boss.x = m2.cx + 200; m2.boss.y = m2.cy; m2.boss.parts = [part2]; roomStep(m2); }
+   eq('a Guardian orb grazing a part damages the part', Math.round(part2.hp), 35);
+   eq('the orb stops at the part, sparing the hull', m2.boss.hp, hpO);
+   // GUARDIAN ORB on a far-flung part (a flung moon): the body gate is gone,
+   // the hit path alone decides, so the orb still connects past body range
+   const m2f = bulletRoom('warden', 9);
+   m2f.boss.vscale = 1;
+   const part2f = { x: m2f.cx + 130, y: m2f.cy, r: 12, hp: 50 };
+   m2f.p.x = part2f.x - 34; m2f.p.y = part2f.y; m2f.p.orbs = 1; m2f.p.orbAng = 0; m2f.boss.orbCd = 0;
+   const hpOf = m2f.boss.hp;
+   for (let f = 0; f < 3; f++) { m2f.boss.x = m2f.cx + 200; m2f.boss.y = m2f.cy; m2f.boss.parts = [part2f]; roomStep(m2f); }
+   eq('a Guardian orb reaches a part past body range', Math.round(part2f.hp), 35);
+   eq('the far orb still spares the hull', m2f.boss.hp, hpOf);
+   // TESLA ARC catches the part between ship and hull
+   const m3 = bulletRoom('warden', 9);
+   m3.boss.vscale = 1;
+   const part3 = { x: m3.cx, y: m3.cy, r: 12, hp: 200 };
+   m3.p.x = m3.cx - 150; m3.p.y = m3.cy; m3.p.teslaLvl = 1; m3.p.teslaT = 0;
+   const hpT = m3.boss.hp;
+   for (let f = 0; f < 2; f++) { m3.boss.x = m3.cx + 150; m3.boss.y = m3.cy; m3.boss.parts = [part3]; roomStep(m3); }
+   eq('TESLA ARC is caught by a part in its path', Math.round(part3.hp), 178);
+   eq('the arc stops at the part, sparing the hull', m3.boss.hp, hpT);
+   // SPLASH next to a part breaks the part, not the hull
+   const m4 = bulletRoom('warden', 9);
+   m4.boss.vscale = 1;
+   const part4 = { x: m4.cx + 120, y: m4.cy, r: 12, hp: 200 };
+   m4.boss.x = m4.cx + 200; m4.boss.y = m4.cy; m4.boss.parts = [part4];
+   const hpS = m4.boss.hp, K4 = m4.api.tokens.metal;
+   m4.api.splashDamage(part4.x, part4.y, 100, 40, K4, null);
+   eq('splash beside a part damages the part', Math.round(part4.hp), 160);
+   eq('splash beside a part spares the hull', m4.boss.hp, hpS);
+   m4.api.splashDamage(m4.boss.x, m4.boss.y, 60, 40, K4, null);
+   ok('splash on the bare hull still damages the boss', m4.boss.hp < hpS);
+  }
+
+  // --- step 3b: the spawn-in pop never draws past the hitbox
+  {
+   const m = bulletRoom('warden', 9);
+   ok('spawnPop stays at or under the hitbox through the whole spawn window',
+    [0.9, 0.6, 0.45, 0.2, 0.01].every(t => m.api.spawnPop({ spawnT: t }) <= 1));
+   eq('spawnPop rests at exactly 1 once the spawn ends', m.api.spawnPop({ spawnT: 0 }), 1);
+   eq('spawnPop rests at exactly 1 for spent timers', m.api.spawnPop({ spawnT: -2 }), 1);
+   m.api.spawnEnemy('drone');
+   const dr = m.api.enemies.find(e => e.type === 'drone');
+   ok('a fresh reinforcement never draws past its hitbox', m.api.spawnPop(dr) <= 1, 'spawnT ' + dr.spawnT);
+  }
+  return null;
 }
 
 

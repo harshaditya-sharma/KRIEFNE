@@ -5830,13 +5830,40 @@ function damageEnemy(e,amount,col,hx,hy){
  if(settings.dmgNums) addFloater(hx===undefined?e.x:hx,(hy===undefined?e.y:hy)-14,Math.round(dmg),col||K.metal);
  return dmg;
 }
+// Point, ray and beam sources (Prism Lance, Guardian orbs, splash, Tesla)
+// resolve through the same hit path as rounds: destructible parts first,
+// then LEVIATHAN segments at SEG_PASS, then the body (hitParts count as
+// body). Returns the damage dealt, 0 on a miss. Without this, WARDEN's
+// plates or REVENANT's pod are immune to everything but direct gunfire.
+function damageAt(e,amount,col,x1,y1,x2,y2,br){
+ const t=enemyHitT(e,x1,y1,x2,y2,br||0);
+ if(t<0) return 0;
+ const hx=x1+(x2-x1)*t, hy=y1+(y2-y1)*t;
+ if(HIT.kind==='part'&&typeof hitBossPart==='function'&&hitBossPart(e,HIT.ref,{dmg:amount},hx,hy)) return amount;
+ if(HIT.kind==='seg') return damageEnemy(e,amount*SEG_PASS,col,hx,hy);
+ return damageEnemy(e,amount,col,hx,hy);
+}
 // Radius damage used by Flak, Shrapnel and the Orbital Cannon.
 function splashDamage(x,y,r,amount,col,skipUid){
  const snap=enemies.slice();
  for(let j=snap.length-1;j>=0;j--){ const e=snap[j]; if(e.dead) continue;
   if(skipUid&&e.uid===skipUid) continue;
-  if(dist2(x,y,e.x,e.y)>r*r) continue;
-  damageEnemy(e,amount,col,e.x,e.y);
+  // radial, not a ray: the blast catches the nearest hittable surface —
+  // a part standing off the hull, a LEVIATHAN segment, or the body — so a
+  // blast next to WARDEN's plates breaks plates, not hull. Against ordinary
+  // foes (no parts, segments or hitParts) the footprint is exactly the old
+  // one — centre within r — so the fitted pacing never moves.
+  let best=null;
+  const consider=(cx,cy,cr,kind,ref,strict)=>{ const dd=dist2(x,y,cx,cy);
+   if(strict){ if(dd>r*r) return; } else if(dd>(r+cr)*(r+cr)) return;
+   const d=Math.sqrt(dd)-cr; if(!best||d<best.d) best={kind,ref,d,hx:cx,hy:cy}; };
+  consider(e.x,e.y,e.r*(e.vscale||1),'body',null,true);
+  const ehp=e.hitParts; if(ehp) for(let i=0;i<ehp.length;i++){ const c=ehp[i]; consider(c.x,c.y,c.r,'body',null); }
+  const esg=e.segs; if(esg) for(let i=0;i<esg.length;i++){ const g=esg[i]; consider(g.x,g.y,g.r,'seg',g); }
+  const ept=e.parts; if(ept) for(let i=0;i<ept.length;i++){ const c=ept[i]; if(c.hp<=0||c.dead) continue; consider(c.x,c.y,c.r,'part',c); }
+  if(!best) continue;
+  const absorbed=best.kind==='part'&&typeof hitBossPart==='function'&&hitBossPart(e,best.ref,{dmg:amount},best.hx,best.hy);
+  if(!absorbed){ if(best.kind==='seg') damageEnemy(e,amount*SEG_PASS,col,best.hx,best.hy); else damageEnemy(e,amount,col,best.hx,best.hy); }
   if(e.hp<=0){ const ix=enemies.indexOf(e); if(ix>=0) killEnemy(ix); } }
  rings.push({x,y,r:4,maxR:r,spd:r*4,dmg:0,hit:true,own:true});
 }
@@ -5970,7 +5997,7 @@ function update(dt){
   if(p.aegisLvl>0&&!p.shieldReady){ p.shieldT-=dt; if(p.shieldT<=0){ p.shieldReady=true; addFloater(p.x,p.y-24,'AEGIS UP',K.gold); SFX.upgrade(); } }
   // ability systems: frost nova / tesla arc / guardian orbit
   if(p.novaLvl>0){ p.novaT-=dt; if(p.novaT<=0){ p.novaT=6-1.5*(p.novaLvl-1); const R=200+50*p.novaLvl; rings.push({x:p.x,y:p.y,r:20,maxR:R,spd:420,dmg:0,hit:true,own:true}); for(const e of enemies){ if(dist2(p.x,p.y,e.x,e.y)<R*R){ e.slowT=2; e.flash=Math.max(e.flash,0.1); } } spawnBurst(p.x,p.y,10,K.gold,180,0.5,3); tone('sine',900,200,0.3,0.12); } }
-  if(p.teslaLvl>0){ p.teslaT-=dt; if(p.teslaT<=0){ p.teslaT=3; let from={x:p.x,y:p.y}; const hit=[]; for(let c=0;c<=p.teslaLvl;c++){ let bd=(c===0?320:220); bd*=bd; let be=null; for(const e of enemies){ if(e.phased||hit.indexOf(e.uid)>=0) continue; const d=dist2(from.x,from.y,e.x,e.y); if(d<bd){ bd=d; be=e; } } if(!be) break; const dmg=22*p.dmgMult; be.hp-=dmg; be.lastHit=timeSec; be.flash=0.1; addFloater(be.x,be.y-14,Math.round(dmg),K.metal); zapFx(from.x,from.y,be.x,be.y); SFX.hit(); hit.push(be.uid); from=be; if(be.hp<=0){ const ix=enemies.indexOf(be); if(ix>=0) killEnemy(ix); } } } }
+  if(p.teslaLvl>0){ p.teslaT-=dt; if(p.teslaT<=0){ p.teslaT=3; let from={x:p.x,y:p.y}; const hit=[]; for(let c=0;c<=p.teslaLvl;c++){ let bd=(c===0?320:220); bd*=bd; let be=null; for(const e of enemies){ if(e.phased||hit.indexOf(e.uid)>=0) continue; const d=dist2(from.x,from.y,e.x,e.y); if(d<bd){ bd=d; be=e; } } if(!be) break; const dmg=22*p.dmgMult; if(damageAt(be,dmg,K.metal,from.x,from.y,be.x,be.y,0)>0){ if(!settings.dmgNums) addFloater(be.x,be.y-14,Math.round(dmg),K.metal); zapFx(from.x,from.y,be.x,be.y); SFX.hit(); hit.push(be.uid); from=be; if(be.hp<=0){ const ix=enemies.indexOf(be); if(ix>=0) killEnemy(ix); } } } } }
   // repair drone: only out of combat, so it is sustain between fights and never
   // an attrition win inside one
   if(p.repair>0&&timeSec-(p.lastHurt||0)>4&&p.hp<p.maxhp&&p.hp>0){
@@ -6000,15 +6027,14 @@ function update(dt){
     const ex=p.x+Math.cos(a)*reach, ey=p.y+Math.sin(a)*reach;
     const dmg=46*p.dmgMult*(1+0.3*(p.lanceLvl-1));
     const snap=enemies.slice();
-    for(let j=snap.length-1;j>=0;j--){ const e=snap[j]; if(e.dead) continue;
-     if(segCircleT(p.x,p.y,ex,ey,e.x,e.y,e.r+w)<0) continue;
-     damageEnemy(e,dmg,K.metal,e.x,e.y);
-     if(e.hp<=0){ const ix=enemies.indexOf(e); if(ix>=0) killEnemy(ix); } }
+     for(let j=snap.length-1;j>=0;j--){ const e=snap[j]; if(e.dead) continue;
+      if(damageAt(e,dmg,K.metal,p.x,p.y,ex,ey,w)<=0) continue;
+      if(e.hp<=0){ const ix=enemies.indexOf(e); if(ix>=0) killEnemy(ix); } }
     beams.push({x:p.x,y:p.y,a,len:reach,w,t:0,life:0.28});
     tone('sawtooth',1400,300,0.22,0.13);
    }
   }
-  if(p.orbs>0){ p.orbAng+=dt*2.6; const odmg=15*p.dmgMult; for(let k=0;k<p.orbs;k++){ const a=p.orbAng+k*6.283/p.orbs; const ox=p.x+Math.cos(a)*34, oy=p.y+Math.sin(a)*34; const snap=enemies.slice(); for(let j=snap.length-1;j>=0;j--){ const e=snap[j]; if(e.dead||e.phased) continue; const dx=e.x-ox, dy=e.y-oy; if(dx*dx+dy*dy<(e.r+8)*(e.r+8)&&e.orbCd<=0){ e.orbCd=0.45; e.hp-=odmg; e.lastHit=timeSec; e.flash=0.1; addFloater(e.x,e.y-12,Math.round(odmg),K.gold); spawnBurst(ox,oy,4,K.gold,160,0.3,2.5); SFX.hit(); if(e.hp<=0) killEnemy(enemies.indexOf(e)); } } } }
+  if(p.orbs>0){ p.orbAng+=dt*2.6; const odmg=15*p.dmgMult; for(let k=0;k<p.orbs;k++){ const a=p.orbAng+k*6.283/p.orbs; const ox=p.x+Math.cos(a)*34, oy=p.y+Math.sin(a)*34; const snap=enemies.slice(); for(let j=snap.length-1;j>=0;j--){ const e=snap[j]; if(e.dead||e.phased||e.orbCd>0) continue; if(damageAt(e,odmg,K.gold,ox,oy,ox,oy,8)>0){ e.orbCd=0.45; if(!settings.dmgNums) addFloater(e.x,e.y-12,Math.round(odmg),K.gold); spawnBurst(ox,oy,4,K.gold,160,0.3,2.5); SFX.hit(); if(e.hp<=0) killEnemy(enemies.indexOf(e)); } } } }
  if(p.channel){ p.channel.t-=dt; pushPart({x:p.x+(Math.random()-0.5)*20,y:p.y+(Math.random()-0.5)*20,vx:0,vy:0,life:0.2,maxlife:0.2,col:K.gold,r:2.5});
   if(p.channel.t<=0){ const c=p.channel; p.channel=null; spawnBurst(p.x,p.y,12,K.gold,200,0.5,3);
    p.x=clamp(c.tx,PX0+p.r,PX1-p.r); p.y=clamp(c.ty,PY0+p.r,PY1-p.r); resolveObstacles(p);
@@ -7191,8 +7217,12 @@ function drawBossShape(e,enrage,flash){
 // Servitors: hulls engraved in their own pigment, so a mixed wave reads as
 // kinds at a glance. The moment one commits to harm (the stalker's salute,
 // the sniper's line, the rotor flare, the brute's wind-up) it turns red.
+// Spawn-in grow: materialize from half size, but never draw past the hitbox
+// (e.r at vscale). The old pop overshot to 1.45x, so rounds visibly crossed
+// hull that the hit test called solid.
+function spawnPop(e){ return e.spawnT>0?Math.min(1,1.45-e.spawnT):1; }
 function drawEnemy(e){
- ctx.save(); ctx.translate(e.x,e.y); const pop=e.spawnT>0?(1.45-e.spawnT):1; ctx.scale(e.vscale*pop,e.vscale*pop);
+ ctx.save(); ctx.translate(e.x,e.y); const pop=spawnPop(e); ctx.scale(e.vscale*pop,e.vscale*pop);
  const P=pigOf(e), flash=e.flash>0, body=flash?P.flash:P.body, col=P.c, dim=P.dim;
  if(e.type==='drone'){ ctx.rotate(e.t*2); ctx.fillStyle=body; ctx.strokeStyle=col; ctx.lineWidth=1.5; ctx.beginPath(); ctx.arc(0,0,e.r,0,6.283); ctx.fill(); ctx.stroke(); ctx.strokeStyle=dim; ctx.lineWidth=1; ctx.beginPath(); ctx.moveTo(-e.r*0.6,0); ctx.lineTo(e.r*0.6,0); ctx.moveTo(0,-e.r*0.6); ctx.lineTo(0,e.r*0.6); ctx.stroke(); ctx.fillStyle=col; ctx.fillRect(-2,-2,4,4); }
  else if(e.type==='stalker'){ ctx.rotate(player?Math.atan2(player.y-e.y,player.x-e.x):0);
@@ -8684,7 +8714,7 @@ arena={seed:1337, obs:[], theme:THEMES[0], spawns:[], port:{x:800,y:500}, valida
    get bossBeams(){ return bossBeams; }, get marks(){ return marks; }, get discs(){ return discs; }, get bossZones(){ return bossZones; },
    get bossCurrents(){ return bossCurrents; }, get bossGrasps(){ return bossGrasps; }, get rings(){ return rings; }, get nestChaffT(){ return nestChaffT; },
    get phaseBeat(){ return PHASE_BEAT; }, get recovOpen(){ return RECOV_OPEN; }, get freezeImmune(){ return FREEZE_IMMUNE; }, get summonHp(){ return SUMMON_HP; }, get summonLiveCap(){ return SUMMON_LIVE_CAP; },
-   drawIcon, get ctx(){ return ctx; },
+   drawIcon, damageAt, splashDamage, spawnPop, get ctx(){ return ctx; },
    get pigments(){ return PIGMENT_DEF; }, get pig(){ return PIG; }, get tokens(){ return K; }, get bossDefs(){ return BOSSDEF; }, get themes(){ return THEMES; },
    srSummary,
    syncDraftSr, draftCardText,
