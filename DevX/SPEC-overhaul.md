@@ -854,7 +854,8 @@ This is the **only** status doc. Anyone taking over reads "Resume here" and "Now
 Headless Chrome needs `window.__kriefne.forceState('playing')`. Kill stray servers by PID.
 
 **Rules**
-- One agent at a time.
+- One agent at a time, and **only after the user's go-ahead**.
+- **Each agent does exactly one small sub-step** from the list below, roughly 20 minutes of work. Never give an agent a whole step: usage limits cut long agents off.
 - Small, self-contained commits.
 - After each step: run the tests, update this section, report to the user, and **wait for their go-ahead**.
 - If an agent dies, commit its WIP and merge only what's green.
@@ -864,40 +865,61 @@ Headless Chrome needs `window.__kriefne.forceState('playing')`. Kill stray serve
   Claude-Session: https://claude.ai/code/session_01GoVrejqPHPJShPuKezViDX
   ```
 
-**Plan** (approved 2026-09-14)
+**Plan** (approved 2026-09-14; split into small sub-steps on the user's instruction)
 
-| Step | Work | Status |
+| Sub-step | Work | Status |
 |---|---|---|
 | 0 | housekeeping | done |
 | 1 | test consolidation | done |
-| 2 | thralls (§8) | **in progress** |
-| 3 | hit-test gaps | next |
-| 4 | boss HP fit, with the S105+ wall checks | |
-| 5 | docs sweep | |
-| 6 | full pass and the user's playtest | |
+| 2 (1–5) | thralls: engine, per-kit reduced kits, director and nest chaff, draw, pigment floors, `suiteThralls` | done (d314d49, 7a3075d; WIP 7b015fd) |
+| **2a** | make `suiteThralls` green: add "Thralls from S<n>" to `commandLine()` for eligible gods, or drop that one check | **next** |
+| 2b | fit thralls into the fight simulator's §7 bands (knobs on `THRALL` only; see "Now in progress") | |
+| 2c | one lab capture round of thralls (lesser look, pip legible, distinct from chaff) | |
+| 2d | run `--all` green; close Step 2 here (History row, open items) | |
+| 3a | route Prism Lance, orbs, splash and tesla through the part and segment hit path (`hitBossPart`, `e.segs`, `hitParts`) | |
+| 3b | clamp the spawn-in pop scale to the hitbox; extend the `bullets` suite | |
+| 4a | fit boss HP for S15–S45 to §6 with the fight simulator | |
+| 4b | fit boss HP for S50–S100 (SINGULARITY both phases) | |
+| 4c | tune the recovery numbers (plates, pod, heal rates) | |
+| 4d | add S105–S130 wall checks to `fightsim`; flip `FIGHTSIM_STRICT=true` | |
+| 4e | deep danger: foe damage and behaviour, nest chaff (the user's levers) | |
+| 5a–5d | docs: README chain-of-command section (a); PRODUCT.md (b); LORE.md §7/§8/§11 (c); DESIGN.md pigments and banners (d) | |
+| 6a–6d | full pass: lab captures of all 20 gods (a); maps and codex portraits (b); perf check (c); the user's playtest (d) | |
 
 ### Now in progress
-**Step 2: thralls (spec §8).** Started 2026-09-14 by one agent, working directly on `wave3`.
+**Paused 2026-09-14.** The session usage limit is near, so the user stopped the Step 2 agent mid-fit. No agent is running. Resume with **2a** only after the user's go-ahead.
 
-Plan, in order:
-- [x] 1. Engine (d314d49): `THRALL` knobs, `thrallKinds`/`thrallCap`/`thrallCount`/`thrallKit`, `mkThrall` through `bossCore(…,thrall)` + `thrallShape`, `thrallUpdate` (no RELENTLESS/desperation/recovery/phase/call, never enraged), `type:'thrall'` in the enemy loop, `bossPost`, `under`, `bossDied`, `srcOf` ("OVERLORD THRALL"), `killEnemy` (no codex unlock, 4 gems), `canBlink` (thralls: 'always' kinds only), lab `godLike`.
-- [x] 2. Per-kit `thrall:{sig,sec,signature,attacks,init,armor}` for the 17 eligible gods, `thrall:false` on the last three; kit guards (REVENANT pod, HYDRA regrow/phase, KRAKEN regrow, JUGGERNAUT wreck wake, ECLIPSE moon reform).
-- [x] 3. Director (d314d49, 7a3075d): `compFor` = `compTotal − thrallCount×thrallSlots` (slots = HP-worth × `slotK`, XP = those slots' XP); thralls spliced into `spawnQueue` over `THRALL.q` of it (never the opening wave, never in map-gen types); the wave director skips a thrall over `thrallCap`; `nestChaff` packs bring one at `THRALL.nestP`.
-- [x] 4. Draw: `drawBossShape` hairline (`g.lw` 1), no rank rings/enrage ticks, telegraphs kept; 30 px pip with a pigment diamond; no name/label/tracker.
-- [x] 5. Pigment (7a3075d): full-scale pairs keep ≥ 0.09; new floors any two gods ≥ 0.05, thrall-bearing god vs any servitor ≥ 0.03; PROGENITOR 177 → 198 (was 0.013 from the brute). Past the floors, silhouette + hairline carry identity (comment in `PIGMENT_DEF` and `suitePigment`).
-- [~] 6. `suiteThralls` (7a3075d, 179 asserts incl. the 60 s run per kind) green; `node test.js` 2441 green. **Now: fitting thralls to the fightsim §7 bands** (see gotchas).
-- [ ] 7. Visual check, then the end-of-step handoff.
-
-Gotchas:
-- The cycle is `[sig,'hunt',sec,'hunt']` (`thrallHunt` closes to 260 px, then circles); `bossLabel` shows 'CONTACT' for 'hunt'. Part radii are scaled ×0.6 once after `kit.init`, so a kit must not re-add parts for a thrall (every regrow path is guarded).
-- Fightsim with thralls, first cut (`hp [6,10]`, 4 slots each, 2→6 per sector): Hose S31 138 s, S46 164, S61 179, S81 257, S99 280 (bands 75–100 / 100–130; baseline without thralls 94/85/109/111/118). Causes: a single small target eats the hose's spread (thrall TTK 60–110 s while chaff streams), late thralls held by the cap trail the stream alone (quiet ≥ 15%), and the SENTINEL thrall's mirror out-turned the circling pilot (230 s TTK; now fixed at 45% turn).
-- Knobs now live on `THRALL` (`hp`, `count`, `cap`, `slotK`, `q`, `nestP`); `a.thrallCfg` is the live object, so a sim `tune` hook can `Object.assign` it. Scratch sweep scripts are in the session scratchpad (`sweep.js`, `ttk.js`), not in the repo. Two sim seeds are very noisy with random kinds (±30 s deep).
-
-Representation (decided at step start): a **new `type:'thrall'`** with `kind` = the parent and `e.thrall=true`, built by `bossCore`. Every "must not" (bonus bank, lead/nest head, boss XP/heal/draft, boss bar, tracker, `bossesIn` in the tests, SINGULARITY's lead check) is gated on `type==='boss'` today, so a new type is excluded from all of them by default; the "should" list (update/post dispatch, `under`/draw, `bossDied` cleanup, srcOf naming, lab) is short and enumerable. A flag on `type:'boss'` would have needed an opt-out at ~20 sites and in every test that loops `type==='boss'`.
+**State of Step 2 (thralls)**
+- **Done and committed.** A thrall is a new `type:'thrall'` with `kind` set to its parent. Every "must not" in the gameplay code is already gated on `type==='boss'`, so thralls are excluded by default.
+  - **Engine:** `THRALL` knobs; `thrallKinds`, `thrallCap`, `thrallCount` and `thrallKit`; `mkThrall` via `bossCore(…,thrall)` plus `thrallShape`; `thrallUpdate` (no RELENTLESS, recovery, phases or calls).
+  - **Kits:** each of the 17 eligible gods has a `thrall:{…}` entry; NULLIFIER, CHORUS and SINGULARITY have `thrall:false`.
+  - **Director:** thralls spliced into `spawnQueue`; nest chaff brings one along at `THRALL.nestP`.
+  - **Draw:** hairline, no rank rings, a 30 px pip.
+  - **Naming:** `srcOf` shows "X THRALL". Killing a thrall doesn't unlock the god's codex entry.
+  - **Pigment:** new floors (any two gods ≥ 0.05; a thrall god vs any servitor ≥ 0.03). PROGENITOR's hue moved from 177 to 198.
+  - **Tests:** `suiteThralls`, 180 checks, including a 60 s run per kind.
+- **Last commit 7b015fd (WIP).**
+  - New fitting knobs: `hp:[4,6]`, `count:[1,35,3]`, `slotK:[0.4,1]` (eased from S30 to S100), `huntR:150`.
+  - Thrall unlock capped at S101: JUGGERNAUT's and ECLIPSE's arrive there.
+  - SENTINEL's thrall drops its shield while it throws the spear.
+  - **Known red:** 1 check in `suiteThralls`, "the codex command line says when a god's thralls walk (HARBINGER: S95)". The test was written but `commandLine()` wasn't changed. That's sub-step **2a**.
+  - `pigment` is green; `--all` hasn't been run since 7a3075d, when `node test.js` was 2441 green.
+- **Fight simulator with thralls (for 2b).**
+  - First cut, before 7b015fd: Hose took 138 s at S31, 164 at S46, 179 at S61, 257 at S81 and 280 at S99. The bands are 75–100 and 100–130; the baseline without thralls was 94/85/109/111/118.
+  - **Causes:**
+    1. One small target soaks up the Homing Hose's spread, so a thrall takes 60–110 s to kill while the chaff keeps streaming.
+    2. Late thralls held back by the cap trail behind the stream alone, so the sector goes quiet ≥ 15% of the time.
+    3. SENTINEL's thrall mirror out-turned the pilot. That's fixed at 45% turn speed.
+  - 7b015fd's knobs aren't measured yet. For 2b, run `node test.js --only fightsim --verbose` and tune only `THRALL` (the live object is exposed as `a.thrallCfg` for sweeps).
+  - Sim seeds are noisy with random kinds (±30 s deep).
+- **Gotchas.**
+  - The thrall cycle is `[sig,'hunt',sec,'hunt']`, and `bossLabel` shows CONTACT for `hunt`.
+  - Part radii are scaled ×0.6 once after `kit.init`, so a kit must never re-add parts for a thrall (every regrow path is guarded).
+- **Uncommitted, not ours.** A `README.md` change describes new card variants (Overdrive stat sticks, a Mythic Split Chamber). It doesn't come from this plan; it's probably another session. It's left uncommitted for the user to decide. Card balancing is parked.
 
 ### Open items
 Each is tagged with the step that owns it; resolved items are removed.
-- **[2]** The pigment-distance rule only compares gods within 3 rungs. Thralls mix any kinds in one field, so revisit it.
+- **[2]** The pigment rule is done: floors for mixed kinds (7a3075d). Remaining: 2a (the codex line), 2b (the fit), 2c (visuals), 2d (close).
 - **[3]** Prism Lance, orbs, splash and tesla ignore `hitParts`, `segs` and `parts`: they hit the body circle only, so parts such as WARDEN's plates or REVENANT's pod can't be damaged by them. The spawn-in pop draws up to 1.44× larger than the hitbox.
 - **[4]**
   - Boss HP: nests die in 7–35 s against the §6 bands.
@@ -941,3 +963,4 @@ Each is tagged with the step that owns it; resolved items are removed.
 | 2026-09-14 | merge to main | **done**: `main` fast-forwarded to `overhaul` 86d16a9 (Wave-3 density + engine, $harden mirrors); full harness 2447 green on `main`; 7 stale worktree checkouts removed, 6 merged `worktree-agent-*` branches deleted (`ae66187e` branch kept: unmerged alternate kit line + WIP 3f4f57c) | `main` 86d16a9 |
 | 2026-09-14 | Step 0, housekeeping | **done**: `wave3` branch; deleted the `overhaul` branch (merged) and `worktree-agent-ae66187e…` (superseded alternate HYDRA/WYVERN/ORACLE/SENTINEL line, tip 3f4f57c, recoverable from the reflog); removed the dead `mkLieutenant` lab fallback, `inReplay`, `wrapText` and ARCHON's legacy `slam` alias; fast default test run (45 s) plus `--all`; `WAVE3_HANDOFF.md` folded in here; `--all` 2447 green | `wave3` |
 | 2026-09-14 | Step 1, test consolidation | **done**: `balance` retired (94 analytic TTK/wall/pin asserts; its boss-hit-vs-farmer-hull check → `combos`; replaced by 40 real-fight asserts in `fightsim`: Hose kills every lead inside the cap, no lead under 6s); `roster`/`live`/`mobility`/`recovery`/`regen` folded into `hierarchy`/`prims`/`kits1`/`teleport` (37 duplicates deleted, the rest moved); shared helpers (`hold`, `sectorRoom`, `kitBasics`, `pinAt`, `shootAt`, `circleKeys`); 33 → 27 suites; `--all` 2447 → 2356 green (187 → 164 s), `node test.js` 2354 → 2223 (43 → 35 s). README still cites `--only balance` (docs sweep, step 5) | `wave3` 6c7f40c, 59f9dbf, ff107d5 |
+| 2026-09-14 | Step 2, thralls | **paused (user stopped the agent at the usage limit)**: engine, kits, director, draw, pigment and suite done (1274839, d314d49, a0b8202, 7a3075d, 8ee7ab7); WIP fitting knobs 7b015fd with 1 known red check; remaining work split into 2a–2d | `wave3` 7b015fd |
