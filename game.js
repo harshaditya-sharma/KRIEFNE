@@ -1380,7 +1380,7 @@ function mkSummoned(kind,x,y,s,chain){ return bossCore(kind,x,y,s,Math.max(1,cha
 // slots would have (x compXpScale in a normal sector, like every foe), so a
 // sector's HP budget, its pacing and its picks all hold where the fight sim
 // put them; the thrall just gathers them into one hard target.
-const THRALL={ after:25, size:0.6, hp:[4,6], dmg:0.75, count:[1,35,3], cap:[55,80], nestP:0.3, slotK:[0.4,1], q:[0.12,0.5], huntR:150 };
+const THRALL={ after:25, size:0.6, hp:[4,6], dmg:0.75, count:[1,35,3], cap:[55,80], nestP:0.3, slotK:[0.4,1], q:0.12, huntR:150 };
 function thrallEligible(){ return LADDER.filter(k=>BOSS_KITS[k]&&BOSS_KITS[k].thrall!==false); }
 // The first sector a kind's thrall may appear in: 25 past its debut, and
 // every eligible kind from S101 (JUGGERNAUT's and ECLIPSE's arrive there).
@@ -1655,13 +1655,14 @@ function loadArena(i){
    enemies.push(en);
   } else spawnQueue.push(ty);
  });
- // Thralls arrive through the stream, never the opening wave: spread evenly
- // over THRALL.q of the queue, so the first lands a little way in and the last
- // still has the stream around it rather than trailing it alone (the director
- // holds each to the alive cap). Kinds are drawn from everything unlocked here.
- if(!boss){ const tk=thrallKinds(s+1), n=thrallCount(s);
-  for(let k=0;k<n&&tk.length;k++){ const at=Math.round(spawnQueue.length*(THRALL.q[0]+(THRALL.q[1]-THRALL.q[0])*k/Math.max(1,n-1)));
-   spawnQueue.splice(Math.min(at,spawnQueue.length),0,'thrall:'+tk[(Math.random()*tk.length)|0]); } }
+  // Thralls arrive through the stream, never the opening wave: as one group a
+  // little way in, so several share the field instead of trailing the stream
+  // alone. The release holds each to the alive cap, and a sector never
+  // carries more thralls than its cap (count <= cap at every depth), so the
+  // group can land in one pack without ever going over.
+  if(!boss){ const tk=thrallKinds(s+1), n=thrallCount(s);
+   for(let k=0;k<n&&tk.length;k++){ const at=Math.round(spawnQueue.length*THRALL.q);
+    spawnQueue.splice(Math.min(at,spawnQueue.length),0,'thrall:'+tk[(Math.random()*tk.length)|0]); } }
  if(boss){ bossWarnT=3.2; const kinds=bossKindsFor(s), lead=BOSSDEF[kinds[0]];
    // the arrival names the god and whom it will call, the same line the hub gave
    bossWarnTxt=lead.name+(s+1>100?' RETURNS':'');
