@@ -872,7 +872,11 @@ Headless Chrome needs `window.__kriefne.forceState('playing')`. Kill stray serve
 | 0 | housekeeping | done |
 | 1 | test consolidation | done |
 | 2 (1–5) | thralls: engine, per-kit reduced kits, director and nest chaff, draw, pigment floors, `suiteThralls` | done (d314d49, 7a3075d; WIP 7b015fd) |
-| **2a** | make `suiteThralls` green: add "Thralls from S<n>" to `commandLine()` for eligible gods, or drop that one check | **next** |
+| **2a** | make `suiteThralls` green: add "Thralls from S<n>" to `commandLine()` for eligible gods, or drop that one check | **done** (7b015fd; green in the 2026-09-14 run) |
+| 2b | fit thralls into the fight simulator's §7 bands (knobs on `THRALL` only; see "Now in progress") | |
+| 2c | one lab capture round of thralls (lesser look, pip legible, distinct from chaff) | |
+| 2d | run `--all` green; close Step 2 here (History row, open items) | |
+| 2e | fix the stream peak red: S81 scripted cull sees peak 1 simultaneous thrall, needs ≥ 2 (thrall spacing in the stream vs the 8 s cull) | **done** (cluster fix) |
 | 2b | fit thralls into the fight simulator's §7 bands (knobs on `THRALL` only; see "Now in progress") | |
 | 2c | one lab capture round of thralls (lesser look, pip legible, distinct from chaff) | |
 | 2d | run `--all` green; close Step 2 here (History row, open items) | |
@@ -885,9 +889,16 @@ Headless Chrome needs `window.__kriefne.forceState('playing')`. Kill stray serve
 | 4e | deep danger: foe damage and behaviour, nest chaff (the user's levers) | |
 | 5a–5d | docs: README chain-of-command section (a); PRODUCT.md (b); LORE.md §7/§8/§11 (c); DESIGN.md pigments and banners (d) | |
 | 6a–6d | full pass: lab captures of all 20 gods (a); maps and codex portraits (b); perf check (c); the user's playtest (d) | |
+| 7a | cards (approved design 2026-09-14, NOT started): §2 ability-line costs + physical-voice copy for every ability card | proposed |
+| 7b | cards: ten new Legendary/Mythic stat variants (Overclock Dynamo/Reactor/Star, AP Sabot/Nova/Extinction, Nanoweave Bastion/Ark, Gun Array Mk III/Halo) + asserts + sim re-check | proposed |
 
 ### Now in progress
-**Paused 2026-09-14.** The session usage limit is near, so the user stopped the Step 2 agent mid-fit. No agent is running. Resume with **2a** only after the user's go-ahead.
+**New session 2026-09-14 (build mode, approval-gated).** No agent is running. The user asked for: understand state → update this handoff → test → propose a todo → ask approval. **Nothing is approved for execution yet.**
+
+**Verified state (`node test.js` fast run, after 2e)**
+- Fast harness: **2442 green** (fightsim/fuzz skipped). 2a green, 2e fixed and green.
+- Tree: `game.js` (2e cluster fix, uncommitted) + `README.md` (6 lines describing the committed overdrive work).
+- Next approved: cards 7a+7b, then thrall fit 2b.
 
 **State of Step 2 (thralls)**
 - **Done and committed.** A thrall is a new `type:'thrall'` with `kind` set to its parent. Every "must not" in the gameplay code is already gated on `type==='boss'`, so thralls are excluded by default.
@@ -898,7 +909,7 @@ Headless Chrome needs `window.__kriefne.forceState('playing')`. Kill stray serve
   - **Naming:** `srcOf` shows "X THRALL". Killing a thrall doesn't unlock the god's codex entry.
   - **Pigment:** new floors (any two gods ≥ 0.05; a thrall god vs any servitor ≥ 0.03). PROGENITOR's hue moved from 177 to 198.
   - **Tests:** `suiteThralls`, 180 checks, including a 60 s run per kind.
-- **Last commit 7b015fd (WIP).**
+- **Last commit 7b015fd (WIP). Superseded reds:** 2a (`commandLine` thrall note, fixed in 7b015fd) and the S81 stream-peak check (fixed by the 2e cluster change, uncommitted).
   - New fitting knobs: `hp:[4,6]`, `count:[1,35,3]`, `slotK:[0.4,1]` (eased from S30 to S100), `huntR:150`.
   - Thrall unlock capped at S101: JUGGERNAUT's and ECLIPSE's arrive there.
   - SENTINEL's thrall drops its shield while it throws the spear.
@@ -919,7 +930,8 @@ Headless Chrome needs `window.__kriefne.forceState('playing')`. Kill stray serve
 
 ### Open items
 Each is tagged with the step that owns it; resolved items are removed.
-- **[2]** The pigment rule is done: floors for mixed kinds (7a3075d). Remaining: 2a (the codex line), 2b (the fit), 2c (visuals), 2d (close).
+- **[2]** The pigment rule is done: floors for mixed kinds (7a3075d). Remaining: 2b (the fit), 2c (visuals), 2d (close). 2a and 2e are done and green.
+- **[7, cards]** Approved design 2026-09-14, not started: (a) costs are multiplicative % (never flats — flats stacked into an unfireable gun); (b) §2 ability-cost table + physical-voice copy approved as final wording; (c) ten L/M variants approved with numbers (Dynamo/Reactor/Star, Sabot/Nova/Extinction, Bastion/Ark, Mk III/Halo); Mythic barrels stay Split Chamber's alone; dash/recall first picks and REFIT stay free. Steps 7a/7b proposed.
 - **[3]** Prism Lance, orbs, splash and tesla ignore `hitParts`, `segs` and `parts`: they hit the body circle only, so parts such as WARDEN's plates or REVENANT's pod can't be damaged by them. The spawn-in pop draws up to 1.44× larger than the hitbox.
 - **[4]**
   - Boss HP: nests die in 7–35 s against the §6 bands.
@@ -937,6 +949,7 @@ Each is tagged with the step that owns it; resolved items are removed.
 - **[user]** Root currently also blocks the dash; spec §3.3 says root means no movement only. It's existing behaviour, left as is until the user decides.
 
 ### Decisions (user)
+- **Cards/overdrive (2026-09-14):** costs are multiplicative %, every pick net-positive, rarity buys efficiency; §2 ability-cost table + physical-voice copy approved as final wording (no dev-speak on cards — physical things, numbers kept); ten L/M stat variants approved with proposed numbers/names; dash/recall first picks and REFIT stay free; gated follow-ups of conditional systems stay pure.
 - **Deep-sector danger** uses three levers: foe damage and behaviour, thrall density, and deadlier nest chaff.
 - **Boss HP** is fitted strictly to the Homing Hose §6 bands; off-meta builds being harder is accepted.
 - **Normal sectors** keep an alive floor so they never go quiet. Per-foe XP scales so picks per sector stay about the same.
@@ -964,3 +977,4 @@ Each is tagged with the step that owns it; resolved items are removed.
 | 2026-09-14 | Step 0, housekeeping | **done**: `wave3` branch; deleted the `overhaul` branch (merged) and `worktree-agent-ae66187e…` (superseded alternate HYDRA/WYVERN/ORACLE/SENTINEL line, tip 3f4f57c, recoverable from the reflog); removed the dead `mkLieutenant` lab fallback, `inReplay`, `wrapText` and ARCHON's legacy `slam` alias; fast default test run (45 s) plus `--all`; `WAVE3_HANDOFF.md` folded in here; `--all` 2447 green | `wave3` |
 | 2026-09-14 | Step 1, test consolidation | **done**: `balance` retired (94 analytic TTK/wall/pin asserts; its boss-hit-vs-farmer-hull check → `combos`; replaced by 40 real-fight asserts in `fightsim`: Hose kills every lead inside the cap, no lead under 6s); `roster`/`live`/`mobility`/`recovery`/`regen` folded into `hierarchy`/`prims`/`kits1`/`teleport` (37 duplicates deleted, the rest moved); shared helpers (`hold`, `sectorRoom`, `kitBasics`, `pinAt`, `shootAt`, `circleKeys`); 33 → 27 suites; `--all` 2447 → 2356 green (187 → 164 s), `node test.js` 2354 → 2223 (43 → 35 s). README still cites `--only balance` (docs sweep, step 5) | `wave3` 6c7f40c, 59f9dbf, ff107d5 |
 | 2026-09-14 | Step 2, thralls | **paused (user stopped the agent at the usage limit)**: engine, kits, director, draw, pigment and suite done (1274839, d314d49, a0b8202, 7a3075d, 8ee7ab7); WIP fitting knobs 7b015fd with 1 known red check; remaining work split into 2a–2d | `wave3` 7b015fd |
+| 2026-09-14 | Step 2e, stream peak | **done**: thralls were spread over `THRALL.q` [0.12, 0.5] so consecutive ones landed ~19 s apart (cull-speed) and never shared the field; now all arrive as one group at `THRALL.q` 0.12. Safe by construction: sector count ≤ alive cap at every depth, so one pack can never go over cap. `suiteThralls` 180 green; fast harness 2442 green | `wave3` (unmerged step) |
