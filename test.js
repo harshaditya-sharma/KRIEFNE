@@ -5246,7 +5246,7 @@ function suiteThralls() {
  const NEVER = ['nullifier', 'chorus', 'singularity'], EL = api.thrallEligible();
  // -- the unlock schedule: 25 sectors after the debut, OVERLORD S30 ... KRAKEN S100
  deepEq('seventeen kinds have a thrall, OVERLORD to ECLIPSE in ladder order', EL, L.slice(0, 17));
- for (const k of EL) eq(k + ' thrall unlocks 25 sectors after its debut (S' + (D[k].debut + 25) + ')', api.thrallDebut(k), D[k].debut + 25);
+ for (const k of EL) eq(k + ' thrall unlocks 25 sectors after its debut, or at S101 (S' + Math.min(101, D[k].debut + 25) + ')', api.thrallDebut(k), Math.min(101, D[k].debut + 25));
  eq('the first thrall is OVERLORD\'s, at S30', api.thrallKinds(30).join(), 'overlord');
  eq('no thrall before S30', api.thrallKinds(29).length, 0);
  ok('KRAKEN\'s is the last to unlock by S100 (JUGGERNAUT and ECLIPSE not yet)', api.thrallKinds(100).slice(-1)[0] === 'kraken' && api.thrallKinds(100).indexOf('juggernaut') < 0);
@@ -5373,6 +5373,7 @@ function suiteThralls() {
   ok('its blows are stamped "HARBINGER THRALL" under its god\'s id', src.name === 'HARBINGER THRALL' && src.id === 'harbinger' && src.thrall && !src.lt);
   a.killEnemy(a.enemies.indexOf(t));
   ok('killing a thrall does not unlock its god\'s field note (only the god does)', !a.codexKnown('harbinger') && !a.codexKnown('thrall'));
+  ok('the codex command line says when a god\'s thralls walk (HARBINGER: S95)', /Thralls from S95/.test(a.commandLine('harbinger')) && !/Thralls/.test(a.commandLine('chorus')), a.commandLine('harbinger'));
  }
  {
   const { a, p, t } = thrallRoom(60, 'overlord');

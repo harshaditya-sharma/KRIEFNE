@@ -1371,18 +1371,22 @@ function mkSummoned(kind,x,y,s,chain){ return bossCore(kind,x,y,s,Math.max(1,cha
 //          the first unlock, one more every `every` sectors, at most `max`
 //   cap  : alive at once is 1, then 2 from cap[0], 3 from cap[1]
 //   nestP: chance a nest chaff pack brings one along (under the alive cap)
-//   slotK: roster slots taken per brute's worth of HP (1 = HP-equivalent)
+//   slotK: roster slots taken per brute's worth of HP (1 = HP-equivalent);
+//          [at S30, at S100] eases between them
 //   q    : [first, last] queue fractions the stream releases them at
+//   huntR: how close it presses between beats before circling
 // A thrall takes the roster slots its HP is worth (thrallSlots: brutes' HP
 // over the sector's mean foe HP) out of compTotal, and pays the XP those
 // slots would have (x compXpScale in a normal sector, like every foe), so a
 // sector's HP budget, its pacing and its picks all hold where the fight sim
 // put them; the thrall just gathers them into one hard target.
-const THRALL={ after:25, size:0.6, hp:[6,10], dmg:0.75, count:[2,20,6], cap:[55,80], nestP:0.3, slotK:1, q:[0.12,0.5] };
+const THRALL={ after:25, size:0.6, hp:[4,6], dmg:0.75, count:[1,35,3], cap:[55,80], nestP:0.3, slotK:[0.4,1], q:[0.12,0.5], huntR:150 };
 function thrallEligible(){ return LADDER.filter(k=>BOSS_KITS[k]&&BOSS_KITS[k].thrall!==false); }
-function thrallDebut(kind){ const k=BOSS_KITS[kind]; if(!k||k.thrall===false||!BOSSDEF[kind]) return Infinity; return BOSSDEF[kind].debut+THRALL.after; }
+// The first sector a kind's thrall may appear in: 25 past its debut, and
+// every eligible kind from S101 (JUGGERNAUT's and ECLIPSE's arrive there).
+function thrallDebut(kind){ const k=BOSS_KITS[kind]; if(!k||k.thrall===false||!BOSSDEF[kind]) return Infinity; return Math.min(BOSSDEF[kind].debut+THRALL.after,101); }
 // Kinds whose thralls may appear at sector n (1-based).
-function thrallKinds(n){ return n>100?thrallEligible():thrallEligible().filter(k=>thrallDebut(k)<=n); }
+function thrallKinds(n){ return thrallEligible().filter(k=>thrallDebut(k)<=n); }
 // Alive at once: 1 when the first kind unlocks, 2 from S55, 3 from S80.
 function thrallCap(n){ return thrallKinds(n).length?(n<THRALL.cap[0]?1:(n<THRALL.cap[1]?2:3)):0; }
 // How many a normal sector's roster carries.
@@ -1395,7 +1399,8 @@ function compMix(s){ let w=0, hp=0, xp=0; for(const k in COMP_W){ if(s<COMP_W[k]
 // Roster slots one thrall takes at sector s: its mean brutes' worth (over the
 // kinds unlocked there) in foes of that sector's mix.
 function thrallSlots(s){ const tk=thrallKinds(s+1); if(!tk.length) return 0; let b=0; for(const k of tk) b+=thrallBrutes(k); b/=tk.length;
- return Math.max(1,Math.round(THRALL.slotK*b*EBASE.brute.hp/compMix(s).hp)); }
+ const K=THRALL.slotK, k=Array.isArray(K)?K[0]+(K[1]-K[0])*clamp((s+1-30)/70,0,1):K;
+ return Math.max(1,Math.round(k*b*EBASE.brute.hp/compMix(s).hp)); }
 function thrallsAlive(){ let c=0; for(const o of enemies) if(o.type==='thrall'&&!o.dead) c++; return c; }
 // The reduced kit a thrall runs, from the kit's optional `thrall` entry:
 //   sig       : the signature. An attack name when the signature is a slot of
@@ -1422,8 +1427,8 @@ function thrallKit(kind){
  return { sig, sec, cycle, attacks, signature:hook, pt:T.pt||kit.def.pt||3, init:T.init||null,
   armor:T.armor===false?null:(kit.armor||null) };
 }
-// A thrall's between-beats slot: close to working range, then circle there.
-function thrallHunt(e,C){ if(C.d>260) C.mv(0.6); else C.orbit(0.7); }
+// A thrall's between-beats slot: press in to THRALL.huntR, then circle there.
+function thrallHunt(e,C){ if(C.d>THRALL.huntR) C.mv(0.7); else C.orbit(0.6); }
 function thrallShape(e,kind,s){
  const d=e.def, brutes=thrallBrutes(kind);
  e.type='thrall'; e.thrall=true; e.tk=thrallKit(kind);
@@ -3921,7 +3926,9 @@ BOSS_KITS.sentinel={
  cycle:['bulwark','spear','riposte'],
  // THRALL: a narrower mirror that reflects less and swings at under half the
  // speed (~32°/s, so circling it at range flanks it), and the spear line.
- thrall:{ sig:'MIRROR SHIELD', sec:'spear', init(e){ e.mirror.arcs[0].half=SN_HALF*0.8; e.mirror.cap=2; e.mirror.budget=2; } },
+ // The shield drops while it throws the spear (its window: shoot the lance arm).
+ thrall:{ sig:'MIRROR SHIELD', sec:'spear', init(e){ e.mirror.arcs[0].half=SN_HALF*0.8; e.mirror.cap=2; e.mirror.budget=2; },
+  signature(e){ e.mirror.off=e.atk==='spear'; } },
  phases:[{},{at:0.5,enter(e){ if(!e.rec) snSetP2(e); }}],
  init(e){ e.sn={face:Math.atan2(player?player.y-e.y:0,player?player.x-e.x:1)};
   e.mirror={arcs:[{a:e.sn.face,half:SN_HALF}],cap:3,dmgMul:0.45,stored:0,budget:3}; },
@@ -7707,7 +7714,8 @@ function commandLine(kind){
  const up=callersOf(kind), calls=summonsOf(kind), c={};
  for(const k of calls) c[k]=(c[k]||0)+1;
  const down=Object.keys(c).map(k=>nm(k)+(c[k]>1?' ×'+c[k]:''));
- return (up.length?'Answers to '+up.map(nm).join(', '):'Answers to no one')+'  ·  '+(down.length?'Calls '+down.join(', '):'Calls only chaff');
+ const th=thrallDebut(kind); // its thralls, the lesser copies that walk common sectors (spec §8)
+ return (up.length?'Answers to '+up.map(nm).join(', '):'Answers to no one')+'  ·  '+(down.length?'Calls '+down.join(', '):'Calls only chaff')+(th<Infinity?'  ·  Thralls from S'+th:'');
 }
 // Visible index rows on short viewports: the window follows the selection so
 // arrow keys page the index instead of walking off-screen with no signal.
