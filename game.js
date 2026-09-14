@@ -830,6 +830,16 @@ function freeSpotIn(R,obs,px,py,minD,margin,x0,x1,y0,y1){
  }
  return freeSpot(R,obs,px,py,minD,margin);
 }
+// Nudge a point out of obstacles: the nearest clear ring point, or null when
+// already clear (or nowhere clear nearby). For attack placements that must
+// start outside cover (WARDEN's pylons): small moves keep the design shape.
+function freeNear(x,y,m,obs){
+ if(!pointBlocked(x,y,m,obs)) return null;
+ for(let r=8;r<=80;r+=8) for(let k=0;k<12;k++){ const a=k*0.5236;
+  const nx=clamp(x+Math.cos(a)*r,PX0+30,PX1-30), ny=clamp(y+Math.sin(a)*r,PY0+30,PY1-30);
+  if(!pointBlocked(nx,ny,m,obs)) return {x:nx,y:ny}; }
+ return null;
+}
 // Boss drop points: evenly spaced on a ring around the arena centre, never
 // closer than `minWall` to any edge. Corner spawns turned a duel into a commute
 // — the player reported chasing an OVERLORD across a whole sector to start the
@@ -2837,10 +2847,22 @@ BOSS_KITS.overlord={
 const WD_GATE_R=180, WD_GATE_SPAN=0.37, WD_GATE_WARN=0.9, WD_GATE_LIVE=4;
 function wdGate(e,p){ // plant three pylons round the ship and link them, leaving a gap mid-link
  // the turn of the triangle that keeps every pylon clearest of its own hull
- let pts=null, best=-1; const base=Math.random()*6.283;
+ // AND every link clear of obstacles: each candidate scores its worst link
+ // (rayObs reach along the span it must draw, both ways), and a clipped
+ // triangle loses to a clear one before hull distance breaks the tie. The
+ // chosen pylons are then nudged out of obstacles, so no span starts buried
+ // (beamEnds clips spans at cover, which used to zero a corner's links).
+ let pts=null, best=null; const base=Math.random()*6.283, obs=(arena&&arena.obs)||[];
  for(let t=0;t<6;t++){ const a0=base+t*0.35, q=[]; let m=1e9;
   for(let k=0;k<3;k++){ const a=a0+k*2.094, x=clamp(p.x+Math.cos(a)*WD_GATE_R,PX0+30,PX1-30), y=clamp(p.y+Math.sin(a)*WD_GATE_R,PY0+30,PY1-30); q.push({x,y}); m=Math.min(m,Math.hypot(x-e.x,y-e.y)); }
-  if(m>best){ best=m; pts=q; } }
+  let c=1;
+  for(let k=0;k<3;k++){ const A=q[k], B=q[(k+1)%3], L=Math.hypot(B.x-A.x,B.y-A.y), need=L*WD_GATE_SPAN;
+   if(L<1){ c=0; break; }
+   const dx=(B.x-A.x)/L, dy=(B.y-A.y)/L;
+   c=Math.min(c,rayObs(A.x,A.y,dx,dy,need)/need,rayObs(B.x,B.y,-dx,-dy,need)/need); }
+  const key=(c>=1?1e9:0)+Math.min(c,1)*1e6+m;
+  if(best===null||key>best){ best=key; pts=q; } }
+ for(const P of pts){ const f=freeNear(P.x,P.y,26,obs); if(f){ P.x=f.x; P.y=f.y; } }
  const src=srcOf(e,'TOLL GATE'), dmg=Math.round(e.dmg*0.4);
  for(let k=0;k<3;k++){ const A=pts[k], B=pts[(k+1)%3], L=Math.hypot(B.x-A.x,B.y-A.y), ang=Math.atan2(B.y-A.y,B.x-A.x);
   for(const [P,a] of [[A,ang],[B,ang+Math.PI]]){

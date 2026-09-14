@@ -3186,6 +3186,18 @@ function suiteKits1() {
   eq('the gate comes down after its four seconds', a.bossBeams.filter(q => q.owner === b).length + (b.gate ? 1 : 0), 0);
  }
  {
+  // a wall on one side must not silence a corner: rotations are scored by
+  // link clearance, and pylons nudge out of cover (old code: ~zero spans)
+  const { a, p, b } = kitRoom('warden', 9);
+  a.arena.obs.push({ kind: 'rect', x: p.x - 260, y: p.y - 60, w: 120, h: 120 });
+  b.wdG = 0.01; b.forcedAttack = 'lanelock'; b.atk = 'lanelock';
+  const px = p.x, py = p.y;
+  kitRun(a, 0.05, () => { p.x = px; p.y = py; });
+  const bm = a.bossBeams.filter(q => q.owner === b), frac = bm.map(q => q.ends[0] / q.len);
+  eq('TOLL GATE still plants three pylons against cover', (b.gate && b.gate.pts.length) || 0, 3);
+  ok('every span draws its full length past the wall (' + frac.map(f => f.toFixed(2)).join(',') + ')', bm.length === 6 && frac.every(f => f >= 0.9));
+ }
+ {
   const { a, p, b } = kitRoom('warden', 9, { dx: 150 });
   b.forcedAttack = 'twinwave'; b.wdG = 99; a.__sandbox.window.devAiFreeze = false;
   const px = p.x, py = p.y; let rs = [];
