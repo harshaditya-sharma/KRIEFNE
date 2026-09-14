@@ -615,7 +615,7 @@ The post-Apex wall stays.
 **Target clear times for Homing Hose:**
 - 50–75 s for S1–S9;
 - 70–105 s for S11–S49;
-- 100–135 s for S51 and beyond.
+- 100–140 s for S51 and beyond.
 
 **Changes.**
 1. **Counts keep growing** with depth; there's no flatline at S12. About `12 + 2.2 × sector` total, bounded by world size and a rising alive cap.
@@ -837,7 +837,7 @@ This is the **only** status doc. Anyone taking over reads "Resume here" and "Now
 ### Resume here
 
 **Where things are**
-- **Branch:** `wave3` (run `git log --oneline -5`). It's cut from `main` a7e8172 (merge-base still a7e8172; 25 commits ahead) and merges to `main` **only when the user says**. Fast harness is green (2500); `--all` is 2632 green + 1 marginal (S99 Hose mean 139 vs §7 100–135, needs the user's call — see Open items). Not merge-ready until that call.
+- **Branch:** `wave3` (run `git log --oneline -5`). It's cut from `main` a7e8172 and merges to `main` **only when the user says**. `node test.js --all` is green (2633): S51+ band widened to 100–140 on the user's call, death screen reworked and pixel-verified.
 - **Code:** `game.js` is the whole game (~8960 lines). Boss blocks run `// ===== BOSS: X =====` in ladder order; the engine sections sit before them, and the `window.__kriefne` hooks sit at the end. `test.js` is the headless harness with 29 suites. `DESIGN.md` holds the visual rules (`K.red` means harm, `K.gold` means the player's).
 - **This spec:** `DevX/` is gitignored but this file is force-tracked, so commit it with `git add -f DevX/SPEC-overhaul.md`. The lab files are local only.
 
@@ -890,7 +890,7 @@ Headless Chrome needs `window.__kriefne.forceState('playing')`. Kill stray serve
 | 7b | cards: ten new Legendary/Mythic stat variants (Overclock Dynamo/Reactor/Star, AP Sabot/Nova/Extinction, Nanoweave Bastion/Ark, Gun Array Mk III/Halo) + asserts + sim re-check | **done (code + 5 asserts + halved taxes + widened bands; `--all` green)** |
 
 ### Now in progress
-**Verified state pushed (8c2cb4b); death-screen bug diagnosed with pixels. No agent is running.** Revert hunt done: Toll Gate fix restored, README blurb committed, S99 marginal logged (user call open). Death screen reproduced in headless Chrome via a /tmp driver (worst-case SINGULARITY tell + 16-refit build): TELL/COUNTER overflow the right edge at 960 and 420; footer lines bleed off both sides at 420 (no wrap); TELL block left-anchored vs centered rest; dead gap above RETRY. Waiting on the user's go-ahead for the whole-screen rethink — and on the S99 call — before touching either.
+**Both user calls executed and green (`--all` 2633). No agent is running.** S51+ §7 band widened to 100–140 (`sectorBand` follows; loosening-only, fightsim 131/131). `drawEnd` reworked as one measured column: `wrapPx` wraps TELL/COUNTER/score/footers by `measureText` (short-H screens cap TELL at 2 lines, else 4); the killer line stacks when it doesn't fit; the icon grid is centered; record + buttons + hint are centered in the full height together. Pixel-verified in headless Chrome (worst-case SINGULARITY tell + 16-refit build, 960 + 420): no bleed, no overlap. Ready to commit both + this log, then push.
 
 **Verified state (2026-09-14, after band widening)**
 - Fast harness: **2498 green** (fightsim/fuzz skipped); `--all`: **2631 green** (fightsim 131/131, fuzz green).
@@ -943,15 +943,16 @@ Each is tagged with the step that owns it; resolved items are removed.
   - A lab capture round: all 20 gods, the maps (never visually confirmed) and the codex portraits (LEVIATHAN's is busy).
   - LEVIATHAN's Coil wake reads as dense red.
   - Perf: S100 Phase 2 plus chaff under 4 ms per frame.
-- **[fightsim]** S99 Hose 2-seed mean 139 vs §7 100–135 (deterministic on this machine, reproduced 2×; the Toll-Gate restore touches WARDEN-only code, so it is innocent). Per the suite's own doctrine ±4s edges are noise, but 139 is +4 over the cap and above the 2b-measured ~132. Calls for the user: accept as noise, widen the S51+ band, or tune in step 4 (4a–4d own the fit).
+- **[fightsim]** S99 Hose 2-seed mean 139 vs old §7 100–135: **resolved 2026-09-14 (user call: widen)** — S51+ band now 100–140, `sectorBand` follows; fightsim 131/131, `--all` 2633 green.
 - **[user]** Root currently also blocks the dash; spec §3.3 says root means no movement only. It's existing behaviour, left as is until the user decides.
-- **[bug, prod]** Death screen (`drawEnd`, game.js:8355): the record is centred in the full canvas height including the bottom key-hint zone, so it reads off-centre to a human; TELL/COUNTER rows are left-anchored (L=150/T=252), not optically centred, and long lines bleed past the right edge (prod screenshot); the score row can overlap build icons. Diagnosed 2026-09-14 with headless-Chrome captures (worst-case SINGULARITY tell + 16-refit build, 960 desktop + 420 narrow): TELL/COUNTER wrap width overflows the right edge on both widths; the centered footer lines don't wrap on narrow and bleed off both sides; the TELL block is left-anchored while everything else centers; dead gap between the god line and RETRY. Fix needs a whole-screen rethink — user go-ahead before touching it.
+- **[bug, prod]** Death screen (`drawEnd`, game.js:8355): the record is centred in the full canvas height including the bottom key-hint zone, so it reads off-centre to a human; TELL/COUNTER rows are left-anchored (L=150/T=252), not optically centred, and long lines bleed past the right edge (prod screenshot); the score row can overlap build icons. Diagnosed 2026-09-14 with headless-Chrome captures (worst-case SINGULARITY tell + 16-refit build, 960 desktop + 420 narrow): TELL/COUNTER wrap width overflows the right edge on both widths; the centered footer lines don't wrap on narrow and bleed off both sides; the TELL block is left-anchored while everything else centers; dead gap between the god line and RETRY. **Fixed 2026-09-14 (user approved the rethink):** `drawEnd` is one measured column — `wrapPx` wraps TELL/COUNTER/score/footers by pixels, the killer line stacks past the column width, the icon grid is centered, and record + buttons + hint center in the full height together. Captures at 960 + 420 confirm no bleed or overlap.
 - **[bug, prod]** WARDEN TOLL GATE (`wdGate`, game.js:2838): **fixed 2026-09-14** — rotations are scored by worst-link `rayObs` clearance (a clipped triangle loses to a clear one before hull distance breaks the tie) and chosen pylons nudge out of cover via `freeNear`; regression test rigs a 120×120 wall west of the ship (old code: two ~zero spans; fixed: all six full). Remaining audit for other point placements (all bounds-clamp only): HYDRA acid spit pools (`acidspit`, 3438), PROGENITOR bay mines (`minefield`, 4485), KRAKEN ink mines (`ink`, 4736), HARBINGER meteor marks (`meteor`, 4618), SINGULARITY accretion disk (5435). Radial zones soft-fail (hidden inside obstacles) while beams hard-fail; player-pos/at-self placements are fine.
 
 ### Decisions (user)
 - **Cards/overdrive (2026-09-14):** costs are multiplicative %, every pick net-positive, rarity buys efficiency; §2 ability-cost table + physical-voice copy approved as final wording (no dev-speak on cards — physical things, numbers kept); ten L/M stat variants approved with proposed numbers/names; dash/recall first picks and REFIT stay free; gated follow-ups of conditional systems stay pure.
 - **Tax tuning (2026-09-14, call A):** halve all §2 taxes; §1 families untouched.
-- **Bands (2026-09-14):** re-fit the §7 targets ~5s to measured (§7 now 50–75 / 70–105 / 100–135) after 2b proved no THRALL knob moves the residual marginals.
+- **Bands (2026-09-14):** re-fit the §7 targets ~5s to measured (§7 now 50–75 / 70–105 / 100–135) after 2b proved no THRALL knob moves the residual marginals. Second call: S51+ 100–135→100–140 for the deterministic S99 mean of 139.
+- **Death screen (2026-09-14):** user approved the whole-screen rethink of `drawEnd`.
 - **Deep-sector danger** uses three levers: foe damage and behaviour, thrall density, and deadlier nest chaff.
 - **Boss HP** is fitted strictly to the Homing Hose §6 bands; off-meta builds being harder is accepted.
 - **Normal sectors** keep an alive floor so they never go quiet. Per-foe XP scales so picks per sector stay about the same.
@@ -989,3 +990,5 @@ Each is tagged with the step that owns it; resolved items are removed.
 | 2026-09-14 | WARDEN Toll Gate vs cover | **done**: rotation scoring by link clearance + `freeNear` pylon nudge; regression test (wall rig: old 2×~zero spans → new 6/6 full); kits1 173 green | `wave3` (unmerged step) |
 | 2026-09-14 | Step 7b, L/M variants | **done (sim needs a tuning call)**: ten variants at approved numbers/rarities/caps, sharing family budgets (rate/dmg 10, HP 12), arrays gated on shots<8; sim order lists + combos everything-build take family-best-first; `suiteCards` +5 (existence/rarity/cap, budget shutoff, Bastion+Ark speed floor, Split still single-Mythic gated); combos max-HP pin re-fit 500 → 600 (budget-capped 565); fast harness 2498 green. Sim re-check below | `wave3` (unmerged step) |
 | 2026-09-14 | Revert hunt + verify | **done**: working-tree revert of the Toll Gate fix found via `kits1` red (172/173, two ~zero spans); `game.js` restored to HEAD → kits1 173, fast 2500 green; `--all` 2632 + S99 marginal (139 vs 100–135, user call open); README blurb committed | `wave3` |
+| 2026-09-14 | S99 band call | **done (user call: widen)**: S51+ §7 100–135→100–140, `sectorBand` follows (loosening-only); fightsim 131/131 | `wave3` |
+| 2026-09-14 | Death-screen rethink | **done (user approved)**: `drawEnd` as one measured column (`wrapPx`, stacked killer line, centered grid, full-height centering); headless-Chrome captures at 960 + 420 show no bleed/overlap; safety/voice/replay green; `--all` **2633 green** | `wave3` |

@@ -8374,46 +8374,78 @@ function nextGodLine(){
   const art=/^[AEIOU]/.test(rank)?'An ':'A ';
   return codexSeen(k)?'Unfinished: '+d.name+', '+rank+', first met at S'+d.debut+'.':art+rank+' holds S'+d.debut+'.';
 }
+// Wrap by measured pixels, not characters: the advance varies, so a character
+// budget either bleeds past the edge (the old HULL LOST bug) or wraps early.
+function wrapPx(t,maxPx,px,w){
+ ctx.font=fM(px,w||400);
+ const ww=s=>{ try{ return ctx.measureText(s).width; }catch(e){ return s.length*px*0.62; } };
+ const words=String(t).split(' '), out=[]; let ln='';
+ for(const wd of words){
+  if(!ln&&ww(wd)>maxPx&&wd.length>1){ let part='';
+   for(const ch of wd){ if(part&&ww(part+ch)>maxPx){ out.push(part); part=ch; } else part+=ch; }
+   ln=part; continue; }
+  const t2=ln?ln+' '+wd:wd;
+  if(ln&&ww(t2)>maxPx){ out.push(ln); ln=wd; } else ln=t2;
+ }
+ if(ln) out.push(ln);
+ return out;
+}
 function drawEnd(){
  ctx.fillStyle=K.scrim; ctx.fillRect(0,0,W,H);
- const src=endInfo.src, narrow = W < 700;
- const L=narrow?16:150, T=narrow?118:252;
- const wrapN = Math.max(24, Math.floor((W-T-16)/6.6));
+ const src=endInfo.src, narrow=W<700, cx=W/2;
+ // one centred column: the TELL block used to anchor at fixed x=150/252 while
+ // everything else centred, and the footer lines never wrapped at all.
+ const m=narrow?16:32, colW=Math.max(120,Math.min(narrow?W-m*2:660,W-m*2)), x0=Math.round((W-colW)/2);
  const ent=src&&(CODEX_FOES.find(f=>f.type===src.id)||CODEX_BOSSES.find(b=>b.id===src.id));
- const tl=ent?wrapLines(ent.tell,wrapN).slice(0,2):[], cl=ent?wrapLines(ent.counter,wrapN).slice(0,2):[];
- const nIds=Object.keys(upgradeCounts).filter(id=>upgradeCounts[id]>0).length, per=Math.max(1,Math.floor((W-L-T)/40));
+ const maxTC=H<560?2:4;
+ const tl=(ent?wrapPx(ent.tell,colW,12):[]).slice(0,maxTC), cl=(ent?wrapPx(ent.counter,colW,12):[]).slice(0,maxTC);
+ const scLines=wrapPx('Score '+scoreCalc()+'   Best '+best+'   Kills '+kills+'   Level '+player.level+'   Time '+Math.floor(timeSec)+'s   Reached '+sectorName(arenaIdx),colW,12,600);
+ const f1=wrapPx('Restored at the Wake. Boss kills stay banked: +2% damage each.',colW,12);
+ const f2=wrapPx(nextGodLine(),colW,11);
+ const nIds=Object.keys(upgradeCounts).filter(id=>upgradeCounts[id]>0).length, per=Math.max(1,Math.floor(colW/40));
  const buildH=nIds?Math.min(2,Math.ceil(nIds/per))*46:26;
- // measure first, then centre the record in the space above RETRY
- const causeH=src?26+28+(ent?tl.length*15+8+cl.length*15:0):30;
- const blockH=34+30+causeH+22+26+buildH+10+44;
- let y=Math.max(80,Math.round((BTN.endRestart.y-24-blockH)/2)+34);
- heading('HULL LOST',W/2,y,narrow?26:34,K.red,'center'); line(W/2-Math.min(220,W/2-16),y+18,W/2+Math.min(220,W/2-16),y+18,K.redDim,1); y+=52;
+ // the killer line stacks when name + blow don't fit side by side
+ let w1=0, w2=0, pg=null, nm='', what='';
  if(src){
-   const pg=PIG[src.id], nm=src.name+(src.lt?' (SUMMONED)':''), what=' · '+src.what;
-  mono('BROUGHT DOWN BY',W/2,y,11,K.textDim,'center'); y+=26;
-  ctx.font=fD(16); track(3); let w1=nm.length*14; try{ w1=ctx.measureText(nm).width; }catch(e){} track(0);
-  ctx.font=fM(13,600); let w2=what.length*8; try{ w2=ctx.measureText(what).width; }catch(e){}
-  const x0=W/2-(w1+w2)/2;
-  heading(nm,x0,y,16,pg?pg.c:K.text); mono(what,x0+w1,y,13,K.red,'left',600); y+=28;
-  if(ent){
-   heading('TELL',L,y,9,K.red); tl.forEach((l,i)=>mono(l,T,y+i*15,12,K.text)); y+=tl.length*15+8;
-   heading('COUNTER',L,y,9,K.gold); cl.forEach((l,i)=>mono(l,T,y+i*15,12,K.text)); y+=cl.length*15;
-  }
- } else { mono('The last blow went unrecorded.',W/2,y+16,12,K.textDim,'center'); y+=30; }
- y+=22; line(L,y-12,W-L,y-12,K.metalFaint,1);
- if(endInfo.newBest) heading('NEW BEST',L,y+4,9,K.gold);
- if(narrow){
-  mono('Score '+scoreCalc()+'   Best '+best+'   Kills '+kills,T,y+4,12,K.text); y+=18;
-  mono('Level '+player.level+'   Time '+Math.floor(timeSec)+'s   Reached '+sectorName(arenaIdx),T,y+4,12,K.text); y+=26;
- } else {
-  mono('Score '+scoreCalc()+'   Best '+best+'   Kills '+kills+'   Level '+player.level+'   Time '+Math.floor(timeSec)+'s   Reached '+sectorName(arenaIdx),T,y+4,12,K.text); y+=26;
+  pg=PIG[src.id]; nm=src.name+(src.lt?' (SUMMONED)':''); what=' · '+src.what;
+  ctx.font=fD(16); track(3); try{ w1=ctx.measureText(nm).width; }catch(e){ w1=nm.length*14; } track(0);
+  ctx.font=fM(13,600); try{ w2=ctx.measureText(what).width; }catch(e){ w2=what.length*8; }
  }
- heading('BUILD',L,y+20,9,K.textDim); y+=drawBuild(T,y,W-L-T,2)+14;
- mono('Restored at the Wake. Boss kills stay banked: +2% damage each.',W/2,y+8,12,K.gold,'center');
-  mono(nextGodLine(),W/2,y+26,11,K.textDim,'center');
+ const stack=w1+w2+12>colW;
+ // the whole column — record, buttons and key hint — is centred in the full
+ // height together, so the record no longer floats above a dead gap.
+ const titleH=52;
+ const causeH=src?26+(stack?24+21:28)+(ent?14+tl.length*15+8+14+cl.length*15:0):30;
+ const scoreH=(endInfo.newBest?22:0)+scLines.length*17+10;
+ const footH=f1.length*16+8+f2.length*15+8;
+ const recH=titleH+causeH+20+scoreH+26+buildH+16+footH;
+ const btnTop=BTN.endRestart.y, hintBot=BTN.endTitle.y+BTN.endTitle.h+16;
+ const total=recH+16+(hintBot-btnTop);
+ let y=Math.max(8,Math.round((H-total)/2)-4);
+ heading('HULL LOST',cx,y,narrow?26:34,K.red,'center'); line(cx-Math.min(220,cx-16),y+18,cx+Math.min(220,cx-16),y+18,K.redDim,1); y+=titleH;
+ if(src){
+  mono('BROUGHT DOWN BY',cx,y,11,K.textDim,'center'); y+=26;
+  if(stack){
+   heading(nm,cx,y,16,pg?pg.c:K.text,'center'); y+=24;
+   mono(what,cx,y,13,K.red,'center',600); y+=21;
+  } else {
+   const sx=cx-(w1+w2)/2;
+   heading(nm,sx,y,16,pg?pg.c:K.text); mono(what,sx+w1,y,13,K.red,'left',600); y+=28;
+  }
+  if(ent){
+   heading('TELL',x0,y,9,K.red); y+=14; tl.forEach((l,i)=>mono(l,x0,y+i*15,12,K.text)); y+=tl.length*15+8;
+   heading('COUNTER',x0,y,9,K.gold); y+=14; cl.forEach((l,i)=>mono(l,x0,y+i*15,12,K.text)); y+=cl.length*15;
+  }
+ } else { mono('The last blow went unrecorded.',cx,y+16,12,K.textDim,'center'); y+=30; }
+ y+=20; line(x0,y-8,x0+colW,y-8,K.metalFaint,1);
+ if(endInfo.newBest){ heading('NEW BEST',cx,y+6,9,K.gold,'center'); y+=22; }
+ scLines.forEach((l,i)=>mono(l,cx,y+4+i*17,12,K.text,'center',600)); y+=scLines.length*17+10;
+ heading('BUILD',x0,y+8,9,K.textDim); y+=26; y+=drawBuild(x0+(colW-per*40)/2,y,per*40,2)+16;
+ f1.forEach((l,i)=>mono(l,cx,y+12+i*16,12,K.gold,'center')); y+=f1.length*16+8;
+ f2.forEach((l,i)=>mono(l,cx,y+12+i*15,11,K.textDim,'center'));
   entry(BTN.endRestart,'RETRY','[R]',endSel===0&&endReady());
   entry(BTN.endTitle,'TITLE','[Esc]',endSel===1);
-  mono('[↑↓] select · [Enter] confirm',W/2,BTN.endTitle.y+BTN.endTitle.h+16,11,K.textDim,'center');
+  mono('[↑↓] select · [Enter] confirm',cx,BTN.endTitle.y+BTN.endTitle.h+16,11,K.textDim,'center');
  drawBuildTip();
 }
 
