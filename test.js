@@ -373,9 +373,9 @@ function suiteUpgradePool() {
 // survivability and utility, like a real run. The analytic TTK model that used
 // to sit here (gunDps x 0.45 uptime) is retired: spec §10 makes the fight
 // simulator the source of truth.
-const GREEDY_ORDER = ['dmg4', 'dmg', 'dmg0', 'rate3', 'rate', 'rate0', 'array2', 'array1', 'array', 'crit', 'slug', 'overcharge', 'flak', 'minigun', 'split',
+const GREEDY_ORDER = ['dmg6', 'dmg5', 'dmg4', 'dmg3', 'dmg', 'dmg0', 'rate6', 'rate5', 'rate4', 'rate3', 'rate', 'rate0', 'array4', 'array3', 'array2', 'array1', 'array', 'crit', 'slug', 'overcharge', 'flak', 'minigun', 'split',
  'corrode', 'chain', 'adrenal', 'seek', 'pierce', 'surge', 'lance', 'orbital', 'tract', 'inc', 'cryo', 'rico', 'hp2', 'hp', 'hp1', 'hp0', 'vamp'];
-const BALANCED_ORDER = ['dmg', 'dmg4', 'dmg0', 'hp', 'hp2', 'hp1', 'hp0', 'rate', 'rate3', 'rate0', 'ward', 'array2', 'array1', 'array', 'vamp', 'crit', 'aegis', 'spd', 'shock',
+const BALANCED_ORDER = ['dmg6', 'dmg5', 'dmg4', 'dmg3', 'dmg', 'dmg0', 'hp4', 'hp3', 'hp', 'hp2', 'hp1', 'hp0', 'rate6', 'rate5', 'rate4', 'rate3', 'rate', 'rate0', 'ward', 'array4', 'array3', 'array2', 'array1', 'array', 'vamp', 'crit', 'aegis', 'spd', 'shock',
  'bulwark', 'seek', 'repair', 'orbital', 'tract', 'slug', 'shockcap', 'magnet', 'orbit', 'lance',
  'nova', 'salvage', 'pierce', 'shockamp'];
 // Drive the REAL progression loop: earn XP, open a draft, pick the highest
@@ -444,9 +444,9 @@ function effDps(p) { return gunDps(p) + abilityDps(p); }
 // depth's pick count and still drafting from the gems they collect mid-fight.
 // HOMING HOSE is the user's playtest build: every barrel on offer, Seeker, then
 // damage and rate. It is the one the pacing bands are asserted against.
-const HOSE_ORDER = ['spd:1', 'seek', 'array2', 'array1', 'array', 'dmg', 'dmg0', 'split', 'rate', 'rate0', 'minigun', 'rate3', 'dmg4', 'crit', 'slug', 'overcharge',
+const HOSE_ORDER = ['spd:1', 'seek', 'array4', 'array3', 'array2', 'array1', 'array', 'dmg6', 'dmg5', 'dmg4', 'dmg3', 'dmg', 'dmg0', 'split', 'rate6', 'rate5', 'rate4', 'rate3', 'rate', 'rate0', 'minigun', 'crit', 'slug', 'overcharge',
  'pierce', 'flak', 'chain', 'corrode', 'surge', 'orbital', 'lance', 'tesla', 'inc', 'shrap', 'cryo', 'rico', 'adrenal',
- 'hp', 'hp2', 'hp1', 'hp0', 'vamp', 'orbit', 'nova', 'shock'];
+ 'hp4', 'hp3', 'hp', 'hp2', 'hp1', 'hp0', 'vamp', 'orbit', 'nova', 'shock'];
 const SIM_BUILDS = { hose: HOSE_ORDER, balanced: BALANCED_ORDER, greedy: GREEDY_ORDER };
 const SIM_CAP = 400;           // simulated seconds before a fight is called
 const FIGHTSIM_STRICT = false; // nest bands (spec §6) report only; wave 3 turns this on after the boss HP fit
@@ -1025,9 +1025,9 @@ function suiteCombos() {
  // level inflation a 500-draft simulation would add.
  const a = boot(); seedRandom(a, 24680);
  a.startRun(); a.loadSector(0); a.forceState('playing');
- for (const id of ['dmg', 'dmg0', 'dmg4', 'rate', 'rate0', 'rate3', 'slug', 'array', 'array1', 'split', 'array2', 'crit', 'minigun', 'overcharge',
+ for (const id of ['dmg6', 'dmg5', 'dmg4', 'dmg3', 'dmg', 'dmg0', 'rate6', 'rate5', 'rate4', 'rate', 'rate0', 'rate3', 'slug', 'array4', 'array3', 'array', 'array1', 'split', 'array2', 'crit', 'minigun', 'overcharge',
   'flak', 'chain', 'corrode', 'adrenal', 'shock', 'shockamp', 'shockrad', 'shockcap',
-  'orbital', 'lance', 'tesla', 'orbit', 'nova', 'pierce', 'seek', 'vamp', 'hp', 'hp0', 'hp1', 'hp2']) {
+  'orbital', 'lance', 'tesla', 'orbit', 'nova', 'pierce', 'seek', 'vamp', 'hp4', 'hp3', 'hp', 'hp0', 'hp1', 'hp2']) {
   const u = a.upgrades.find(x => x.id === id);
   if (!u) { ok('combo card ' + id + ' exists', false); continue; }
   for (let k = 0; k < (u.max || 4); k++) { if (u.req && !u.req(a.player)) break; a.pickUpgrade(u); }
@@ -1043,7 +1043,8 @@ function suiteCombos() {
  atLeast('maxed everything is still meaningfully strong', ceiling, 1300);
  atMost('fire rate cannot become a single-frame machine gun', p.fireRate, 26);
  atMost('projectile count stays renderable', p.shots, 12);
- atMost('max HP stays in band', p.maxhp, 500);
+ // 7b: Bastion + Ark raise the designed hull ceiling (budget-capped at 565).
+ atMost('max HP stays in band', p.maxhp, 600);
  // sustain must not outpace incoming damage at depth
  eq('Vampire Chip maxes at 5 HP per kill', p.vamp, 5);
  {
@@ -2283,6 +2284,30 @@ function suiteCards() {
    return !face[id].test(u.desc);
   });
   eq('every costed ability card states its cost on its face', bad.join(','), '');
+ }
+ {
+  // 7b: the Legendary/Mythic overdrive variants
+  const a = boot(); a.startRun(); a.loadSector(0); a.forceState('playing');
+  const want = { rate4: [3, 4], rate5: [4, 3], rate6: [5, 2], dmg3: [2, 4], dmg5: [4, 3], dmg6: [5, 2], hp3: [4, 4], hp4: [5, 3], array3: [3, 2], array4: [4, 2] };
+  const bad = Object.keys(want).filter(id => {
+   const u = a.upgrades.find(x => x.id === id);
+   return !u || u.r !== want[id][0] || u.max !== want[id][1];
+  });
+  eq('all ten L/M variants exist at their rarity and cap', bad.join(','), '');
+  // new variants share the family budget: ten rate picks shut the whole ladder
+  const b = boot(); b.startRun(); b.loadSector(0); b.forceState('playing');
+  give(b, 'rate6', 2); give(b, 'rate5', 3); give(b, 'rate4', 4); give(b, 'rate', 1);
+  const shut = b.upgrades.find(x => x.id === 'rate0');
+  ok('ten family picks shut the rate ladder', shut.req && !shut.req(b.player));
+  // heavy hulls still hold the speed floor at full new stacks
+  const c = boot(); c.startRun(); c.loadSector(0); c.forceState('playing');
+  give(c, 'hp4', 3); give(c, 'hp3', 4);
+  atLeast('full Bastion+Ark stacks hold the 170 speed floor', c.player.speed, 170);
+  // Mythic barrels still gate on hull count and cap at 12
+  const d = boot(); d.startRun(); d.loadSector(0); d.forceState('playing');
+  const sp = d.upgrades.find(x => x.id === 'split');
+  eq('Split Chamber stays a single Mythic', sp.r === 5 && sp.max === 1, true);
+  ok('and still needs 2-8 barrels', !sp.req(d.player));
  }
 }
 function suiteSafety() {

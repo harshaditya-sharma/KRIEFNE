@@ -636,7 +636,7 @@ function rarityCol(u){ const r=u.r||0; return r>=5?K.red:(r===4?K.redHi:(r===3?K
 // family share a stack budget, so a higher rarity is a better deal, not extra
 // power on top.
 function odFam(ids){ let n=0; for(const id of ids) n+=upgradeCounts[id]||0; return n; }
-const RATE_FAM=['rate0','rate','rate3'], DMG_FAM=['dmg0','dmg','dmg4'], HP_FAM=['hp0','hp1','hp2','hp'];
+const RATE_FAM=['rate0','rate','rate3','rate4','rate5','rate6'], DMG_FAM=['dmg0','dmg','dmg3','dmg4','dmg5','dmg6'], HP_FAM=['hp0','hp1','hp2','hp','hp3','hp4'];
 const UPGRADES=[
  // Stack caps on the four core multipliers. Uncapped, `dmg` and `rate` compounded
  // to 126x player DPS by S30 against bosses only 2.4x tougher — every deep nest
@@ -649,19 +649,29 @@ const UPGRADES=[
  {id:'rate0', name:'Overclock Barrel', desc:'+10% base fire rate, -1% dmg', max:8, r:0, req(p){ return odFam(RATE_FAM)<10; }, apply(p){ p.fireRate+=0.45; p.dmgMult*=0.99; }},
  {id:'rate', name:'Overclock Cell', desc:'+20% base fire rate, -2% dmg', max:6, r:1, req(p){ return odFam(RATE_FAM)<10; }, apply(p){ p.fireRate+=0.9; p.dmgMult*=0.98; }},
  {id:'rate3', name:'Overclock Core', desc:'+30% base fire rate, -3% dmg', max:4, r:2, req(p){ return odFam(RATE_FAM)<10; }, apply(p){ p.fireRate+=1.35; p.dmgMult*=0.97; }},
+ {id:'rate4', name:'Overclock Dynamo', desc:'Dynamo spins +40% rate, bleeds -3% damage', max:4, r:3, req(p){ return odFam(RATE_FAM)<10; }, apply(p){ p.fireRate+=1.8; p.dmgMult*=0.97; }},
+ {id:'rate5', name:'Overclock Reactor', desc:'Reactor runs +50% rate, bleeds -4% damage', max:3, r:4, req(p){ return odFam(RATE_FAM)<10; }, apply(p){ p.fireRate+=2.25; p.dmgMult*=0.96; }},
+ {id:'rate6', name:'Overclock Star', desc:'A caged star: +65% rate, bleeds -5% damage', max:2, r:5, req(p){ return odFam(RATE_FAM)<10; }, apply(p){ p.fireRate+=2.925; p.dmgMult*=0.95; }},
  {id:'dmg0', name:'AP Rounds', desc:'+15% base damage, -1% rate', max:6, r:0, req(p){ return odFam(DMG_FAM)<10; }, apply(p){ p.dmgMult+=0.15; p.fireRate*=0.99; }},
  {id:'dmg', name:'AP Core', desc:'+30% base damage, -2% rate', max:10, r:1, req(p){ return odFam(DMG_FAM)<10; }, apply(p){ p.dmgMult+=0.30; p.fireRate*=0.98; }},
+ {id:'dmg3', name:'AP Sabot', desc:'Sabot sheds for +35% damage, -2% rate', max:4, r:2, req(p){ return odFam(DMG_FAM)<10; }, apply(p){ p.dmgMult+=0.35; p.fireRate*=0.98; }},
  {id:'dmg4', name:'AP Lance', desc:'EPIC: +40% damage, -3% rate', max:3, r:3, req(p){ return odFam(DMG_FAM)<10; }, apply(p){ p.dmgMult+=0.40; p.fireRate*=0.97; }},
+ {id:'dmg5', name:'AP Nova', desc:'Nova shell: +50% damage, -3% rate', max:3, r:4, req(p){ return odFam(DMG_FAM)<10; }, apply(p){ p.dmgMult+=0.50; p.fireRate*=0.97; }},
+ {id:'dmg6', name:'AP Extinction', desc:'Extinction event: +65% damage, -4% rate', max:2, r:5, req(p){ return odFam(DMG_FAM)<10; }, apply(p){ p.dmgMult+=0.65; p.fireRate*=0.96; }},
  {id:'hp0', name:'Nanoweave Mesh', desc:'+5 Max HP, heal 5, heavier', max:6, r:0, req(p){ return odFam(HP_FAM)<12; }, apply(p){ p.maxhp+=5; p.hp=Math.min(p.maxhp,p.hp+5); p.speed=Math.max(170,p.speed-2); }},
  {id:'hp1', name:'Nanoweave Weave', desc:'+10 Max HP, heal 10, heavier', max:8, r:1, req(p){ return odFam(HP_FAM)<12; }, apply(p){ p.maxhp+=10; p.hp=Math.min(p.maxhp,p.hp+10); p.speed=Math.max(170,p.speed-3); }},
  {id:'hp2', name:'Nanoweave Lattice', desc:'+15 Max HP, heal 15, heavier', max:6, r:2, req(p){ return odFam(HP_FAM)<12; }, apply(p){ p.maxhp+=15; p.hp=Math.min(p.maxhp,p.hp+15); p.speed=Math.max(170,p.speed-4); }},
  {id:'hp', name:'Nanoweave Plating', desc:'EPIC: +25 Max HP, heal 25, heavier', max:6, r:3, req(p){ return odFam(HP_FAM)<12; }, apply(p){ p.maxhp+=25; p.hp=Math.min(p.maxhp,p.hp+25); p.speed=Math.max(170,p.speed-6); }},
+ {id:'hp3', name:'Nanoweave Bastion', desc:'Bastion hull: +40 Max HP, heal 40, heavier', max:4, r:4, req(p){ return odFam(HP_FAM)<12; }, apply(p){ p.maxhp+=40; p.hp=Math.min(p.maxhp,p.hp+40); p.speed=Math.max(170,p.speed-8); }},
+ {id:'hp4', name:'Nanoweave Ark', desc:'Ark hull: +60 Max HP, heal 60, heavier', max:3, r:5, req(p){ return odFam(HP_FAM)<12; }, apply(p){ p.maxhp+=60; p.hp=Math.min(p.maxhp,p.hp+60); p.speed=Math.max(170,p.speed-10); }},
  {id:'spd', name:'Ion Thrusters', desc:'UNLOCK dash', max:4, dyn(p){ return p.dashUnlocked?{name:'Ion Thrusters',desc:'-20% dash cooldown'}:null; }, apply(p){ if(!p.dashUnlocked){ p.dashUnlocked=true; p.dashCd=0; } else { p.dashCdMax=Math.max(0.7,p.dashCdMax*0.8); } }},
  {id:'slip', name:'Slipstream Coils', desc:'Drive retuned for thrust: +10% speed, guns cycle -3% rate', max:3, r:1, req(p){ return p.dashUnlocked; }, apply(p){ p.speed*=1.1; p.fireRate*=0.97; }},
  {id:'split', name:'Split Chamber', desc:'MYTHIC: DOUBLE barrels, HALVE damage', max:1, r:5, req(p){ return p.shots>=2&&p.shots<=8; }, apply(p){ p.shots=Math.min(12,p.shots*2); p.dmgMult*=0.5; }},
  {id:'array', name:'Gun Array', desc:'+1 barrel, -7% rate', max:3, r:0, req(p){ return p.shots<8; }, apply(p){ p.shots+=1; p.fireRate*=0.93; }},
  {id:'array1', name:'Gun Array Mk I', desc:'+1 barrel, -6% rate', max:3, r:1, req(p){ return p.shots<8; }, apply(p){ p.shots+=1; p.fireRate*=0.94; }},
  {id:'array2', name:'Gun Array Mk II', desc:'+1 barrel, -5% rate, -2% dmg', max:2, r:2, req(p){ return p.shots<8; }, apply(p){ p.shots+=1; p.fireRate*=0.95; p.dmgMult*=0.98; }},
+ {id:'array3', name:'Gun Array Mk III', desc:'Lighter mounts: +1 barrel, -4% rate', max:2, r:3, req(p){ return p.shots<8; }, apply(p){ p.shots+=1; p.fireRate*=0.96; }},
+ {id:'array4', name:'Gun Array Halo', desc:'Halo ring: +1 barrel, -3% rate', max:2, r:4, req(p){ return p.shots<8; }, apply(p){ p.shots+=1; p.fireRate*=0.97; }},
  {id:'minigun', name:'Minigun Amps', desc:'+1 barrel, wider spread, damage rebalanced', max:3, r:1, req(p){ return p.shots<8; }, apply(p){ const n=p.shots; p.shots+=1; p.dmgMult*=n/(n+1); p.minigun+=1; }},
  {id:'vamp', name:'Vampire Chip', desc:'Siphons the slain into hull; the parasite sips output -2% damage', max:5, dyn(p){ return p.vamp>0?{name:'Vampire Chip',desc:'Feed harder: +1 HP per kill (now '+p.vamp+')'}:null; }, apply(p){ p.vamp=(p.vamp||0)+1; p.dmgMult*=0.98; }},
  {id:'seek', name:'Seeker Rounds', desc:'Guidance fins steer bullets onto foes; heavier flight -5% speed', max:2, r:1, apply(p){ p.homing+=1; p.projSpeed*=0.95; }},
