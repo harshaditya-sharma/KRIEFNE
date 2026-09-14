@@ -889,16 +889,16 @@ Headless Chrome needs `window.__kriefne.forceState('playing')`. Kill stray serve
 | 4e | deep danger: foe damage and behaviour, nest chaff (the user's levers) | |
 | 5a–5d | docs: README chain-of-command section (a); PRODUCT.md (b); LORE.md §7/§8/§11 (c); DESIGN.md pigments and banners (d) | |
 | 6a–6d | full pass: lab captures of all 20 gods (a); maps and codex portraits (b); perf check (c); the user's playtest (d) | |
-| 7a | cards (approved design 2026-09-14, NOT started): §2 ability-line costs + physical-voice copy for every ability card | proposed |
+| 7a | cards (approved design 2026-09-14, NOT started): §2 ability-line costs + physical-voice copy for every ability card | **done** (costs + copy + `suiteCards`) |
 | 7b | cards: ten new Legendary/Mythic stat variants (Overclock Dynamo/Reactor/Star, AP Sabot/Nova/Extinction, Nanoweave Bastion/Ark, Gun Array Mk III/Halo) + asserts + sim re-check | proposed |
 
 ### Now in progress
 **New session 2026-09-14 (build mode, approval-gated).** No agent is running. The user asked for: understand state → update this handoff → test → propose a todo → ask approval. **Nothing is approved for execution yet.**
 
-**Verified state (`node test.js` fast run, after 2e)**
-- Fast harness: **2442 green** (fightsim/fuzz skipped). 2a green, 2e fixed and green.
-- Tree: `game.js` (2e cluster fix, uncommitted) + `README.md` (6 lines describing the committed overdrive work).
-- Next approved: cards 7a+7b, then thrall fit 2b.
+**Verified state (`node test.js` fast run, after 7a)**
+- Fast harness: **2453 green** (fightsim/fuzz skipped). 2a, 2e, 7a green.
+- Tree: `game.js` + `test.js` (7a, uncommitted) + `README.md` (overdrive lines, uncommitted).
+- Next approved: 7b (L/M variants + asserts + sim re-check), then thrall fit 2b.
 
 **State of Step 2 (thralls)**
 - **Done and committed.** A thrall is a new `type:'thrall'` with `kind` set to its parent. Every "must not" in the gameplay code is already gated on `type==='boss'`, so thralls are excluded by default.
@@ -978,3 +978,4 @@ Each is tagged with the step that owns it; resolved items are removed.
 | 2026-09-14 | Step 1, test consolidation | **done**: `balance` retired (94 analytic TTK/wall/pin asserts; its boss-hit-vs-farmer-hull check → `combos`; replaced by 40 real-fight asserts in `fightsim`: Hose kills every lead inside the cap, no lead under 6s); `roster`/`live`/`mobility`/`recovery`/`regen` folded into `hierarchy`/`prims`/`kits1`/`teleport` (37 duplicates deleted, the rest moved); shared helpers (`hold`, `sectorRoom`, `kitBasics`, `pinAt`, `shootAt`, `circleKeys`); 33 → 27 suites; `--all` 2447 → 2356 green (187 → 164 s), `node test.js` 2354 → 2223 (43 → 35 s). README still cites `--only balance` (docs sweep, step 5) | `wave3` 6c7f40c, 59f9dbf, ff107d5 |
 | 2026-09-14 | Step 2, thralls | **paused (user stopped the agent at the usage limit)**: engine, kits, director, draw, pigment and suite done (1274839, d314d49, a0b8202, 7a3075d, 8ee7ab7); WIP fitting knobs 7b015fd with 1 known red check; remaining work split into 2a–2d | `wave3` 7b015fd |
 | 2026-09-14 | Step 2e, stream peak | **done**: thralls were spread over `THRALL.q` [0.12, 0.5] so consecutive ones landed ~19 s apart (cull-speed) and never shared the field; now all arrive as one group at `THRALL.q` 0.12. Safe by construction: sector count ≤ alive cap at every depth, so one pack can never go over cap. `suiteThralls` 180 green; fast harness 2442 green | `wave3` (unmerged step) |
+| 2026-09-14 | Step 7a, ability costs | **done**: all 33 ability cards pay per the approved table (rate/dmg/speed/flight-speed/dash-CD/max-HP axes, HP costs floored at 60 with HP clamped, dash/recall first picks and REFIT free, gated conditional follow-ups pure); approved physical-voice copy on every face; new `suiteCards` (13: cost direction per card, HP floor, pcell unlock-free/repeat-taxed, face-text regexes); combos everything-ceiling floor re-fit 1500 → 1300 for the costed economy; fast harness 2453 green | `wave3` (unmerged step) |
