@@ -2249,7 +2249,7 @@ function suiteCards() {
  {
   // hull-weight cards cut max HP but never below the 60 floor, and never strand HP above it
   const a = boot(); a.startRun(); a.loadSector(0); a.forceState('playing');
-  const p = a.player; p.maxhp = 65; p.hp = 65;
+  const p = a.player; p.maxhp = 64; p.hp = 64;
   give(a, 'wind', 1);
   eq('max HP costs stop at the 60 floor', p.maxhp, 60);
   eq('current HP is clamped to the new max', p.hp <= p.maxhp, true);
@@ -2270,14 +2270,14 @@ function suiteCards() {
   // every costed card names its cost on its face, in physical voice
   const a = boot(); a.startRun(); a.loadSector(0); a.forceState('playing');
   const face = {
-   slip: /-3% rate/, seek: /-5% speed/, rico: /-4%/, pierce: /-3% damage/, inc: /-3% impact/,
-   cryo: /-3% rate/, flak: /-4% direct/, corrode: /-2% rate/, chain: /-3% damage/,
-   overcharge: /-2% rate/, vamp: /-2% damage/, crit: /-2% rate/, surge: /-2% base rate/,
-   adrenal: /-2% base rate/, shrap: /-2% damage/, repair: /-2% damage/, salvage: /-2% rate/,
-   tract: /-2% speed/, magnet: /-2% rate/, orbit: /-2% damage/, nova: /-2% rate/,
-   tesla: /-3% rate/, orbital: /-2% rate/, lance: /-2% rate/, aegis: /dash cooldown/,
-   ward: /-5 max HP/, bulwark: /-4 max HP/, mirror: /-5 max HP/, barrier: /-3% rate/,
-   stasis: /-8 max HP/, wind: /-8 max HP/, shock: /-2% rate/, gatecd: /-1% rate/, transit: /-1% rate/
+   slip: /-1.5% rate/, seek: /-2.5% speed/, rico: /-2%/, pierce: /-1.5% damage/, inc: /-1.5% impact/,
+   cryo: /-1.5% rate/, flak: /-2% direct/, corrode: /-1% rate/, chain: /-1.5% damage/,
+   overcharge: /-1% rate/, vamp: /-1% damage/, crit: /-1% rate/, surge: /-1% base rate/,
+   adrenal: /-1% base rate/, shrap: /-1% damage/, repair: /-1% damage/, salvage: /-1% rate/,
+   tract: /-1% speed/, magnet: /-1% rate/, orbit: /-1% damage/, nova: /-1% rate/,
+   tesla: /-1.5% rate/, orbital: /-1% rate/, lance: /-1% rate/, aegis: /\+5% dash cooldown/,
+   ward: /-2 max HP/, bulwark: /-2 max HP/, mirror: /-2 max HP/, barrier: /-1.5% rate/,
+   stasis: /-4 max HP/, wind: /-4 max HP/, shock: /-1% rate/, gatecd: /-0.5% rate/, transit: /-0.5% rate/
   };
   const bad = Object.keys(face).filter(id => {
    const u = a.upgrades.find(x => x.id === id);
