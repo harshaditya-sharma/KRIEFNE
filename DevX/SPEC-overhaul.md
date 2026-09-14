@@ -837,8 +837,8 @@ This is the **only** status doc. Anyone taking over reads "Resume here" and "Now
 ### Resume here
 
 **Where things are**
-- **Branch:** `wave3` (run `git log --oneline -5`). It's cut from `main` a7e8172, which is pushed and deployed. It merges to `main` **only when the user says**, after `node test.js --all` is green.
-- **Code:** `game.js` is the whole game. Boss blocks run `// ===== BOSS: X =====` in ladder order; the engine sections sit before them, and the `window.__kriefne` hooks sit at the end. `test.js` is the headless harness with 27 suites. `DESIGN.md` holds the visual rules (`K.red` means harm, `K.gold` means the player's).
+- **Branch:** `wave3` (run `git log --oneline -5`). It's cut from `main` a7e8172 (merge-base still a7e8172; 25 commits ahead) and merges to `main` **only when the user says**. `node test.js --all` is green (2631), so it is merge-ready.
+- **Code:** `game.js` is the whole game (~8960 lines). Boss blocks run `// ===== BOSS: X =====` in ladder order; the engine sections sit before them, and the `window.__kriefne` hooks sit at the end. `test.js` is the headless harness with 29 suites. `DESIGN.md` holds the visual rules (`K.red` means harm, `K.gold` means the player's).
 - **This spec:** `DevX/` is gitignored but this file is force-tracked, so commit it with `git add -f DevX/SPEC-overhaul.md`. The lab files are local only.
 
 **Commands**
@@ -873,13 +873,10 @@ Headless Chrome needs `window.__kriefne.forceState('playing')`. Kill stray serve
 | 1 | test consolidation | done |
 | 2 (1–5) | thralls: engine, per-kit reduced kits, director and nest chaff, draw, pigment floors, `suiteThralls` | done (d314d49, 7a3075d; WIP 7b015fd) |
 | **2a** | make `suiteThralls` green: add "Thralls from S<n>" to `commandLine()` for eligible gods, or drop that one check | **done** (7b015fd; green in the 2026-09-14 run) |
-| 2b | fit thralls into the fight simulator's §7 bands (knobs on `THRALL` only; see "Now in progress") | |
+| 2b | fit thralls into the fight simulator's §7 bands (knobs on `THRALL` only) | **done (measured HOLD: hp/count/q all insensitive, see Now in progress)** |
 | 2c | one lab capture round of thralls (lesser look, pip legible, distinct from chaff) | |
-| 2d | run `--all` green; close Step 2 here (History row, open items) | |
+| 2d | run `--all` green; close Step 2 here (History row, open items) | **done (`--all` 2631 green)** |
 | 2e | fix the stream peak red: S81 scripted cull sees peak 1 simultaneous thrall, needs ≥ 2 (thrall spacing in the stream vs the 8 s cull) | **done** (cluster fix) |
-| 2b | fit thralls into the fight simulator's §7 bands (knobs on `THRALL` only; see "Now in progress") | |
-| 2c | one lab capture round of thralls (lesser look, pip legible, distinct from chaff) | |
-| 2d | run `--all` green; close Step 2 here (History row, open items) | |
 | 3a | route Prism Lance, orbs, splash and tesla through the part and segment hit path (`hitBossPart`, `e.segs`, `hitParts`) | |
 | 3b | clamp the spawn-in pop scale to the hitbox; extend the `bullets` suite | |
 | 4a | fit boss HP for S15–S45 to §6 with the fight simulator | |
@@ -890,19 +887,18 @@ Headless Chrome needs `window.__kriefne.forceState('playing')`. Kill stray serve
 | 5a–5d | docs: README chain-of-command section (a); PRODUCT.md (b); LORE.md §7/§8/§11 (c); DESIGN.md pigments and banners (d) | |
 | 6a–6d | full pass: lab captures of all 20 gods (a); maps and codex portraits (b); perf check (c); the user's playtest (d) | |
 | 7a | cards (approved design 2026-09-14, NOT started): §2 ability-line costs + physical-voice copy for every ability card | **done** (costs + copy + `suiteCards`) |
-| 7b | cards: ten new Legendary/Mythic stat variants (Overclock Dynamo/Reactor/Star, AP Sabot/Nova/Extinction, Nanoweave Bastion/Ark, Gun Array Mk III/Halo) + asserts + sim re-check | **done (code+asserts; sim needs a tuning call, see Now in progress)** |
+| 7b | cards: ten new Legendary/Mythic stat variants (Overclock Dynamo/Reactor/Star, AP Sabot/Nova/Extinction, Nanoweave Bastion/Ark, Gun Array Mk III/Halo) + asserts + sim re-check | **done (code + 5 asserts + halved taxes + widened bands; `--all` green)** |
 
 ### Now in progress
-**New session 2026-09-14 (build mode, approval-gated).** No agent is running. The user asked for: understand state → update this handoff → test → propose a todo → ask approval. **Nothing is approved for execution yet.**
+**Wave-3 cards/thralls work is complete and green. No agent is running.** `wave3` is 25 commits ahead of `main` (a7e8172) and merge-ready: `node test.js --all` 2631 green. Only `README.md` is uncommitted (overdrive blurb matching 7a/7b, needs the user's commit/revert call). Next approved work: the two prod bugs below, then merge on the user's word.
 
-**Verified state (`node test.js` fast run, after 7b)**
-- Fast harness: **2498 green** (fightsim/fuzz skipped).
-- Tree: `game.js` + `test.js` (7b, uncommitted) + `README.md` (overdrive lines, uncommitted).
-- **7b sim re-check (measured, needs a user call).** Fightsim now: 7 fails (S6 72/50-70, S21 70/75-100, S31 107/75-100, S81 148/100-130 + quiet 13.3%, S99 163/100-130, S61 balanced stuck 400s). Baseline at 2c06bfc: 3 marginal fails (S12 73, S31 72, S99 130.7); S61 balanced cleared (mean 311/400).
-- **Attribution (bisected, not guessed).** 2e clustering is innocent AND directionally right: on both trees S61-balanced is placement-insensitive, and restoring spread made deep sectors worse (S99 214 vs 163, quiet 24% vs 13%). The regression is the §2 taxes compounding: ~25 taxed picks × ~2% ≈ ×0.7 paper DPS on wide builds (S31 Hose 72 → 107). Per-pick net-positive holds; build-level compound breaks the fitted §7 bands.
-- **Awaiting user call:** (A) halve §2 taxes, (B) keep taxes and re-fit bands/economy in 2b, (C) cap total §2 burden (tax budget). Then 2b.
+**Verified state (2026-09-14, after band widening)**
+- Fast harness: **2498 green** (fightsim/fuzz skipped); `--all`: **2631 green** (fightsim 131/131, fuzz green).
+- Tree: `game.js` + `test.js` committed through the band re-fit; `README.md` overdrive lines uncommitted.
+- **7b sim arc (closed).** 7b landed 7 fightsim fails (S6 72/50-70, S21 70/75-100, S31 107/75-100, S81 148/100-130 + quiet 13.3%, S99 163/100-130, S61 balanced stuck 400s) vs baseline 2c06bfc's 3 marginals. Bisection cleared 2e (clustering innocent and directionally right); the regression was §2 taxes compounding (~25 taxed picks × ~2% ≈ ×0.7 paper DPS on wide builds).
+- **Call made (A, halve §2 taxes):** rate/dmg 2%→1%, 3%→1.5%, 4%→2%, 1%→0.5%; seek flight 5%→2.5%; aegis dash +10%→+5%; hull-weight flats ward/mirror 5→2, bulwark 4→2, stasis/wind 8→4; nanoweave speed 2/3/4/6/8/10→1/1.5/2/3/4/5. §1 families untouched. Fightsim went 7 → 4 marginal fails; S61 balanced and S81 band+quiet recovered.
 - **2b measured HOLD (no knob moves the bands):** hp [4,6]→[3.5,5.5]/[3,5]/[3.5,5] leaves S31 ~103-109 and S99 ~127-132 (thrall HP is not the bottleneck — total sector HP/pacing is); count 1→0 at S31 holds ~103→106 and at S99 worsens 132.5→160.5 with a 195s tail (thralls gather budget into killable targets; removing them tails the chaff stream). q already proven insensitive. dmg/size/huntR/nestP cannot move invulnerable-pilot clear times or unasserted nests. S6/S21 are pre-thrall (unlock S30) — out of 2b scope, pure 2-seed noise. Residual marginals are costs/pool character, same as baseline's 3. THRALL knobs unchanged.
-- **Call made (widen bands ~5s):** §7 targets 50–70→50–75 (S1–S9), 75–100→70–105 (S11–S49), 100–130→100–135 (S51+); `sectorBand` follows. Widening only loosens — all current passes stay green by construction.
+- **Call made (widen bands ~5s):** §7 targets 50–70→50–75 (S1–S9), 75–100→70–105 (S11–S49), 100–130→100–135 (S51+); `sectorBand` follows. Widening only loosens — all current passes stay green by construction. Fightsim 131/131, `--all` 2631 green.
 
 **State of Step 2 (thralls)**
 - **Done and committed.** A thrall is a new `type:'thrall'` with `kind` set to its parent. Every "must not" in the gameplay code is already gated on `type==='boss'`, so thralls are excluded by default.
@@ -910,32 +906,29 @@ Headless Chrome needs `window.__kriefne.forceState('playing')`. Kill stray serve
   - **Kits:** each of the 17 eligible gods has a `thrall:{…}` entry; NULLIFIER, CHORUS and SINGULARITY have `thrall:false`.
   - **Director:** thralls spliced into `spawnQueue`; nest chaff brings one along at `THRALL.nestP`.
   - **Draw:** hairline, no rank rings, a 30 px pip.
-  - **Naming:** `srcOf` shows "X THRALL". Killing a thrall doesn't unlock the god's codex entry.
+  - **Naming:** `srcOf` shows "X THRALL" under the god's id. Meeting one marks its god seen (the update loop marks `e.kind`); killing one gives no field note (only the god does); dying to one names it on the end screen and marks seen.
   - **Pigment:** new floors (any two gods ≥ 0.05; a thrall god vs any servitor ≥ 0.03). PROGENITOR's hue moved from 177 to 198.
   - **Tests:** `suiteThralls`, 180 checks, including a 60 s run per kind.
-- **Last commit 7b015fd (WIP). Superseded reds:** 2a (`commandLine` thrall note, fixed in 7b015fd) and the S81 stream-peak check (fixed by the 2e cluster change, uncommitted).
-  - New fitting knobs: `hp:[4,6]`, `count:[1,35,3]`, `slotK:[0.4,1]` (eased from S30 to S100), `huntR:150`.
+- **Landed since.** 2a (`commandLine` "Thralls from S<n>", green), 2e cluster (`THRALL.q` 0.12, one group), 7a (33 ability cards costed + `suiteCards` 13), 7b (ten variants + 5 asserts, `suiteCards` now 18), halved §2 taxes, widened §7 bands. `suiteThralls` 180 green; `--all` 2631 green.
+  - Fitting knobs as landed: `hp:[4,6]`, `count:[1,35,3]`, `slotK:[0.4,1]` (eased from S30 to S100), `huntR:150`.
   - Thrall unlock capped at S101: JUGGERNAUT's and ECLIPSE's arrive there.
   - SENTINEL's thrall drops its shield while it throws the spear.
-  - **Known red:** 1 check in `suiteThralls`, "the codex command line says when a god's thralls walk (HARBINGER: S95)". The test was written but `commandLine()` wasn't changed. That's sub-step **2a**.
-  - `pigment` is green; `--all` hasn't been run since 7a3075d, when `node test.js` was 2441 green.
-- **Fight simulator with thralls (for 2b).**
-  - First cut, before 7b015fd: Hose took 138 s at S31, 164 at S46, 179 at S61, 257 at S81 and 280 at S99. The bands are 75–100 and 100–130; the baseline without thralls was 94/85/109/111/118.
-  - **Causes:**
-    1. One small target soaks up the Homing Hose's spread, so a thrall takes 60–110 s to kill while the chaff keeps streaming.
-    2. Late thralls held back by the cap trail behind the stream alone, so the sector goes quiet ≥ 15% of the time.
-    3. SENTINEL's thrall mirror out-turned the pilot. That's fixed at 45% turn speed.
-  - 7b015fd's knobs aren't measured yet. For 2b, run `node test.js --only fightsim --verbose` and tune only `THRALL` (the live object is exposed as `a.thrallCfg` for sweeps).
-  - Sim seeds are noisy with random kinds (±30 s deep).
+- **Fight simulator with thralls (for the record; 2b closed as HOLD).**
+  - First cut, before 7b015fd: Hose took 138 s at S31, 164 at S46, 179 at S61, 257 at S81 and 280 at S99, against the old bands 75–100 and 100–130; the baseline without thralls was 94/85/109/111/118.
+  - **Suspected causes, then measured:**
+    1. Soak (one hard target eats the Hose spread) — REFUTED as the driver: hp [4,6]→[3,5] and count 1→0 don't speed S31/S99; removing thralls at S99 tails to 160.5.
+    2. Late thralls trailing the stream alone (quiet ≥ 15%) — fixed by the 2e cluster (several share the field; S81 quiet back in band).
+    3. SENTINEL's thrall mirror out-turned the pilot — fixed at 45% turn speed.
+  - Sim seeds are noisy with random kinds (±30 s deep); the suite asserts 2-seed means, so ±4 s edges are noise, not signal.
 - **Gotchas.**
   - The thrall cycle is `[sig,'hunt',sec,'hunt']`, and `bossLabel` shows CONTACT for `hunt`.
   - Part radii are scaled ×0.6 once after `kit.init`, so a kit must never re-add parts for a thrall (every regrow path is guarded).
-- **Uncommitted, not ours.** A `README.md` change describes new card variants (Overdrive stat sticks, a Mythic Split Chamber). It doesn't come from this plan; it's probably another session. It's left uncommitted for the user to decide. Card balancing is parked.
+- **Uncommitted, needs the user's call.** A `README.md` change (6 lines: Overdrive stat sticks pay, Mythic Split Chamber doubles barrels) matches the landed 7a/7b work — it reads like the docs half of this session's cards change, not another session. Commit or revert on the user's word; card balancing itself is done and green.
 
 ### Open items
 Each is tagged with the step that owns it; resolved items are removed.
-- **[2]** The pigment rule is done: floors for mixed kinds (7a3075d). Remaining: 2b (the fit), 2c (visuals), 2d (close). 2a and 2e are done and green.
-- **[7, cards]** Approved design 2026-09-14, not started: (a) costs are multiplicative % (never flats — flats stacked into an unfireable gun); (b) §2 ability-cost table + physical-voice copy approved as final wording; (c) ten L/M variants approved with numbers (Dynamo/Reactor/Star, Sabot/Nova/Extinction, Bastion/Ark, Mk III/Halo); Mythic barrels stay Split Chamber's alone; dash/recall first picks and REFIT stay free. Steps 7a/7b proposed.
+- **[2]** The pigment rule is done: floors for mixed kinds (7a3075d). Remaining: 2c (visuals). 2a, 2b, 2d and 2e are done and green.
+- **[7, cards]** Done 2026-09-14: 7a (33 ability cards costed + physical-voice faces + `suiteCards`), 7b (ten L/M variants + 5 asserts), halved §2 taxes, widened §7 bands; `--all` 2631 green. Remaining: the README blurb commit/revert call (user).
 - **[3]** Prism Lance, orbs, splash and tesla ignore `hitParts`, `segs` and `parts`: they hit the body circle only, so parts such as WARDEN's plates or REVENANT's pod can't be damaged by them. The spawn-in pop draws up to 1.44× larger than the hitbox.
 - **[4]**
   - Boss HP: nests die in 7–35 s against the §6 bands.
@@ -951,11 +944,13 @@ Each is tagged with the step that owns it; resolved items are removed.
   - LEVIATHAN's Coil wake reads as dense red.
   - Perf: S100 Phase 2 plus chaff under 4 ms per frame.
 - **[user]** Root currently also blocks the dash; spec §3.3 says root means no movement only. It's existing behaviour, left as is until the user decides.
-- **[bug, prod]** Death screen (`drawEnd`, game.js:8345): the record is centred in the full canvas height including the bottom key-hint zone, so it reads off-centre to a human; TELL/COUNTER rows are left-anchored (L=150/T=252), not optically centred, and long lines bleed past the right edge (prod screenshot); the score row can overlap build icons. Needs a whole-screen rethink. Fix later — finishing current work first.
-- **[bug, prod]** WARDEN TOLL GATE (`wdGate`, game.js:2828): the triangle rotation maximises distance from WARDEN's hull and clamps to bounds, but never checks obstacles. `beamEnds` clips beams at obstacles via `rayObs`, so a pylon in/behind an obstacle fires ~zero-length links — the corner silently doesn't work. Fix direction: score rotations with `pointBlocked`/`freeSpot` or nudge pylons clear. Same audit needed for other point placements (all bounds-clamp only): HYDRA spit pools (game.js:4344), PROGENITOR bay mines (4484), KRAKEN ink mines (4733), ARCHON radial (5435), HARBINGER meteor target. Radial zones soft-fail (hidden inside obstacles) while beams hard-fail; player-pos/at-self placements are fine. Fix later — finishing current work first.
+- **[bug, prod]** Death screen (`drawEnd`, game.js:8355): the record is centred in the full canvas height including the bottom key-hint zone, so it reads off-centre to a human; TELL/COUNTER rows are left-anchored (L=150/T=252), not optically centred, and long lines bleed past the right edge (prod screenshot); the score row can overlap build icons. Needs a whole-screen rethink. Next after the handoff refresh.
+- **[bug, prod]** WARDEN TOLL GATE (`wdGate`, game.js:2838): the triangle rotation maximises distance from WARDEN's hull and clamps to bounds, but never checks obstacles. `beamEnds` (2402) clips beams at obstacles via `rayObs` (2365), so a pylon in/behind an obstacle fires ~zero-length links — the corner silently doesn't work. Fix direction: score rotations with `pointBlocked`/`freeSpot` or nudge pylons clear. Same audit needed for other point placements (all bounds-clamp only): HYDRA acid spit pools (`acidspit`, 3438), PROGENITOR bay mines (`minefield`, 4485), KRAKEN ink mines (`ink`, 4736), HARBINGER meteor marks (`meteor`, 4618), SINGULARITY accretion disk (5435). (ARCHON has no radials — earlier note naming it was wrong.) Radial zones soft-fail (hidden inside obstacles) while beams hard-fail; player-pos/at-self placements are fine. Next after the handoff refresh.
 
 ### Decisions (user)
 - **Cards/overdrive (2026-09-14):** costs are multiplicative %, every pick net-positive, rarity buys efficiency; §2 ability-cost table + physical-voice copy approved as final wording (no dev-speak on cards — physical things, numbers kept); ten L/M stat variants approved with proposed numbers/names; dash/recall first picks and REFIT stay free; gated follow-ups of conditional systems stay pure.
+- **Tax tuning (2026-09-14, call A):** halve all §2 taxes; §1 families untouched.
+- **Bands (2026-09-14):** re-fit the §7 targets ~5s to measured (§7 now 50–75 / 70–105 / 100–135) after 2b proved no THRALL knob moves the residual marginals.
 - **Deep-sector danger** uses three levers: foe damage and behaviour, thrall density, and deadlier nest chaff.
 - **Boss HP** is fitted strictly to the Homing Hose §6 bands; off-meta builds being harder is accepted.
 - **Normal sectors** keep an alive floor so they never go quiet. Per-foe XP scales so picks per sector stay about the same.
@@ -983,6 +978,10 @@ Each is tagged with the step that owns it; resolved items are removed.
 | 2026-09-14 | Step 0, housekeeping | **done**: `wave3` branch; deleted the `overhaul` branch (merged) and `worktree-agent-ae66187e…` (superseded alternate HYDRA/WYVERN/ORACLE/SENTINEL line, tip 3f4f57c, recoverable from the reflog); removed the dead `mkLieutenant` lab fallback, `inReplay`, `wrapText` and ARCHON's legacy `slam` alias; fast default test run (45 s) plus `--all`; `WAVE3_HANDOFF.md` folded in here; `--all` 2447 green | `wave3` |
 | 2026-09-14 | Step 1, test consolidation | **done**: `balance` retired (94 analytic TTK/wall/pin asserts; its boss-hit-vs-farmer-hull check → `combos`; replaced by 40 real-fight asserts in `fightsim`: Hose kills every lead inside the cap, no lead under 6s); `roster`/`live`/`mobility`/`recovery`/`regen` folded into `hierarchy`/`prims`/`kits1`/`teleport` (37 duplicates deleted, the rest moved); shared helpers (`hold`, `sectorRoom`, `kitBasics`, `pinAt`, `shootAt`, `circleKeys`); 33 → 27 suites; `--all` 2447 → 2356 green (187 → 164 s), `node test.js` 2354 → 2223 (43 → 35 s). README still cites `--only balance` (docs sweep, step 5) | `wave3` 6c7f40c, 59f9dbf, ff107d5 |
 | 2026-09-14 | Step 2, thralls | **paused (user stopped the agent at the usage limit)**: engine, kits, director, draw, pigment and suite done (1274839, d314d49, a0b8202, 7a3075d, 8ee7ab7); WIP fitting knobs 7b015fd with 1 known red check; remaining work split into 2a–2d | `wave3` 7b015fd |
-| 2026-09-14 | Step 2e, stream peak | **done**: thralls were spread over `THRALL.q` [0.12, 0.5] so consecutive ones landed ~19 s apart (cull-speed) and never shared the field; now all arrive as one group at `THRALL.q` 0.12. Safe by construction: sector count ≤ alive cap at every depth, so one pack can never go over cap. `suiteThralls` 180 green; fast harness 2442 green | `wave3` (unmerged step) |
-| 2026-09-14 | Step 7a, ability costs | **done**: all 33 ability cards pay per the approved table (rate/dmg/speed/flight-speed/dash-CD/max-HP axes, HP costs floored at 60 with HP clamped, dash/recall first picks and REFIT free, gated conditional follow-ups pure); approved physical-voice copy on every face; new `suiteCards` (13: cost direction per card, HP floor, pcell unlock-free/repeat-taxed, face-text regexes); combos everything-ceiling floor re-fit 1500 → 1300 for the costed economy; fast harness 2453 green | `wave3` (unmerged step) |
+| 2026-09-14 | Step 2e, stream peak | **done**: thralls were spread over `THRALL.q` [0.12, 0.5] so consecutive ones landed ~19 s apart (cull-speed) and never shared the field; now all arrive as one group at `THRALL.q` 0.12. Safe by construction: sector count ≤ alive cap at every depth, so one pack can never go over cap. `suiteThralls` 180 green; fast harness 2442 green | `wave3` 4205de0 |
+| 2026-09-14 | Step 7a, ability costs | **done**: all 33 ability cards pay per the approved table (rate/dmg/speed/flight-speed/dash-CD/max-HP axes, HP costs floored at 60 with HP clamped, dash/recall first picks and REFIT free, gated conditional follow-ups pure); approved physical-voice copy on every face; new `suiteCards` (13: cost direction per card, HP floor, pcell unlock-free/repeat-taxed, face-text regexes); combos everything-ceiling floor re-fit 1500 → 1300 for the costed economy; fast harness 2453 green | `wave3` 8cadbba |
+| 2026-09-14 | Step 7b, ten variants | **done**: Overclock Dynamo/Reactor/Star, AP Sabot/Nova/Extinction, Nanoweave Bastion/Ark, Gun Array Mk III/Halo sharing `RATE_FAM`/`DMG_FAM`/`HP_FAM` stack budgets; sim orders + combos family-best-first; `suiteCards` +5 (now 18); combos max-HP 500→600; fast 2498 green; fightsim 7 fails (tax compound, see tuning) | `wave3` 59bce2b |
+| 2026-09-14 | Tax tuning (call A) | **done**: all 35 §2 taxes halved (faces + `suiteCards` regexes follow; HP floor test 65→64); §1 families untouched; fightsim 7→4 marginal fails, S61 balanced + S81 band/quiet recovered; fast 2498 green | `wave3` fcebbe9 |
+| 2026-09-14 | Step 2b, thrall fit | **done (measured HOLD)**: hp/count/q sweeps prove no `THRALL` knob moves the bands (count 1→0 at S99 worsens 132.5→160.5); knobs unchanged | `wave3` (SPEC-only) |
+| 2026-09-14 | §7 band re-fit + full green | **done**: targets 50–75 / 70–105 / 100–135 (`sectorBand` follows, loosening-only); fightsim 131/131; `--all` **2631 green**; `wave3` merge-ready, merge only on the user's word | `wave3` 6fabcd3 |
 | 2026-09-14 | Step 7b, L/M variants | **done (sim needs a tuning call)**: ten variants at approved numbers/rarities/caps, sharing family budgets (rate/dmg 10, HP 12), arrays gated on shots<8; sim order lists + combos everything-build take family-best-first; `suiteCards` +5 (existence/rarity/cap, budget shutoff, Bastion+Ark speed floor, Split still single-Mythic gated); combos max-HP pin re-fit 500 → 600 (budget-capped 565); fast harness 2498 green. Sim re-check below | `wave3` (unmerged step) |
