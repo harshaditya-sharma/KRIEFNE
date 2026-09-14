@@ -890,15 +890,17 @@ Headless Chrome needs `window.__kriefne.forceState('playing')`. Kill stray serve
 | 5a–5d | docs: README chain-of-command section (a); PRODUCT.md (b); LORE.md §7/§8/§11 (c); DESIGN.md pigments and banners (d) | |
 | 6a–6d | full pass: lab captures of all 20 gods (a); maps and codex portraits (b); perf check (c); the user's playtest (d) | |
 | 7a | cards (approved design 2026-09-14, NOT started): §2 ability-line costs + physical-voice copy for every ability card | **done** (costs + copy + `suiteCards`) |
-| 7b | cards: ten new Legendary/Mythic stat variants (Overclock Dynamo/Reactor/Star, AP Sabot/Nova/Extinction, Nanoweave Bastion/Ark, Gun Array Mk III/Halo) + asserts + sim re-check | proposed |
+| 7b | cards: ten new Legendary/Mythic stat variants (Overclock Dynamo/Reactor/Star, AP Sabot/Nova/Extinction, Nanoweave Bastion/Ark, Gun Array Mk III/Halo) + asserts + sim re-check | **done (code+asserts; sim needs a tuning call, see Now in progress)** |
 
 ### Now in progress
 **New session 2026-09-14 (build mode, approval-gated).** No agent is running. The user asked for: understand state → update this handoff → test → propose a todo → ask approval. **Nothing is approved for execution yet.**
 
-**Verified state (`node test.js` fast run, after 7a)**
-- Fast harness: **2453 green** (fightsim/fuzz skipped). 2a, 2e, 7a green.
-- Tree: `game.js` + `test.js` (7a, uncommitted) + `README.md` (overdrive lines, uncommitted).
-- Next approved: 7b (L/M variants + asserts + sim re-check), then thrall fit 2b.
+**Verified state (`node test.js` fast run, after 7b)**
+- Fast harness: **2498 green** (fightsim/fuzz skipped).
+- Tree: `game.js` + `test.js` (7b, uncommitted) + `README.md` (overdrive lines, uncommitted).
+- **7b sim re-check (measured, needs a user call).** Fightsim now: 7 fails (S6 72/50-70, S21 70/75-100, S31 107/75-100, S81 148/100-130 + quiet 13.3%, S99 163/100-130, S61 balanced stuck 400s). Baseline at 2c06bfc: 3 marginal fails (S12 73, S31 72, S99 130.7); S61 balanced cleared (mean 311/400).
+- **Attribution (bisected, not guessed).** 2e clustering is innocent AND directionally right: on both trees S61-balanced is placement-insensitive, and restoring spread made deep sectors worse (S99 214 vs 163, quiet 24% vs 13%). The regression is the §2 taxes compounding: ~25 taxed picks × ~2% ≈ ×0.7 paper DPS on wide builds (S31 Hose 72 → 107). Per-pick net-positive holds; build-level compound breaks the fitted §7 bands.
+- **Awaiting user call:** (A) halve §2 taxes, (B) keep taxes and re-fit bands/economy in 2b, (C) cap total §2 burden (tax budget). Then 2b.
 
 **State of Step 2 (thralls)**
 - **Done and committed.** A thrall is a new `type:'thrall'` with `kind` set to its parent. Every "must not" in the gameplay code is already gated on `type==='boss'`, so thralls are excluded by default.
@@ -947,6 +949,8 @@ Each is tagged with the step that owns it; resolved items are removed.
   - LEVIATHAN's Coil wake reads as dense red.
   - Perf: S100 Phase 2 plus chaff under 4 ms per frame.
 - **[user]** Root currently also blocks the dash; spec §3.3 says root means no movement only. It's existing behaviour, left as is until the user decides.
+- **[bug, prod]** Death screen (`drawEnd`, game.js:8345): the record is centred in the full canvas height including the bottom key-hint zone, so it reads off-centre to a human; TELL/COUNTER rows are left-anchored (L=150/T=252), not optically centred, and long lines bleed past the right edge (prod screenshot); the score row can overlap build icons. Needs a whole-screen rethink. Fix later — finishing current work first.
+- **[bug, prod]** WARDEN TOLL GATE (`wdGate`, game.js:2828): the triangle rotation maximises distance from WARDEN's hull and clamps to bounds, but never checks obstacles. `beamEnds` clips beams at obstacles via `rayObs`, so a pylon in/behind an obstacle fires ~zero-length links — the corner silently doesn't work. Fix direction: score rotations with `pointBlocked`/`freeSpot` or nudge pylons clear. Same audit needed for other point placements (all bounds-clamp only): HYDRA spit pools (game.js:4344), PROGENITOR bay mines (4484), KRAKEN ink mines (4733), ARCHON radial (5435), HARBINGER meteor target. Radial zones soft-fail (hidden inside obstacles) while beams hard-fail; player-pos/at-self placements are fine. Fix later — finishing current work first.
 
 ### Decisions (user)
 - **Cards/overdrive (2026-09-14):** costs are multiplicative %, every pick net-positive, rarity buys efficiency; §2 ability-cost table + physical-voice copy approved as final wording (no dev-speak on cards — physical things, numbers kept); ten L/M stat variants approved with proposed numbers/names; dash/recall first picks and REFIT stay free; gated follow-ups of conditional systems stay pure.
@@ -979,3 +983,4 @@ Each is tagged with the step that owns it; resolved items are removed.
 | 2026-09-14 | Step 2, thralls | **paused (user stopped the agent at the usage limit)**: engine, kits, director, draw, pigment and suite done (1274839, d314d49, a0b8202, 7a3075d, 8ee7ab7); WIP fitting knobs 7b015fd with 1 known red check; remaining work split into 2a–2d | `wave3` 7b015fd |
 | 2026-09-14 | Step 2e, stream peak | **done**: thralls were spread over `THRALL.q` [0.12, 0.5] so consecutive ones landed ~19 s apart (cull-speed) and never shared the field; now all arrive as one group at `THRALL.q` 0.12. Safe by construction: sector count ≤ alive cap at every depth, so one pack can never go over cap. `suiteThralls` 180 green; fast harness 2442 green | `wave3` (unmerged step) |
 | 2026-09-14 | Step 7a, ability costs | **done**: all 33 ability cards pay per the approved table (rate/dmg/speed/flight-speed/dash-CD/max-HP axes, HP costs floored at 60 with HP clamped, dash/recall first picks and REFIT free, gated conditional follow-ups pure); approved physical-voice copy on every face; new `suiteCards` (13: cost direction per card, HP floor, pcell unlock-free/repeat-taxed, face-text regexes); combos everything-ceiling floor re-fit 1500 → 1300 for the costed economy; fast harness 2453 green | `wave3` (unmerged step) |
+| 2026-09-14 | Step 7b, L/M variants | **done (sim needs a tuning call)**: ten variants at approved numbers/rarities/caps, sharing family budgets (rate/dmg 10, HP 12), arrays gated on shots<8; sim order lists + combos everything-build take family-best-first; `suiteCards` +5 (existence/rarity/cap, budget shutoff, Bastion+Ark speed floor, Split still single-Mythic gated); combos max-HP pin re-fit 500 → 600 (budget-capped 565); fast harness 2498 green. Sim re-check below | `wave3` (unmerged step) |
