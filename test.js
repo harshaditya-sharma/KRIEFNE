@@ -360,7 +360,7 @@ function suiteUpgradePool() {
   const pc = a.upgrades.find(u => u.id === 'pcell');
   ok('Portal Cell says UNLOCK while recall is locked', /UNLOCK/.test(pc.dyn(a.player).desc));
   give(a, 'pcell', 1);
-  ok('and reads as charges once recall is owned', pc.dyn(a.player) === null);
+  ok('and reads as charges once recall is owned', /Spare charges/.test(pc.dyn(a.player).desc));
  }
  return api;
 }
@@ -1037,7 +1037,10 @@ function suiteCombos() {
  if (VERBOSE) console.log('  everything-build sustained DPS: ' + ceiling.toFixed(0) +
   '  shots=' + p.shots + ' rate=' + p.fireRate.toFixed(1) + ' dmgMult=' + p.dmgMult.toFixed(2));
  atMost('maxed everything stays under the tuned DPS ceiling', ceiling, 9000);
- atLeast('maxed everything is still meaningfully strong', ceiling, 1500);
+ // Costed economy (7a): ~30 small multiplicative taxes compound the ceiling
+ // down ~7%. The floor follows the economy, not the old free lunch; 7b's
+ // Legendary/Mythic variants lift it again.
+ atLeast('maxed everything is still meaningfully strong', ceiling, 1300);
  atMost('fire rate cannot become a single-frame machine gun', p.fireRate, 26);
  atMost('projectile count stays renderable', p.shots, 12);
  atMost('max HP stays in band', p.maxhp, 500);
@@ -2223,6 +2226,63 @@ function suiteSrMirrors() {
   ok('role=application stays a deliberate, commented choice', /role="application" is deliberate/.test(html));
   const css = fs.readFileSync(path.join(__dirname, 'styles.css'), 'utf8');
   ok('both mirrors dock on focus like the draft', /#settings-sr:focus-within/.test(css) && /#codex-sr:focus-within/.test(css));
+ }
+}
+function suiteCards() {
+ section('upgrade cards: every pick pays, floors hold');
+ // One pick from a fresh hull: the taxed stat must move the right way.
+ function taxed(id, key, dir) {
+  const a = boot(); a.startRun(); a.loadSector(0); a.forceState('playing');
+  const p = a.player, before = p[key];
+  give(a, id, 1);
+  return dir > 0 ? p[key] > before : p[key] < before;
+ }
+ const rate = ['slip', 'cryo', 'crit', 'surge', 'magnet', 'nova', 'tesla', 'orbital', 'lance', 'corrode', 'overcharge', 'adrenal', 'salvage', 'shock', 'barrier'];
+ const dmg = ['vamp', 'rico', 'inc', 'pierce', 'flak', 'chain', 'orbit', 'repair', 'shrap'];
+ ok('rate-taxed cards slow the cycle', rate.every(id => taxed(id, 'fireRate', -1)), rate.filter(id => !taxed(id, 'fireRate', -1)).join(','));
+ ok('damage-taxed cards soften the rounds', dmg.every(id => taxed(id, 'dmgMult', -1)), dmg.filter(id => !taxed(id, 'dmgMult', -1)).join(','));
+ ok('Slipstream still speeds the hull', taxed('slip', 'speed', 1));
+ ok('Tractor still hauls harder', taxed('tract', 'magnet', 1) && taxed('tract', 'speed', -1));
+ ok('Seeker fins cost flight speed, not damage', taxed('seek', 'projSpeed', -1));
+ ok('Aegis drinks dash power', taxed('aegis', 'dashCdMax', 1));
+ {
+  // hull-weight cards cut max HP but never below the 60 floor, and never strand HP above it
+  const a = boot(); a.startRun(); a.loadSector(0); a.forceState('playing');
+  const p = a.player; p.maxhp = 65; p.hp = 65;
+  give(a, 'wind', 1);
+  eq('max HP costs stop at the 60 floor', p.maxhp, 60);
+  eq('current HP is clamped to the new max', p.hp <= p.maxhp, true);
+  give(a, 'ward', 1); give(a, 'mirror', 1);
+  eq('the floor holds across picks', p.maxhp, 60);
+ }
+ {
+  // Portal Cell: the unlock is free, repeat charges ride with a small rate tax
+  const a = boot(); a.startRun(); a.loadSector(0); a.forceState('playing');
+  const p = a.player, r0 = p.fireRate;
+  give(a, 'pcell', 1);
+  eq('the recall unlock costs no rate', p.fireRate, r0);
+  give(a, 'pcell', 1);
+  ok('repeat charges tax the cycle', p.fireRate < r0);
+  ok('and read as charges, not an unlock', /Spare charges/.test(a.upgrades.find(u => u.id === 'pcell').dyn(p).desc));
+ }
+ {
+  // every costed card names its cost on its face, in physical voice
+  const a = boot(); a.startRun(); a.loadSector(0); a.forceState('playing');
+  const face = {
+   slip: /-3% rate/, seek: /-5% speed/, rico: /-4%/, pierce: /-3% damage/, inc: /-3% impact/,
+   cryo: /-3% rate/, flak: /-4% direct/, corrode: /-2% rate/, chain: /-3% damage/,
+   overcharge: /-2% rate/, vamp: /-2% damage/, crit: /-2% rate/, surge: /-2% base rate/,
+   adrenal: /-2% base rate/, shrap: /-2% damage/, repair: /-2% damage/, salvage: /-2% rate/,
+   tract: /-2% speed/, magnet: /-2% rate/, orbit: /-2% damage/, nova: /-2% rate/,
+   tesla: /-3% rate/, orbital: /-2% rate/, lance: /-2% rate/, aegis: /dash cooldown/,
+   ward: /-5 max HP/, bulwark: /-4 max HP/, mirror: /-5 max HP/, barrier: /-3% rate/,
+   stasis: /-8 max HP/, wind: /-8 max HP/, shock: /-2% rate/, gatecd: /-1% rate/, transit: /-1% rate/
+  };
+  const bad = Object.keys(face).filter(id => {
+   const u = a.upgrades.find(x => x.id === id);
+   return !face[id].test(u.desc);
+  });
+  eq('every costed ability card states its cost on its face', bad.join(','), '');
  }
 }
 function suiteSafety() {
@@ -5461,7 +5521,8 @@ const SUITES = [
  ['voice', suiteVoice],
  ['safety', suiteSafety],
  ['replay', suiteReplay],
- ['srmirror', suiteSrMirrors]
+ ['srmirror', suiteSrMirrors],
+ ['cards', suiteCards]
 ];
 
 // Importable so ad-hoc diagnostics can drive the same stubs without running the
