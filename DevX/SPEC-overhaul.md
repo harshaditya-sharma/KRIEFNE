@@ -837,7 +837,7 @@ This is the **only** status doc. Anyone taking over reads "Resume here" and "Now
 ### Resume here
 
 **Where things are**
-- **Branch:** `wave3` (run `git log --oneline -5`). It's cut from `main` a7e8172 (merge-base still a7e8172; 25 commits ahead) and merges to `main` **only when the user says**. `node test.js --all` is green (2631), so it is merge-ready.
+- **Branch:** `wave3` (run `git log --oneline -5`). It's cut from `main` a7e8172 (merge-base still a7e8172; 25 commits ahead) and merges to `main` **only when the user says**. Fast harness is green (2500); `--all` is 2632 green + 1 marginal (S99 Hose mean 139 vs §7 100–135, needs the user's call — see Open items). Not merge-ready until that call.
 - **Code:** `game.js` is the whole game (~8960 lines). Boss blocks run `// ===== BOSS: X =====` in ladder order; the engine sections sit before them, and the `window.__kriefne` hooks sit at the end. `test.js` is the headless harness with 29 suites. `DESIGN.md` holds the visual rules (`K.red` means harm, `K.gold` means the player's).
 - **This spec:** `DevX/` is gitignored but this file is force-tracked, so commit it with `git add -f DevX/SPEC-overhaul.md`. The lab files are local only.
 
@@ -890,7 +890,7 @@ Headless Chrome needs `window.__kriefne.forceState('playing')`. Kill stray serve
 | 7b | cards: ten new Legendary/Mythic stat variants (Overclock Dynamo/Reactor/Star, AP Sabot/Nova/Extinction, Nanoweave Bastion/Ark, Gun Array Mk III/Halo) + asserts + sim re-check | **done (code + 5 asserts + halved taxes + widened bands; `--all` green)** |
 
 ### Now in progress
-**Wave-3 cards/thralls work is complete and green. No agent is running.** `wave3` is 25 commits ahead of `main` (a7e8172) and merge-ready: `node test.js --all` 2631 green. Only `README.md` is uncommitted (overdrive blurb matching 7a/7b, needs the user's commit/revert call). Next approved work: the two prod bugs below, then merge on the user's word.
+**Revert found and fixed 2026-09-14; one sim marginal open. No agent is running.** The working tree had silently reverted the Toll Gate fix in `game.js` (`freeNear` + rotation clearance scoring gone) while `test.js` kept the regression test — `kits1` failed 172/173 exactly as the test comment predicts (two ~zero spans). Restored `game.js` to HEAD: `kits1` 173 green, fast harness 2500 green. `--all`: 2632 green + S99 Hose mean 139 vs §7 100–135 (deterministic 2-seed mean, reproduced twice; Toll-Gate code is WARDEN-only so innocent — pre-existing marginal, needs the user's call). Committing the README overdrive blurb (matches landed 7a/7b) with this. Next: death-screen prod bug, then merge on the user's word.
 
 **Verified state (2026-09-14, after band widening)**
 - Fast harness: **2498 green** (fightsim/fuzz skipped); `--all`: **2631 green** (fightsim 131/131, fuzz green).
@@ -943,6 +943,7 @@ Each is tagged with the step that owns it; resolved items are removed.
   - A lab capture round: all 20 gods, the maps (never visually confirmed) and the codex portraits (LEVIATHAN's is busy).
   - LEVIATHAN's Coil wake reads as dense red.
   - Perf: S100 Phase 2 plus chaff under 4 ms per frame.
+- **[fightsim]** S99 Hose 2-seed mean 139 vs §7 100–135 (deterministic on this machine, reproduced 2×; the Toll-Gate restore touches WARDEN-only code, so it is innocent). Per the suite's own doctrine ±4s edges are noise, but 139 is +4 over the cap and above the 2b-measured ~132. Calls for the user: accept as noise, widen the S51+ band, or tune in step 4 (4a–4d own the fit).
 - **[user]** Root currently also blocks the dash; spec §3.3 says root means no movement only. It's existing behaviour, left as is until the user decides.
 - **[bug, prod]** Death screen (`drawEnd`, game.js:8355): the record is centred in the full canvas height including the bottom key-hint zone, so it reads off-centre to a human; TELL/COUNTER rows are left-anchored (L=150/T=252), not optically centred, and long lines bleed past the right edge (prod screenshot); the score row can overlap build icons. Needs a whole-screen rethink. Next after the handoff refresh.
 - **[bug, prod]** WARDEN TOLL GATE (`wdGate`, game.js:2838): **fixed 2026-09-14** — rotations are scored by worst-link `rayObs` clearance (a clipped triangle loses to a clear one before hull distance breaks the tie) and chosen pylons nudge out of cover via `freeNear`; regression test rigs a 120×120 wall west of the ship (old code: two ~zero spans; fixed: all six full). Remaining audit for other point placements (all bounds-clamp only): HYDRA acid spit pools (`acidspit`, 3438), PROGENITOR bay mines (`minefield`, 4485), KRAKEN ink mines (`ink`, 4736), HARBINGER meteor marks (`meteor`, 4618), SINGULARITY accretion disk (5435). Radial zones soft-fail (hidden inside obstacles) while beams hard-fail; player-pos/at-self placements are fine.
@@ -987,3 +988,4 @@ Each is tagged with the step that owns it; resolved items are removed.
 | 2026-09-14 | §16 handoff audit | **done**: checked every claim against the code (29 suites, codex meeting-marks-seen, bug line refs, ARCHON-has-no-radials correction); History rows added | `wave3` 6788d63 |
 | 2026-09-14 | WARDEN Toll Gate vs cover | **done**: rotation scoring by link clearance + `freeNear` pylon nudge; regression test (wall rig: old 2×~zero spans → new 6/6 full); kits1 173 green | `wave3` (unmerged step) |
 | 2026-09-14 | Step 7b, L/M variants | **done (sim needs a tuning call)**: ten variants at approved numbers/rarities/caps, sharing family budgets (rate/dmg 10, HP 12), arrays gated on shots<8; sim order lists + combos everything-build take family-best-first; `suiteCards` +5 (existence/rarity/cap, budget shutoff, Bastion+Ark speed floor, Split still single-Mythic gated); combos max-HP pin re-fit 500 → 600 (budget-capped 565); fast harness 2498 green. Sim re-check below | `wave3` (unmerged step) |
+| 2026-09-14 | Revert hunt + verify | **done**: working-tree revert of the Toll Gate fix found via `kits1` red (172/173, two ~zero spans); `game.js` restored to HEAD → kits1 173, fast 2500 green; `--all` 2632 + S99 marginal (139 vs 100–135, user call open); README blurb committed | `wave3` |

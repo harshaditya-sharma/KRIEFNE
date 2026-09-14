@@ -282,7 +282,11 @@ Upgrade cards are `req`-gated, so you never draft an improvement to a system you
 **Core** — rate / damage / max-HP / **Ion Thrusters** (dash unlock, then cooldown) /
 **Slipstream** (speed, needs dash).
 
-**Barrels** — **Gun Array** (+1 shot, no cost) / **Split Chamber ★** (+1 shot, −15% dmg) /
+**Overdrive** — every stat stick pays: **Overclock** (+rate, −dmg) / **AP Rounds** (+dmg, −rate) /
+**Nanoweave** (+HULL, −speed). Common → Mythic variants share a stack budget; higher rarity, better rate.
+
+**Barrels** — **Gun Array** (+1 shot, slower) across common / Mk I / **Mk II ★** (lighter mounts) /
+**Split Chamber ★★★★★** (MYTHIC: DOUBLE barrels, HALVE damage — future damage picks hit twice as hard) /
 **Minigun Amps** (+1 barrel, wider spread, damage split across barrels).
 
 **Ammo** — **Incendiary** (burn) / **Cryo** (chill) / **Slug** (+dmg, −rate, bigger) /
