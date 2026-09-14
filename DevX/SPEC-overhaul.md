@@ -613,9 +613,9 @@ The post-Apex wall stays.
 ## 7. Normal sectors
 
 **Target clear times for Homing Hose:**
-- 50–70 s for S1–S9;
-- 75–100 s for S11–S49;
-- 100–130 s for S51 and beyond.
+- 50–75 s for S1–S9;
+- 70–105 s for S11–S49;
+- 100–135 s for S51 and beyond.
 
 **Changes.**
 1. **Counts keep growing** with depth; there's no flatline at S12. About `12 + 2.2 × sector` total, bounded by world size and a rising alive cap.
@@ -902,6 +902,7 @@ Headless Chrome needs `window.__kriefne.forceState('playing')`. Kill stray serve
 - **Attribution (bisected, not guessed).** 2e clustering is innocent AND directionally right: on both trees S61-balanced is placement-insensitive, and restoring spread made deep sectors worse (S99 214 vs 163, quiet 24% vs 13%). The regression is the §2 taxes compounding: ~25 taxed picks × ~2% ≈ ×0.7 paper DPS on wide builds (S31 Hose 72 → 107). Per-pick net-positive holds; build-level compound breaks the fitted §7 bands.
 - **Awaiting user call:** (A) halve §2 taxes, (B) keep taxes and re-fit bands/economy in 2b, (C) cap total §2 burden (tax budget). Then 2b.
 - **2b measured HOLD (no knob moves the bands):** hp [4,6]→[3.5,5.5]/[3,5]/[3.5,5] leaves S31 ~103-109 and S99 ~127-132 (thrall HP is not the bottleneck — total sector HP/pacing is); count 1→0 at S31 holds ~103→106 and at S99 worsens 132.5→160.5 with a 195s tail (thralls gather budget into killable targets; removing them tails the chaff stream). q already proven insensitive. dmg/size/huntR/nestP cannot move invulnerable-pilot clear times or unasserted nests. S6/S21 are pre-thrall (unlock S30) — out of 2b scope, pure 2-seed noise. Residual marginals are costs/pool character, same as baseline's 3. THRALL knobs unchanged.
+- **Call made (widen bands ~5s):** §7 targets 50–70→50–75 (S1–S9), 75–100→70–105 (S11–S49), 100–130→100–135 (S51+); `sectorBand` follows. Widening only loosens — all current passes stay green by construction.
 
 **State of Step 2 (thralls)**
 - **Done and committed.** A thrall is a new `type:'thrall'` with `kind` set to its parent. Every "must not" in the gameplay code is already gated on `type==='boss'`, so thralls are excluded by default.
