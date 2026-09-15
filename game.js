@@ -2230,7 +2230,7 @@ const ATK={
   if(e.gaze){ e.gaze.t-=C.dt;
    if(e.gaze.t<=0){ const a=e.gaze.ang;
     let da=Math.abs(((C.aim-a+Math.PI)%6.283)-Math.PI);
-    if(da<0.45&&C.d<430){ applyStatus('root',1.0); hurtPlayer(Math.round(e.dmg*0.8),true,srcOf(e,'GAZE')); addFloater(p.x,p.y-30,'PETRIFIED',K.red); }
+    if(da<0.45&&C.d<430){ applyStatus('root',1.0); hurtPlayer(Math.round(e.dmg*1.2),true,srcOf(e,'GAZE')); addFloater(p.x,p.y-30,'PETRIFIED',K.red); }
     for(let k=0;k<9;k++) pushPart({x:e.x+Math.cos(a)*k*46,y:e.y+Math.sin(a)*k*46,vx:0,vy:0,life:0.3,maxlife:0.3,col:K.red,r:5});
     e.gaze=null; e.gazeT=C.enrage?2.6:4; SFX.eshoot(); } }
   else if(e.gazeT<=0){ e.gaze={t:0.75,ang:C.aim}; SFX.click(); } },
