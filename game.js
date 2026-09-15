@@ -2479,7 +2479,13 @@ function markTick(m,dt,p){ m.t+=dt;
 // A disc that shrinks to nothing over `life` s (3.5), harmless for its first
 // `safe` s (0.25), then hurts on touch, one tick per 0.5 s however many
 // overlap. Shares the hazard cap. Pass a shared `src` when dropping many.
+// Overlap gate: a new disc mostly inside an existing one adds harm without a
+// readable shape, so it is skipped. Two equal circles share half their area
+// at ~0.8 radii apart; current (shrunk) radii are used, so fading discs stop
+// blocking the trail behind them.
 function dropDisc(e,x,y,r,o){ o=o||{}; if(!hzRoom()) return null;
+ for(const q of discs){ const m=r<q.r?r:q.r; if(m<=0) continue;
+  const dx=x-q.x, dy=y-q.y; if(dx*dx+dy*dy<0.64*m*m) return null; }
  const d={owner:e,x,y,r0:r,r,t:0,life:o.life||3.5,safe:o.safe!=null?o.safe:0.25,dmg:o.dmg!=null?o.dmg:Math.round(e.dmg*0.3),src:o.src||srcOf(e,o.what||'WAKE')};
  discs.push(d); return d; }
 
@@ -3250,7 +3256,7 @@ function lvSwing(e,da){ const c=Math.cos(da), s=Math.sin(da); // the whole tail 
  for(const g of e.segs){ const x=g.x-e.x, y=g.y-e.y; g.x=e.x+x*c-y*s; g.y=e.y+x*s+y*c; } }
 function lvVolley(e){ if(!e.lvV&&e.segs.length) e.lvV={t:0,i:0}; }
 BOSS_KITS.leviathan={
- def:{name:'LEVIATHAN',epithet:'the Lane-Wyrm',tier:3,hp:5500,r:36,spd:0.85,shape:'serpent',pt:4.0,sig:'segments',chaff:['mite','drone']},
+ def:{name:'LEVIATHAN',epithet:'the Lane-Wyrm',tier:3,hp:4000,r:36,spd:0.85,shape:'serpent',pt:4.0,sig:'segments',chaff:['mite','drone']},
  lore:'A LORD OF THE DEEP LANE — LEVIATHAN leaves a ghost of itself in the lane.',
  codex:{role:'Serpent', threat:'Sheds once; two phases',
   tell:'It rears and a hatched red arc marks the WHIP. A dashed ring round you is the COIL; a ruled line off its jaws, the LUNGE. Its wake is a fading red copy of its tail.',

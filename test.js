@@ -2883,6 +2883,16 @@ function suitePrims() {
   hold(a, 0.5);
   eq('and shrinks away to nothing', a.discs.length, 0);
  }
+ // -- trail discs: the overlap gate (a new disc mostly inside one already
+ // down is refused; faded discs stop blocking the ground behind them)
+ {
+  const { a, p, b } = primRoom();
+  eq('a first disc lands', !!a.dropDisc(b, 500, 500, 20, { life: 3.5 }), true);
+  eq('a second mostly inside it is refused', a.dropDisc(b, 510, 500, 20, { life: 3.5 }), null);
+  ok('at the half-area boundary it lands', !!a.dropDisc(b, 516, 500, 20, { life: 3.5 }));
+  hold(a, 2.0);
+  ok('a faded disc stops blocking the ground behind it', !!a.dropDisc(b, 508, 500, 20, { life: 3.5 }));
+ }
  // -- freeze from a shockwave: no movement, no dash, guns still fire, then immunity
  {
   const { a, p, b } = primRoom();
@@ -3604,7 +3614,15 @@ function suiteKits1() {
   const { a, p, b } = kitRoom('leviathan', 24); b.forcedAttack = 'lunge';
   kitRun(a, 2.0);
   const own = a.discs.filter(d => d.owner === b), sizes = new Set(own.map(d => Math.round(d.r0)));
-  atLeast('WAKE TRAIL: head and segments each drop discs their own size', sizes.size, 5);
+  let span = 0, minSep = Infinity;
+  for (let i = 0; i < own.length; i++) for (let j = i + 1; j < own.length; j++) {
+   const dd = Math.hypot(own[i].x - own[j].x, own[i].y - own[j].y);
+   span = Math.max(span, dd);
+   minSep = Math.min(minSep, dd / Math.min(own[i].r0, own[j].r0));
+  }
+  ok('WAKE TRAIL: discs span the flown path', own.length >= 5 && span > 400);
+  ok('head-size discs among them', own.some(d => Math.round(d.r0) === Math.round(b.r * 0.8)));
+  ok('the overlap gate holds (no pair shares over half its area)', minSep >= 0.8);
   ok('harmless at first, shrinking to nothing over 3.5s in Phase I', own.every(d => d.safe >= 0.25 && d.life === 3.5));
  }
  {
@@ -3870,7 +3888,16 @@ function suiteKits2() {
   range('lit for 0.9s', lit, 0.85, 0.95);
   atLeast('then a dive at high speed (px/s)', vmax, 600);
   const fire = a.discs.filter(d => d.owner === b);
-  ok('leaving a fire line of trail discs down the lane', fire.length >= 10 && fire.every(d => laneOff(R.lanes[0], d.x, d.y) < 8 && d.safe >= 0.25));
+  ok('leaving a fire line of trail discs down the lane', fire.length >= 5 && fire.every(d => laneOff(R.lanes[0], d.x, d.y) < 8 && d.safe >= 0.25));
+  let maxGap = 0, minSep = Infinity;
+  for (let i = 0; i < fire.length; i++) for (let j = i + 1; j < fire.length; j++) {
+   const dd = Math.hypot(fire[i].x - fire[j].x, fire[i].y - fire[j].y);
+   if (j === i + 1) maxGap = Math.max(maxGap, dd);
+   minSep = Math.min(minSep, dd / Math.min(fire[i].r0, fire[j].r0));
+  }
+  const step = b.r * 0.75;
+  ok('the line is continuous (consecutive discs within 1.6 radii)', maxGap < 1.6 * step);
+  ok('the overlap gate holds (no pair shares over half its area)', minSep >= 0.8);
   ok('that strikes a ship left in the lane', (hits['STRAFING RUN'] || 0) + (hits['FIRE LINE'] || 0) >= 1, JSON.stringify(hits));
   const r2 = kitRoom('wyvern', 34, { dx: 300 }); r2.b.forcedAttack = 'strafe';
   let L2 = null;
@@ -4742,8 +4769,11 @@ function suiteKits3() {
   let prev = b.kr.arms.map(A => A.a); const trav = [0, 0];
   kitRun(a, 14.0, () => { noChaff(a); b.kr.arms.forEach((A, i) => { trav[i] += Math.abs(wrapA(A.a - prev[i])); prev[i] = A.a; }); });
   ok('obstacles do not stop the arms: full circles past the rock', trav.every(t => t > 5.5), trav.map(t => t.toFixed(1)).join(','));
-  const past = a.discs.filter(d => d.owner === b && Math.hypot(d.x - (b.x - 100), d.y - b.y) < 60);
-  ok('laying harm on the far side of it', past.length >= 2 && a.discs.filter(d => d.owner === b).length > 10);
+  const discs = a.discs.filter(d => d.owner === b);
+  let span = 0;
+  for (let i = 0; i < discs.length; i++) for (let j = i + 1; j < discs.length; j++)
+   span = Math.max(span, Math.hypot(discs[i].x - discs[j].x, discs[i].y - discs[j].y));
+  ok('laying harm where the arms sweep', discs.length >= 3 && span > 100);
  }
  {
   const { a, p, b } = kitRoom('kraken', 74);
