@@ -188,11 +188,11 @@ The palette is a dark instrument with one warm metal, one harm colour, one salva
 One muted OKLCH colour per servitor and per god, defined as `[hue, lightness, chroma]` in `PIGMENT_DEF`. The frontmatter values are the canonical base colour (`c`). `mkPigment` derives every variant, so none is typed by hand:
 - `c` for outline, core, rank rings, HP bar, codex marker and the boss tracker.
 - `hi` (L+0.1, C×0.85) when enraged, and for the RETREATING and ENRAGED labels.
-- `dim` (L×0.6, C×0.7) for inner engraving and lieutenant rank rings.
+- `dim` (L×0.6, C×0.7) for inner engraving and summoned-god / echo rank rings.
 - `body` (L 0.215, C×0.28) for the hull fill, with the pigment barely present.
 - `flash` (L 0.37, C×0.6) for a struck hull.
 
-Servitors: stalker (lichen), brute (jade-teal), tempest (malachite), sniper (steel blue), drone (periwinkle), mite (rose-mauve). Gods: basilisk (moss), nullifier (pale jade), leviathan (verdigris), chorus (sea-glass), oracle (slate), warden (cerulean), singularity (ultraviolet), phantom (indigo), archon (amethyst), harbinger (plum), juggernaut (orchid), overlord (madder).
+Servitors: stalker (lichen), brute (jade-teal), tempest (malachite), sniper (steel blue), drone (periwinkle), mite (rose-mauve). Gods: overlord (madder), warden (cerulean), phantom (indigo), revenant (rime), leviathan (verdigris), hydra (lilac), wyvern (ash-rose), oracle (slate), sentinel (glacier blue), archon (amethyst), colossus (pale stone), basilisk (moss), progenitor (brood teal), harbinger (plum), kraken (deep blue), juggernaut (orchid), eclipse (dusk), nullifier (pale jade), chorus (sea-glass), singularity (ultraviolet).
 
 ### Neutral
 - **Cold Ground** (ground): the dark behind the title, HUD strip, menu scrims, knockouts behind world text, and the ink of the nest-draft inversion.
@@ -279,7 +279,7 @@ There are no radii anywhere. Frames are square, and plates are either corner-tic
 
 State is carried by the form of a line:
 - **Solid vs dashed.** A solid line means committed, real or travelled: the primary entry, the active tab, an ON toggle, a cleared trail leg, an unlocked node, a live hazard. A dashed line means possible, pending, arming or locked: the other entries, the untravelled trail, locked nodes, a hazard before it goes live, a boss re-entry point, a phased boss. Hovering an entry previews the commitment by making its rule solid.
-- **Rank = rings.** Rank is drawn as concentric rings 3.5px apart just outside the silhouette: ENFORCER has 1 and APEX has 5. `rankRings()` draws them in the god's pigment, in `dim` for lieutenants.
+- **Rank = rings.** Rank is drawn as concentric rings 3.5px apart just outside the silhouette: ENFORCER has 1 and APEX has 5. `rankRings()` draws them in the god's pigment, in `dim` for summoned gods and echoes. Thralls carry no rank rings: a 1px hairline hull and a 30px pip.
 - **Rarity = rim ticks.** A draft card carries one, two or three 8px cuts along its top edge for common, uncommon and rare.
 - **Heavy = double rule.** Heavy rounds carry a second ring. Damaging shock rings are a 2px ring with a 1px inner ring. The hull-critical frame is an inset double rule.
 
@@ -324,10 +324,10 @@ Everything the hull carries, in draft order: each refit's engraving at 9px in a 
 A record of the hull, centred above RETRY: HULL LOST in red over a red-dim rule; `BROUGHT DOWN BY` and the maker's name in its pigment with the blow in red (every hostile round, ring and field is stamped with its maker by `stampNext`); that foe's TELL (red label) and COUNTER (gold label); a faint rule; NEW BEST in gold when earned, then the run's numbers; the build plate; the Wake line in gold and the next god on the trail in Worn Steel (a god not yet met is named only by rank). RETRY is drawn committed only once the screen has settled (600ms); Space never skips it.
 
 ### Arrival banner
-Between two red rules, the lead god's name (or `NAME'S COURT`) in red display type, then one knocked-out 12px line in 600 mono stating the order: `RANK · who leads; who answers to it`, the same words the hub gave, never wrapped into a widow.
+Between two red rules, the lead god's name (`RETURNS` past S100) in red display type, then one knocked-out 12px line in 600 mono stating the order: `RANK · <the hub's line for this nest>`, the same words the hub gave, never wrapped into a widow. The clear banner reads `NAME FALLS` — or `NAME'S COURT FALLS` when summoned gods shared the nest.
 
 ### Codex
-- **Index:** rank headers show their tier as binary ticks in Bare Metal plus a 9px label. Entries are 12px mono. The selected entry gets a gold diamond and a gold underline. A defeated entry gets a filled 2.5px diamond in its pigment, a met-but-undefeated entry a hollow one, and an entry never met reads `? ? ? ? ?` in Worn Steel. The header reads `MET m · DEFEATED n / 18`.
+- **Index:** rank headers show their tier as binary ticks in Bare Metal plus a 9px label. Entries are 12px mono. The selected entry gets a gold diamond and a gold underline. A defeated entry gets a filled 2.5px diamond in its pigment, a met-but-undefeated entry a hollow one, and an entry never met reads `? ? ? ? ?` in Worn Steel. The header reads `MET m · DEFEATED n / 20`.
 - **Three states:** never met (flat grey silhouette, `? ? ? ? ?`); met (the real portrait in pigment, name, rank, command line, TELL and COUNTER; FIELD NOTE reads "Recovered on the first kill."); defeated (the field note). Every encounter ends in a kill or a lost hull, so meeting is enough to earn the tells.
 - **Detail plate:** a corner-ticked tarnished-gold plate. The portrait renders the real sprite through the same draw code, at a registered scale (0.95 for gods, 2.2 for chaff) so sizes compare honestly. The name is in Michroma 18px with a 56×2px underline in its pigment. The TELL label is red, COUNTER is gold, and FIELD NOTE is Bare Metal with its text in Worn Steel, upright: no italic face is bundled, so dimmer ink alone sets the note apart.
 
@@ -335,7 +335,7 @@ Between two red rules, the lead god's name (or `NAME'S COURT`) in red display ty
 - **Anatomy:** a hull filled in `body` and outlined in `c` (1.5px, 2px enraged), inner engraving in `dim`, and a small filled core in `c`. Voids are Cold Ground and armour is Armour Plate with a Bare Metal edge.
 - **Gods:** the silhouette is the identity (hex, diamond, serpent, eye, star, coil, ram, prism, triad, crown, well, octagon), with rank rings added automatically from `tier`. The name sits above the HP bar in Pale Steel, and the phase label sits below in pigment. Labels are stacked by `calloutY` so rings, bar and name never overlap.
 - **HP bars:** a Dim Metal track with a pigment fill (3px for bosses with quarter ticks, 2px for chaff).
-- **Boss tracker (`drawBossGuide`):** a pigment chevron and a distance label at the screen edge, so in a court each arrow names its god before the label does.
+- **Boss tracker (`drawBossGuide`):** a pigment chevron and a distance label at the screen edge, so when summoned gods share the field each arrow names its god before the label does.
 - **Telegraphs:** red, ruled and ticked (`tickedLine`), and never glowing.
 
 ### Sector world layer (`paintWorld`)
