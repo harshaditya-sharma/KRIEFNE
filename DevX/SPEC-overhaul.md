@@ -859,11 +859,7 @@ Headless Chrome needs `window.__kriefne.forceState('playing')`. Kill stray serve
 - Small, self-contained commits.
 - After each step: run the tests, update this section, report to the user, and **wait for their go-ahead**.
 - If an agent dies, commit its WIP and merge only what's green.
-- Every commit ends with:
-  ```
-  Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
-  Claude-Session: https://claude.ai/code/session_01GoVrejqPHPJShPuKezViDX
-  ```
+- Commits carry no co-author trailers (removed 2026-09-15: the `Co-Authored-By: Claude Opus 5` / `Claude-Session` footers were an AI artifact, not a real co-author).
 
 **Plan** (approved 2026-09-14; split into small sub-steps on the user's instruction)
 
