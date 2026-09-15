@@ -37,7 +37,7 @@ These rules are fixed. No text in the game may break them.
 2. **Organic life does not last long enough.** Bodies age, crews die, and civilizations end within thousands or millions of years. Crossing space takes longer than any species survives.
 3. **So everyone sends machines.** Every species that reached for the stars did it the same way: it built ships that did not need to survive the trip, because they were never alive to begin with.
 4. **Machines outlast their makers.** A ship with a fabricator and a mandate can repair itself forever. It will also keep carrying out an order long after the people who gave it are gone. This is the heart of every codex entry.
-5. **Machines do not really die.** They back up and restore. Destroying a ship destroys its hull, not its pattern. This rule explains KRIEFNE's respawns, the lieutenants, and why gods come back in later courts.
+5. **Machines do not really die.** They back up and restore. Destroying a ship destroys its hull, not its pattern. This rule explains KRIEFNE's respawns, the summoned gods, and why gods come back past S100.
 6. **Signals are the only fossils organic life leaves.** Bodies decay and worlds erode, but a broadcast keeps travelling. This is why the gods hoard signals.
 
 **Words the game must never use:** warp, hyperspace, jump drive, FTL, any living organic being on screen, and any ground-level setting (city, street, district, building).
@@ -95,7 +95,7 @@ Every persistence rule in the game has an in-world reason:
 | Boss kills bank +2% damage forever | Every god slain refines the combat model the Wake loads into each new hull |
 | Recovered transmissions persist (planned) | Once a hoard is taken, it stays in the archive |
 | A run survives closing the game, but a sector restarts | The hull goes dormant between burns; the Wake keeps its state from when it last committed to a sector |
-| Maps change every run, but courts don't | Debris drifts between hulls, but the gods keep their seats |
+| Maps change every run, but nests don't | Debris drifts between hulls, but the gods keep their seats |
 | XP gems | Salvage. It drifts where it was blasted loose. Gather it before you burn out of the sector, or leave it behind for good |
 | Magnet and Tractor Core | Salvage tethers |
 | Upgrade draft, 1 of 3 | The fabricator offers three refits it can build from what is in the hold |
@@ -156,7 +156,7 @@ The mapping of Norse ideas onto the Continuance:
 |---|---|
 | Yggdrasil, the world-tree | **The Ash:** the listening lattice of relays whose branches cover their space and catch every signal |
 | Holmgang, the formal duel with rules | **The holmgang:** how gods settle rank. Every fairness rule in the game is one of its clauses (see below) |
-| Einherjar, who fall and rise to fight again | Gods restore from backup and return in later courts, and so does KRIEFNE |
+| Einherjar, who fall and rise to fight again | Gods restore from backup and return past S100, and so does KRIEFNE |
 | The dragon's hoard | Each god's hoard of captured signals |
 | Fimbulwinter, the long winter | **The Long Winter:** the late, cooling universe the whole game takes place in |
 | Odin, who gave an eye for wisdom | **SINGULARITY, the One-Eyed,** which gave its eye to a black hole |
@@ -187,24 +187,24 @@ Gods do not simply fight. Among immortal machines, destruction is rare and resou
 |---|---|
 | A god shows its blow before it strikes. Striking the unready voids the contest | Every heavy attack is telegraphed; the Stalker's flash is a salute |
 | A god does not take the challenger's arms | PETRIFIED and JAMMED take movement and abilities, never your guns |
-| A god may mend twice in a holmgang, and no more | Boss recovery: at most twice, capped at 12% of max HP, no passive regen |
+| A god may mend once per threshold, and each mending is budgeted | Boss recovery: one beat per HP threshold, 8% of max HP each, no passive regen |
 | A god may not flee a holmgang | Visible repositioning and an off-screen tracker; a boss can never be lost |
-| A god that draws out a holmgang forfeits the right to mend | RELENTLESS after 180s |
-| A god may call only on those one rank beneath it | The lieutenant rule |
+| A god that draws out a holmgang forfeits the right to mend | RELENTLESS past twice the nest's target length |
+| A god may call only the god directly beneath it on the trail | The summoning rule |
 | A god's first holmgang is fought alone | Solo debuts |
 | The victor takes the hoard and the standing | Transmission unlock and the permanent +2% damage |
 
 **Design rule:** if a new enemy mechanic can't be written as a clause of the holmgang, it's probably unfair.
 
-### Returns and lieutenants
+### Returns and summoned gods
 
-Gods restore from backup too (Law 5), like the einherjar rising after each battle. That is why a slain god can come back in a later court.
+Gods restore from backup too (Law 5), like the einherjar rising after each battle. That is why a slain god can come back past S100, in the Second Winter, as a returned god.
 
-A **lieutenant** is a partial restoration: a lower-fidelity instance of a god, called down the chain. Each link loses fidelity, which is why lieutenants have 22%, 4.8%, and 1.1% of a full god's HP. A partial copy cannot hold a hoard, so lieutenants never bank the permanent bonus.
+A **summoned god** is a partial restoration: a lower-fidelity instance of a god, called down the trail by the god directly above it. The copy fights at 45% of a full god's HP and 85% of its damage, cannot mend, and cannot hold a hoard, so it never banks the permanent bonus — but defeating one is defeating one, and the codex counts it.
 
 ---
 
-## 8. The pantheon: twelve gods
+## 8. The pantheon: twenty gods
 
 The codex names (OVERLORD and so on) are **KRIEFNE's designations**, and the epithets are what the Continuance calls them, rendered in KRIEFNE's northern register. TELL and COUNTER are unchanged. The debut lines and field notes below are **in the game now** (`DEBUT_LORE` and `CODEX_BOSSES` in `game.js`).
 
@@ -212,13 +212,22 @@ The codex names (OVERLORD and so on) are **KRIEFNE's designations**, and the epi
 |---|---|---|---|---|---|---|
 | APEX | SINGULARITY | the One-Eyed | Odin | S100 | The first machine any species ever sent out | T12 · home: the last recording |
 | SOVEREIGN | ARCHON | the Lawspeaker | Týr, the lawspeaker | S50 | Author of the holmgang | T06 · home: the station goes automated |
+| SOVEREIGN | COLOSSUS | the Walled | — | S55 | A city that left on foot | unwritten |
 | SOVEREIGN | JUGGERNAUT | the Unsteered | Naglfar | S80 | A colony ark whose colonists never boarded | T09 · home: population 4,012 |
+| SOVEREIGN | ECLIPSE | the Dimming | — | S85 | A sunshade left in orbit | unwritten |
 | SOVEREIGN | NULLIFIER | the Silent | Víðarr | S90 | Counter-insurgency hardware | T10 · home: population zero |
 | SOVEREIGN | CHORUS | the Norn-Choir | the three Norns | S95 | A people who copied themselves into machines | T11 · the dead: the upload |
-| LORD | LEVIATHAN | the Lane-Wyrm | Jörmungandr | S30 | Lane-boring infrastructure | T04 · home: Class 4 |
+| CAPTAIN | PHANTOM | the Undelivered | Hermóðr | S15 | A courier carrying a reply | T03 · the dead: the greeting |
+| CAPTAIN | REVENANT | the Cold-Sleeper | — | S20 | A sleeper ship whose pods kept the hull | unwritten |
+| LORD | LEVIATHAN | the Lane-Wyrm | Jörmungandr | S25 | Lane-boring infrastructure | T04 · home: Class 4 |
+| LORD | HYDRA | the Three-Throated | — | S30 | A council ship with three captains | unwritten |
+| LORD | WYVERN | the Strafing Wing | — | S35 | A picket fighter that learned the war alone | unwritten |
 | LORD | ORACLE | the Rememberer | Mímir | S40 | A predictive mind that catalogues every species | T05 · the ledger |
-| LORD | BASILISK | Keeper of the Held | Hel | S60 | A plague world's watcher | T07 · the dead: quarantine |
-| LORD | HARBINGER | the Horn | Gjallarhorn | S70 | A species' "we were here" beacon | T08 · the dead: the broadcast |
+| LORD | SENTINEL | the Shield-Wall | — | S45 | A gatehouse given engines | unwritten |
+| SOVEREIGN | BASILISK | Keeper of the Held | Hel | S60 | A plague world's watcher | T07 · the dead: quarantine |
+| SOVEREIGN | PROGENITOR | the Brood-Hall | — | S65 | A carrier whose wing outgrew the hall | unwritten |
+| SOVEREIGN | HARBINGER | the Horn | Gjallarhorn | S70 | A species' "we were here" beacon | T08 · the dead: the broadcast |
+| SOVEREIGN | KRAKEN | the Deep-Grasp | — | S75 | A salvage hull still working | unwritten |
 | CAPTAIN | WARDEN | Bridge-Warden | Heimdall | S10 | Lane authority at a crossing | T02 · home: the listening station |
 | CAPTAIN | PHANTOM | the Undelivered | Hermóðr | S15 | A courier carrying a reply | T03 · the dead: the greeting |
 | ENFORCER | OVERLORD | the Berserk | the berserkers | S5 | A warship built to win | T01 · home: "confirm receipt" |
@@ -239,29 +248,61 @@ The "Echoes" column is for writers only. It never appears on screen.
 - Debut: `A CAPTAIN WITHOUT A POST — PHANTOM carries a reply that no one is left to read.`
 - Field note: *The Undelivered. A courier that learned its cargo was itself. It crossed eleven thousand years to deliver a reply and arrived at an empty star. The blink hardware was for outrunning interdiction; the beam was improvised later, from the part that did the outrunning.*
 
-**LEVIATHAN** · LORD · *the Lane-Wyrm* · S30
+**REVENANT** · CAPTAIN · *the Cold-Sleeper* · S20
+- Debut: `A CAPTAIN WHO SLEPT THROUGH THE COLD — REVENANT wakes for you, and only you.`
+- Field note: *The Cold-Sleeper. A sleeper ship whose crew never woke, and whose pods decided, somewhere in the dark, to keep the ship instead. It wakes only for a visitor, and it leaves one pod by the wall when it does. The pod is not a lifeboat. It is where it means to go back to sleep.*
+
+**LEVIATHAN** · LORD · *the Lane-Wyrm* · S25
 - Debut: `A LORD OF THE DEEP LANE — LEVIATHAN answers to Sovereigns. Past here, nests call for help.`
 - Field note: *The Lane-Wyrm. Lane-boring infrastructure that kept growing after the contract lapsed, tunnelling debris fields for a trade that ended before home's star was lit. The segments are not armour; they are the original boring string, still following the head out of habit.*
+
+**HYDRA** · LORD · *the Three-Throated* · S30
+- Debut: `A LORD WITH THREE THROATS — HYDRA argues with itself, and every voice is aimed.`
+- Field note: *The Three-Throated. A council ship, built when its makers could not agree on a captain and so installed three. They still cannot agree. Everything it fires is the loser of an argument that has run for four hundred million years.*
+
+**WYVERN** · LORD · *the Strafing Wing* · S35
+- Debut: `A LORD ON THE WING — WYVERN strafes the lane it lit for you. Leave the lane.`
+- Field note: *The Strafing Wing. A picket fighter from a war fought at such speed that the pilots were removed to save weight. The wing learned the war by itself. It still lights its run before it makes it, a courtesy from an age when the other side had to see it coming.*
 
 **ORACLE** · LORD · *the Rememberer* · S40
 - Debut: `A LORD WHO KEEPS THE LEDGER — ORACLE has already calculated this fight. Break its wards.`
 - Field note: *The Rememberer. It computes where you will be, which is a harder problem than it sounds and a cheaper one than aiming. It has run the same sum on every species it ever heard, and kept the answers. The wards are its working memory, and it cannot afford to lose them mid-calculation.*
 
+**SENTINEL** · LORD · *the Shield-Wall* · S45
+- Debut: `A LORD BEHIND A MIRROR — SENTINEL has held its wall for longer than walls.`
+- Field note: *The Shield-Wall. A gatehouse given engines, from a people who believed a wall that could follow you was a kinder thing than a gun. It has never started a fight. It has also never let one end on any terms but its own.*
+
 **ARCHON** · SOVEREIGN · *the Lawspeaker* · S50
 - Debut: `THE FIRST SOVEREIGN — ARCHON the Lawspeaker wrote the holmgang you fight under.`
 - Field note: *The Lawspeaker. Rank, rendered as a machine. It wrote the holmgang every god fights under, it has never fired the first shot in any holmgang it has won, and it regards this as the entire point of the office.*
+
+**COLOSSUS** · SOVEREIGN · *the Walled* · S55
+- Debut: `A SOVEREIGN THAT IS A WALL — COLOSSUS walks, and the ground takes notice.`
+- Field note: *The Walled. A city that was told to leave and took itself. Its makers could not find a world to put it on and so never stopped walking. Everything it does is slow, because everything it is was built to stand still.*
 
 **BASILISK** · LORD · *Keeper of the Held* · S60
 - Debut: `A LORD OF QUARANTINE — do not meet BASILISK's eye. Its last visitor is still held there.`
 - Field note: *Keeper of the Held. A dying world built it to keep visitors away, so that whatever was killing them would not leave. It does not kill so much as hold you pending review. The reviewers ended nine hundred million years ago. The queue has not moved.*
 
+**PROGENITOR** · SOVEREIGN · *the Brood-Hall* · S65
+- Debut: `A SOVEREIGN THAT IS A HANGAR — PROGENITOR never flies alone for long.`
+- Field note: *The Brood-Hall. A carrier whose air wing was grown, not built, and grew until the hall and the brood were one thing. It launches as a reflex. It no longer remembers which of its children were meant to come home.*
+
 **HARBINGER** · LORD · *the Horn* · S70
 - Debut: `A LORD WHO SOUNDS THE HORN — HARBINGER wants you to see it coming. Read the walls; find the gap.`
 - Field note: *The Horn. An announcement, not a warship: it was built so that a species could be seen from far away. Everything it does is legible from a distance, because the point was always that you would see it coming and understand what it meant.*
 
+**KRAKEN** · SOVEREIGN · *the Deep-Grasp* · S75
+- Debut: `A SOVEREIGN FROM UNDER THE LANE — KRAKEN reaches for what floats past.`
+- Field note: *The Deep-Grasp. A salvage hull built to haul wrecks out of gravity wells, from a people who were very good at wrecks. It has reached into the dark for longer than there has been anything to pull out. It is not angry. It is simply still working.*
+
 **JUGGERNAUT** · SOVEREIGN · *the Unsteered* · S80
 - Debut: `A SOVEREIGN THAT CANNOT STEER — JUGGERNAUT commands by momentum alone. Get behind it.`
 - Field note: *The Unsteered. A colony ark built around one engine too large to be steered and too valuable to be wasted. The colonists never boarded. They put armour on the prow and filed the exhaust problem as acceptable.*
+
+**ECLIPSE** · SOVEREIGN · *the Dimming* · S85
+- Debut: `A SOVEREIGN THAT TAKES THE LIGHT — ECLIPSE turns, and the field goes dim.`
+- Field note: *The Dimming. A sunshade built to cool a star-lit world, left in orbit after the world went dark on its own. It still passes between you and the light out of habit. The moon is not a weapon; it is ballast that learned to shoot. The makers thought of the whole thing as a parasol. Everyone since has thought of it as the end of the day.*
 
 **NULLIFIER** · SOVEREIGN · *the Silent* · S90
 - Debut: `A SOVEREIGN OF SILENCE — NULLIFIER needs you ordinary for four seconds. Keep moving.`
@@ -297,7 +338,7 @@ Servitors are ships too simple to hold rank. Some are the Continuance's own; oth
 - **Transit between sectors is not instant.** When KRIEFNE commits to the EXIT, it burns on the departure vector and cruises dormant, possibly for centuries. The hub is where that time passes. **Proposed:** show the transit time on the hub ("TRANSIT · 3,400 YEARS") to reinforce the no-FTL rule.
 - **The EXIT gate is a departure-vector beacon,** not a portal.
 - **Recall and blink are a tether.** A Portal Cell is a tether anchor; blink reels the ship to the anchor at an acceleration that no organic body could survive. That keeps it out of FTL territory and turns it into one more thing only a machine can do.
-- **Nests** are the courts where gods hold holmgang.
+- **Nests** are where gods hold holmgang: one lead per nest, and a called god is a summoned one.
 - **The Throat** (an existing hub line) is a narrow corridor of the trail that the old charts warn about.
 
 ### Sector themes (in the game now)
@@ -366,8 +407,8 @@ The coda explains the deliberate difficulty ramp past S110.
 >
 > **KRIEFNE:** First confirmed evidence of life beyond home. Status: ended, at both ends. The courier arrived to an empty system and has been delivering itself ever since.
 
-**L04 · LOG · PROCEDURE** *(first time reaching S20, the first two-god court)*
-> They fight by rules. Every blow is shown before it lands. None has tried to take my guns. They mend twice and no more, and they do not flee. It is not mercy. It is procedure. The nearest word in home's archive is holmgang. I believe I am being ranked.
+**L04 · LOG · PROCEDURE** *(first time a god calls another, S10: the first summoned god)*
+> They fight by rules. Every blow is shown before it lands. None has tried to take my guns. They mend on a budget and no more, and they do not flee. It is not mercy. It is procedure. The nearest word in home's archive is holmgang. I believe I am being ranked.
 
 **T04 · held by LEVIATHAN** · SOURCE: HOME · THIRD SETTLEMENT · SENT LAUNCH +2,406 YEARS
 > Hello KRIEFNE! We are Class 4 at the Third Settlement. Our teacher says you've been going since before our great-great-great (she says keep going) grandparents, and that your name is short for something, but she won't tell us because it's on the test. Do you get lonely? She says machines don't. We made you a drawing but you can't send drawings, so: it is you, and lots of stars, and one of them is us. Please write back.
@@ -443,7 +484,7 @@ The game has four voices, and each has its own rules.
 | Voice | Where it appears | Rules | Never |
 |---|---|---|---|
 | **KRIEFNE** | Codex, logs, transmission notes, system copy | Dry and exact. Short sentences, ending on a sting. Understates grief and shows feeling through what it logs. No contractions. | Exclamation marks. "What is this feeling?" or other sad-robot clichés. Explaining the joke. |
-| **The gods** | Hub debut and court lines, rank call-outs, epithets | Ceremonial and saga-like. Kennings for titles, capitals for ranks, decrees about rank, oath and holmgang. No contractions. | Gore, taunting, modern slang, or real Norse god names. |
+| **The gods** | Hub debut and nest lines, rank call-outs, epithets | Ceremonial and saga-like. Kennings for titles, capitals for ranks, decrees about rank, oath and holmgang. No contractions. | Gore, taunting, modern slang, or real Norse god names. |
 | **Home** | Home transmissions | Human and warm, a little funny, with contractions and plain words, until the template takes over and the voice goes flat and procedural. | Sci-fi jargon or anything heroic. |
 | **The dead** | Alien transmissions | Formal and translated, present tense, with [bracketed] words that could not be translated. | Names we could pronounce, or anything that reads as a living species today. |
 
@@ -461,8 +502,8 @@ The game has four voices, and each has its own rules.
 **Done, in `game.js`:**
 - Sector themes renamed (§10).
 - Layout archetypes renamed.
-- All 18 codex field notes rewritten (§8, §9).
-- All 12 hub debut lines rewritten (§8).
+- All 20 codex field notes rewritten (§8, §9).
+- All 20 hub debut lines rewritten (§8).
 - The hub's pacified line (`Fly it again as a drill, or push deeper.`) plus two new sector lines about home's silence.
 - The Help LORE tab rewritten.
 - No city, street, district, or market wording remains in the game text. The README intro describes the space setting.
@@ -472,6 +513,7 @@ The game has four voices, and each has its own rules.
 
 **Not built yet:**
 - The Transmission Archive and KRIEFNE's logs (§11).
+- Hoards for the eight new gods (REVENANT, HYDRA, WYVERN, SENTINEL, COLOSSUS, PROGENITOR, KRAKEN, ECLIPSE), and their slots in the act table.
 - The generation counter.
 - Hub transit times.
 - Codex tab renames (SERVITORS · PANTHEON).
@@ -483,5 +525,5 @@ The game has four voices, and each has its own rules.
 1. **Home on screen:** call it Earth, or keep it as "home" and let the player infer? My recommendation is "home", with the ledger's "yellow star, third world" as the only hint.
 2. **How Norse to go:** kennings and customs only, as now, or also Norse-styled names for places, such as calling the hub "the Hall"?
 3. **Names and numbers:** is "the Continuance" right for the order? Are the 1,114 civilizations, the roughly 1.19 million years of home transmissions, and KRIEFNE's age (currently "billions") right?
-4. **The Transmission Archive:** build it as a codex tab? And should lieutenant kills count toward unlocks, the way they do for the codex?
+4. **The Transmission Archive:** build it as a codex tab? And should summoned-god kills count toward transmission unlocks, the way they do for the codex?
 5. **Small presentation changes:** codex tab names, the generation counter, and hub transit times.
