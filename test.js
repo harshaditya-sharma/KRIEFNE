@@ -2174,7 +2174,7 @@ function suiteReplay() {
  }
  {
   // the draft is one composition: the offered-again slot is held open
-  for (const [w, h] of [[960, 640], [1380, 640], [1440, 900], [1024, 560]]) {
+  for (const [w, h] of [[960, 640], [1380, 640], [1440, 900], [1024, 560], [960, 544], [960, 520]]) {
    const api = boot(); api.setViewport(w, h); api.startRun(); api.loadSector(2); api.forceState('playing');
    api.gainXp(api.player.xpNeed + 1);
    const L = api.draftLayout(), r0 = L.rects[0];
@@ -2182,6 +2182,8 @@ function suiteReplay() {
    atLeast(w + 'x' + h + ': BUILD clears the held slot under the cards', L.buildY - (r0.y + r0.h + 84), 28);
    ok(w + 'x' + h + ': BUILD stays on screen', L.buildY + 58 <= h - 8, L.buildY);
    ok(w + 'x' + h + ': the header clears the HUD', L.headerY - 20 >= 56, L.headerY);
+   // 228 fits the tallest card's name, 3-line text and gain + cost lines
+   if (h >= 544) atLeast(w + 'x' + h + ': the card holds gain and cost lines', r0.h, 228);
   }
  }
 }
@@ -2434,6 +2436,20 @@ function suiteSafety() {
   ok('every card previews its effect without throwing', bad.length === 0, bad.join('; '));
   eq('previewing every card leaves the real hull untouched', JSON.stringify(api.player), snap);
   ok('AP Rounds previews its damage step', api.statDiff(api.upgrades.find(u => u.id === 'dmg')).some(l => /^DMG ×\d\.\d\d → ×\d\.\d\d$/.test(l)));
+  // a card has room for two lines, so it leads with what it gives; a tax
+  // never rounds to a line that reads as no change
+  const costFirst = [], flat = [];
+  for (const u of api.upgrades) {
+   const d = api.statDiff(u), ng = api.statDiffNeg(u);
+   if (ng.length !== d.length) costFirst.push(u.id + ' lists out of step');
+   else if (!ng.includes(false)) costFirst.push(u.id + ' shows no gain' + (d.length ? ': ' + d.join(' | ') : ''));
+   else if (ng[0]) costFirst.push(u.id + ': ' + d[0]);
+   for (const l of d) if (/ (\S+) → \1$/.test(l)) flat.push(u.id + ': ' + l);
+  }
+  ok('every card shows a gain, and leads with it', costFirst.length === 0, costFirst.join('; '));
+  ok('no preview line reads as no change', flat.length === 0, flat.join('; '));
+  const star = api.upgrades.find(u => u.id === 'rate6'), sd = api.statDiff(star), sn = api.statDiffNeg(star);
+  ok('Overclock Star shows its rate in gold, then the damage bleed in red', /^RATE /.test(sd[0]) && !sn[0] && /^DMG /.test(sd[1]) && sn[1], sd.join(' | '));
   api.gainXp(api.player.xpNeed + 1); let threw = null; try { api.render(); api.forceState('paused'); api.render(); api.forceState('galaxy'); api.render(); } catch (e) { threw = e; }
   ok('draft, pause and hub draw the build without throwing', !threw, threw && threw.message);
  }

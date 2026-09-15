@@ -8250,7 +8250,10 @@ function draftLayout(){
  const rects = {};
  if(fitW >= 160){
   const cardW = Math.min(220, fitW);
-  const cardH = H < 500 ? 140 : 204;
+  const head = 56, slot = 22 + 62, plate = 60, top = HUD_H + 24, bottom = H - 8;
+  // 228 holds the tallest card (1-line name, 3-line text, gain + cost lines);
+  // it only grows as far as the BUILD gap allows, never below the old 204.
+  const cardH = H < 500 ? 140 : clamp(bottom - top - (head + slot + plate) - 28, 204, 228);
   const totalW = n * cardW + (n - 1) * gap;
   const x0 = Math.round((W - totalW) / 2);
   // One composition, offered-again card or not: header, the cards, a slot
@@ -8260,8 +8263,7 @@ function draftLayout(){
   let y, buildY = null;
   if(H < 500) y = Math.max(56, Math.round(H / 2 - cardH / 2 - 30));
   else {
-   const head = 56, slot = 22 + 62, plate = 60;
-   const top = HUD_H + 24, bottom = H - 8, content = head + cardH + slot + plate;
+   const content = head + cardH + slot + plate;
    const gapB = clamp(bottom - top - content, 28, 76);
    const free = bottom - top - content - gapB;
    y = top + head + Math.max(-16, Math.round(free * OPTICAL));
@@ -8366,7 +8368,8 @@ function drawLevelUp(){
    const wrapN=Math.max(20,Math.floor((r.w-76)/6.6));
    const dl=wrapLines((dn&&dn.desc)||u.desc,Math.min(48,wrapN)); dl.slice(0,2).forEach((l,k)=>mono(l,r.x+58,r.y+62+k*15,11,ink.dim));
    const df=draftDiffs()[i]||[], ng=draftNegs()[i]||[];
-   if(df.length&&r.h>=128) mono(df[0],r.x+58,r.y+r.h-12,11,ng[0]?K.red:ink.main,'left',600);
+   // gain then cost, stacked up from the bottom edge into the empty band
+   if(r.h>=128){ const dd=df.slice(0,2); dd.forEach((l,k)=>mono(l,r.x+58,r.y+r.h-12-(dd.length-1-k)*15,11,ng[k]?K.red:ink.main,'left',600)); }
    return;
   }
   mono('['+(i+1)+']',r.x+12,r.y+22,11,ink.dim);
@@ -8461,42 +8464,49 @@ function drawPaused(){
 // A card is applied to a copy of the ship and the copy is compared with the
 // ship, so "before → after" comes from the card's real code, never from a
 // second description of it that could drift.
+// An optional 4th column is the finer read for when a small tax rounds both
+// sides to the same text (RATE 4.5/s → 4.5/s tells the player nothing).
 const STAT_VIEW=[
- ['dmgMult','DMG',v=>'×'+v.toFixed(2)], ['fireRate','RATE',v=>v.toFixed(1)+'/s'], ['shots','SHOTS'], ['maxhp','HULL'],
- ['critCh','CRIT',v=>Math.round(v*100)+'%'], ['speed','SPEED',v=>Math.round(v)], ['pierce','PIERCE'], ['bounce','RICOCHET'], ['homing','SEEK'],
- ['vamp','LEECH'], ['magnet','MAGNET',v=>Math.round(v)], ['pull','PULL',v=>Math.round(v)], ['xpBonus','XP',v=>'×'+v.toFixed(2)],
+ ['dmgMult','DMG',v=>'×'+v.toFixed(2),v=>'×'+v.toFixed(3)], ['fireRate','RATE',v=>v.toFixed(1)+'/s',v=>v.toFixed(2)+'/s'], ['shots','SHOTS'], ['maxhp','HULL'],
+ ['critCh','CRIT',v=>Math.round(v*100)+'%',v=>(v*100).toFixed(1)+'%'], ['speed','SPEED',v=>Math.round(v),v=>v.toFixed(1)], ['pierce','PIERCE'], ['bounce','RICOCHET'], ['homing','SEEK'],
+ ['vamp','LEECH'], ['magnet','MAGNET',v=>Math.round(v),v=>v.toFixed(1)], ['pull','PULL',v=>Math.round(v),v=>v.toFixed(1)], ['xpBonus','XP',v=>'×'+v.toFixed(2),v=>'×'+v.toFixed(3)],
  ['charges','CHARGES'], ['recallCdMax','GATE CD',v=>v.toFixed(1)+'s'], ['channelMax','BLINK',v=>v.toFixed(2)+'s'],
- ['inc','BURN'], ['cryo','CHILL'], ['slug','SLUG'], ['minigun','MINIGUN'], ['aegisLvl','AEGIS LV'], ['bulMax','BULWARK'], ['barrier','BARRIER',v=>Math.round(v)],
+ ['inc','BURN'], ['cryo','CHILL'], ['slug','SLUG'], ['minigun','MINIGUN'], ['aegisLvl','AEGIS LV'], ['bulMax','BULWARK'], ['barrier','BARRIER',v=>Math.round(v),v=>v.toFixed(1)],
  ['stasisN','STASIS'], ['surgeLvl','SURGE LV'], ['orbs','ORBS'], ['novaLvl','NOVA LV'], ['teslaLvl','TESLA LV'],
- ['shockNeed','KILLS / DISCHARGE'], ['shockDmg','DISCHARGE',v=>Math.round(v)], ['shockR','DISCHARGE R',v=>Math.round(v)], ['shockChill','DISCHARGE CHILL'],
+ ['shockNeed','KILLS / DISCHARGE'], ['shockDmg','DISCHARGE',v=>Math.round(v),v=>v.toFixed(1)], ['shockR','DISCHARGE R',v=>Math.round(v),v=>v.toFixed(1)], ['shockChill','DISCHARGE CHILL'],
  ['orbitalLvl','ORBITAL LV'], ['lanceLvl','LANCE LV'], ['flak','FLAK'], ['corrode','CORRODE'], ['chain','CHAIN'], ['overcharge','OVERCHARGE'],
  ['adrenal','ADRENAL'], ['repair','REPAIR'], ['shrap','SHRAPNEL'], ['salvage','SALVAGE']];
+// Refits that bolt on a system rather than move a number: the gain is the
+// system coming online, so the card never shows only its tax.
+const FLAG_VIEW=[['hasWard','WARD'],['hasMirror','CRIT WARD'],['secondWind','SECOND WIND'],['shockOn','DISCHARGE']];
 function fmtStat(f,v){ return f?f(v):(Number.isInteger(v)?String(v):v.toFixed(2)); }
 let previewing=false;
-function statDiff(u){
+// Cost = the number goes down, except cooldowns, where going down is the gain.
+// Costs draw in red.
+const NEG_UP=new Set(['recallCdMax','channelMax','shockNeed']);
+// One pass per card: the change lines and whether each is a cost, gains
+// first. A card has room for two lines, so it must lead with what it gives;
+// the cost follows in red, and the card text names it too.
+function statRows(u){
  if(!player||!u||typeof u.apply!=='function') return [];
  // Unlocks change what the keys do, not a number: name the change itself.
- if(u.id==='spd'&&!player.dashUnlocked) return ['DASH LOCKED → SPACE'];
- if(u.id==='pcell'&&!player.recallUnlocked) return ['RECALL LOCKED → E'];
+ if(u.id==='spd'&&!player.dashUnlocked) return [{t:'DASH LOCKED → SPACE',neg:false}];
+ if(u.id==='pcell'&&!player.recallUnlocked) return [{t:'RECALL LOCKED → E',neg:false}];
  let q=null; previewing=true; try{ q=JSON.parse(JSON.stringify(player)); u.apply(q); }catch(e){ return []; } finally{ previewing=false; }
- const out=[]; for(const [k,label,f] of STAT_VIEW){ const a=player[k], b=q[k]; if(typeof a==='number'&&typeof b==='number'&&Math.abs(a-b)>1e-9) out.push(label+' '+fmtStat(f,a)+' → '+fmtStat(f,b)); }
- return out;
+ const rows=[]; for(const [k,label,f,fine] of STAT_VIEW){ const a=player[k], b=q[k];
+  if(typeof a!=='number'||typeof b!=='number'||Math.abs(a-b)<=1e-9) continue;
+  let fa=fmtStat(f,a), fb=fmtStat(f,b);
+  if(fa===fb){ const g=fine||(v=>v.toFixed(2)); fa=g(a); fb=g(b); if(fa===fb) continue; }
+  rows.push({t:label+' '+fa+' → '+fb,neg:NEG_UP.has(k)?(b>a):(b<a)}); }
+ for(const [k,label] of FLAG_VIEW) if(!player[k]&&q[k]) rows.unshift({t:label+' OFF → ON',neg:false});
+ return rows.filter(r=>!r.neg).concat(rows.filter(r=>r.neg));
 }
-let diffCache={of:null,d:[]}, negCache={of:null,d:[]};
-function draftDiffs(){ if(diffCache.of!==levelChoices){ diffCache={of:levelChoices,d:levelChoices.map(statDiff)}; } return diffCache.d; }
-// Parallel to statDiff: true where the change is a cost (number goes down,
-// except cooldowns where going down is the gain). Costs draw in red.
-const NEG_UP=new Set(['recallCdMax','channelMax','shockNeed']);
-function statDiffNeg(u){
- if(!player||!u||typeof u.apply!=='function') return [];
- if(u.id==='spd'&&!player.dashUnlocked) return [false];
- if(u.id==='pcell'&&!player.recallUnlocked) return [false];
- let q=null; previewing=true; try{ q=JSON.parse(JSON.stringify(player)); u.apply(q); }catch(e){ return []; } finally{ previewing=false; }
- const out=[]; for(const [k] of STAT_VIEW){ const a=player[k], b=q[k];
-  if(typeof a==='number'&&typeof b==='number'&&Math.abs(a-b)>1e-9) out.push(NEG_UP.has(k)?(b>a):(b<a)); }
- return out;
-}
-function draftNegs(){ if(negCache.of!==levelChoices){ negCache={of:levelChoices,d:levelChoices.map(statDiffNeg)}; } return negCache.d; }
+function statDiff(u){ return statRows(u).map(r=>r.t); }
+function statDiffNeg(u){ return statRows(u).map(r=>r.neg); }
+let rowsCache={of:null,df:[],ng:[]};
+function draftRows(){ if(rowsCache.of!==levelChoices){ const d=levelChoices.map(statRows); rowsCache={of:levelChoices,df:d.map(rs=>rs.map(r=>r.t)),ng:d.map(rs=>rs.map(r=>r.neg))}; } return rowsCache; }
+function draftDiffs(){ return draftRows().df; }
+function draftNegs(){ return draftRows().ng; }
 // ---------- the build plate ----------
 // Everything KRIEFNE has bolted on this hull, in the order it was drafted:
 // the refit's engraving, and a count under it once it stacks (MAX at cap).
@@ -8862,7 +8872,7 @@ arena={seed:1337, obs:[], theme:THEMES[0], spawns:[], port:{x:800,y:500}, valida
    syncSettingsSr, settingsSrText, syncCodexSr, codexSrText, settingsRows, codexRows,
    get helpTabs(){ return HELP_TABS; }, get codexFoes(){ return CODEX_FOES; }, get codexBosses(){ return CODEX_BOSSES; },
     setHelpTab(t){ helpTab=t; helpPage=0; helpPagerRect=null; },
-    openCodex, closeCodex, codexKnown, codexSeen, handleRelease, statDiff, get endInfo(){ return endInfo; }, get restartArm(){ return restartArm; }, get exitArm(){ return exitArm; }, codexProgress, commandLine, commandParts,
+    openCodex, closeCodex, codexKnown, codexSeen, handleRelease, statDiff, get endInfo(){ return endInfo; }, get restartArm(){ return restartArm; }, get exitArm(){ return exitArm; }, codexProgress, commandLine, commandParts, statDiffNeg,
     get codexTab(){ return codexTab; }, setCodexTab(t){ codexTab=t; codexSel=0; codexPage=0; codexPagerRect=null; }, get codexSel(){ return codexSel; },
     get helpPage(){ return helpPage; }, get codexPage(){ return codexPage; },
     get helpPager(){ return helpPagerRect; }, get codexPager(){ return codexPagerRect; }, get codexIdxPager(){ return codexIdxPagerRect; }, get codexSummonLinks(){ return codexSummonRects; },
