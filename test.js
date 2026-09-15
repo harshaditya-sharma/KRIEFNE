@@ -866,8 +866,10 @@ function suiteHierarchy() {
 
 // Every god spawned alone through the lab's spawnEnemy path at S30 and fought
 // for real, bar untouched, by a fixed deterministic damage build
-// (cards handed over, so a bad draft cannot masquerade as a broken boss): it
-// must take damage, move, die inside 90s and leave no hazards behind.
+// (cards handed over, so a bad draft cannot masquerade as a broken boss):
+// it must take damage, move, die inside its clock (90s, except the two gods
+// the §6 fit moved past the fixed build's 90s reach: HARBINGER 150s,
+// PROGENITOR 240s) and leave no hazards behind.
 // The build carries the single-target abilities a real mid-game ship owns
 // (lance, tesla, orbital) on top of the gun line: it is a killability smoke
 // test, and its strength was re-fit when the §6 HP fit moved HYDRA ~5x.
@@ -875,7 +877,7 @@ function liveOne(kind) {
  const api = boot();
  seedRandom(api, 77000 + kind.length * 31);
  api.startRun();
- for (const id of ['dmg', 'rate', 'array', 'crit', 'slug', 'pierce', 'seek', 'lance', 'tesla', 'orbital']) {
+  for (const id of ['dmg', 'rate', 'array', 'crit', 'slug', 'pierce', 'seek', 'lance', 'tesla', 'orbital']) {
   const u = api.upgrades.find(x => x.id === id);
   for (let k = 0; k < (u.max || 4); k++) { if (u.req && !u.req(api.player)) break; api.pickUpgrade(u); }
  }
@@ -884,13 +886,17 @@ function liveOne(kind) {
  let threw = null;
  try { api.spawnEnemy('boss:' + kind); } catch (e) { threw = e; }
  ok(kind + ' spawns without throwing', !threw, threw && threw.message);
- const b = bossesIn(api)[0];
- if (!b) { ok(kind + ' present after spawn', false); return; }
- const hp0 = b.hp, x0 = b.x, y0 = b.y;
- let moved = 0, died = false, err = null;
- api.player.autoFire = true;
- try {
-  for (let i = 0; i < 60 * 90; i++) {
+  const b = bossesIn(api)[0];
+  if (!b) { ok(kind + ' present after spawn', false); return; }
+  // The §6 fit moved PROGENITOR/HARBINGER ~15x past what the fixed build
+  // kills in 90s at S30 scale (their pacing is pinned by fightsim now, not
+  // here); the smoke is spawn/move/die/no-hazards, so those two run longer.
+  const secs = kind === 'progenitor' ? 240 : kind === 'harbinger' ? 150 : 90;
+  const hp0 = b.hp, x0 = b.x, y0 = b.y;
+  let moved = 0, died = false, err = null;
+  api.player.autoFire = true;
+  try {
+   for (let i = 0; i < 60 * secs; i++) {
    immortal(api);
    api.update(DT);
    if (api.state === 'levelup') api.forceState('playing');
@@ -898,9 +904,9 @@ function liveOne(kind) {
    if (bossesIn(api).indexOf(b) < 0) { died = true; break; }
   }
  } catch (e) { err = e; }
- ok(kind + ' runs 90s without throwing', !err, err && (err.message + ' @ ' + (err.stack || '').split('\n')[1]));
- ok(kind + ' takes damage', died || b.hp < hp0, 'hp ' + hp0.toFixed(0) + ' -> ' + b.hp.toFixed(0));
- ok(kind + ' is killable inside 90s', died, died ? '' : 'left ' + ((b.hp / b.maxhp) * 100).toFixed(0) + '%');
+  ok(kind + ' runs ' + secs + 's without throwing', !err, err && (err.message + ' @ ' + (err.stack || '').split('\n')[1]));
+  ok(kind + ' takes damage', died || b.hp < hp0, 'hp ' + hp0.toFixed(0) + ' -> ' + b.hp.toFixed(0));
+  ok(kind + ' is killable inside ' + secs + 's', died, died ? '' : 'left ' + ((b.hp / b.maxhp) * 100).toFixed(0) + '%');
  ok(kind + ' repositions rather than sitting still', died || moved > 40, 'moved ' + moved.toFixed(0));
  atMost(kind + ' leaves no hazard leak', api.hazards.length, 40);
 }

@@ -4083,7 +4083,7 @@ BOSS_KITS.sentinel={
 // combination, and the Circle shrinks. P3 at 33%: a four-armed Verdict that
 // reverses once mid-sweep. Calls SENTINEL at 75% and 25%. No radials.
 BOSS_KITS.archon={
- def:{name:'ARCHON',epithet:'the Lawspeaker',tier:4,hp:1800,r:34,spd:0.90,shape:'crown',pt:3.8,sig:'verdict',chaff:['stalker','sniper']},
+ def:{name:'ARCHON',epithet:'the Lawspeaker',tier:4,hp:11000,r:34,spd:0.90,shape:'crown',pt:3.8,sig:'verdict',chaff:['stalker','sniper']},
  lore:'THE FIRST SOVEREIGN — ARCHON the Lawspeaker wrote the holmgang you fight under.',
  codex:{role:'Commander', threat:'No recovery; three phases',
   tell:'Both VERDICT lines rule out 1.2 s, then sweep. Slow DECREE lines march with a gap. A dashed ring at close range is the GAVEL; a ring round you both, the HOLMGANG CIRCLE.',
@@ -4191,7 +4191,7 @@ function coAddPlates(e,ids){ const R=e.r*1.15;
  for(const k of ids){ if(e.parts.some(q=>q.id==='plate'+k)) continue;
   addPart(e,{id:'plate'+k,lx:off[k][0],ly:off[k][1],r:17,hp:e.maxhp*CO_PLATE_HP,kind:'plate'}); } }
 BOSS_KITS.colossus={
- def:{name:'COLOSSUS',epithet:'the Walled',tier:4,hp:1900,r:40,spd:0.70,shape:'fortress',pt:3.8,sig:'plates',chaff:['brute','stalker']},
+ def:{name:'COLOSSUS',epithet:'the Walled',tier:4,hp:12000,r:40,spd:0.70,shape:'fortress',pt:3.8,sig:'plates',chaff:['brute','stalker']},
  lore:'A SOVEREIGN THAT IS A WALL — COLOSSUS walks, and the ground takes notice.',
  codex:{role:'Fortress', threat:'Plates, then shrapnel; three phases',
   tell:'Four PLATES ring it, each blocking its side. A dashed ring at its feet is the TRIPLE STOMP, three waves. A red mark near you is the BOULDER; a ruled line from its feet, the QUAKE fissure.',
@@ -4318,7 +4318,7 @@ BOSS_KITS.colossus={
 // mending while the husk stands. Calls COLOSSUS at 70% and 35% (the rung
 // below). No radial volleys.
 BOSS_KITS.basilisk={
- def:{name:'BASILISK',epithet:'Keeper of the Held',tier:4,hp:1350,r:31,spd:1.10,shape:'hood',pt:3.4,sig:'flare',chaff:['stalker','mite']},
+ def:{name:'BASILISK',epithet:'Keeper of the Held',tier:4,hp:8000,r:31,spd:1.10,shape:'hood',pt:3.4,sig:'flare',chaff:['stalker','mite']},
  lore:'A SOVEREIGN OF QUARANTINE — its last visitor is still held in BASILISK\'s eye.',
  codex:{role:'Controller', threat:'Freezes; sheds twice; three phases',
   tell:'The hood spreads over 0.9 s, then a FREEZE ring rolls out. A ruled CONE is the GAZE: it only hurts where it points. A ruled line is the STRIKE lunge; a wedge, the SPIT, which leaves slowing pools.',
@@ -4468,7 +4468,7 @@ function pgLaunch(e,n){ // every living bay puts out n fighters
    m.spawnT=0.9; enemies.push(m); } }
  SFX.eshoot(); }
 BOSS_KITS.progenitor={
- def:{name:'PROGENITOR',epithet:'the Brood-Hall',tier:4,hp:1600,r:36,spd:0.80,shape:'hull',pt:3.6,sig:'bays',chaff:['drone','mite']},
+ def:{name:'PROGENITOR',epithet:'the Brood-Hall',tier:4,hp:22000,r:36,spd:0.80,shape:'hull',pt:3.6,sig:'bays',chaff:['drone','mite']},
  lore:'A SOVEREIGN THAT IS A HANGAR — PROGENITOR never flies alone for long.',
  codex:{role:'Carrier', threat:'Bays launch fighters; docks twice; three phases',
   tell:'Bay notches flare, then FIGHTERS streak out. Ruled lines along its flanks are the BROADSIDE; mines astern, the MINEFIELD; a red tow-line to a fighter, the RECALL.',
@@ -4619,7 +4619,7 @@ BOSS_KITS.progenitor={
 // CALL, every cadence ×1.3. No recovery — it announces; it never hides.
 // Calls PROGENITOR at 70% and 35% (the rung below).
 BOSS_KITS.harbinger={
- def:{name:'HARBINGER',epithet:'the Horn',tier:4,hp:1100,r:29,spd:1.00,shape:'horn',pt:3.2,sig:'ricos',chaff:['tempest','mite']},
+ def:{name:'HARBINGER',epithet:'the Horn',tier:4,hp:18500,r:29,spd:1.00,shape:'horn',pt:3.2,sig:'ricos',chaff:['tempest','mite']},
  lore:'A SOVEREIGN WHO SOUNDS THE HORN — HARBINGER wants you to see it coming.',
  codex:{role:'Bullet-hell caster', threat:'Never recovers; three phases',
   tell:'Three-arm RICOCHET spirals bounce twice off rock and rim. Ruled marks down your heading are the METEOR; a wide ruled cone, the HORN BLAST; a one-gap ring whose rounds bounce once, the ECHO WALL.',
@@ -4737,7 +4737,7 @@ function krSever(e,A){ if(!A||A.lost) return; A.lost=true; A.regrow=KR_REGROW;
  A.mid=A.tip=null;
  addFloater(e.x,calloutY(e),'ARM SEVERED · regrows in 15s',K.gold); SFX.brk(); }
 BOSS_KITS.kraken={
- def:{name:'KRAKEN',epithet:'the Deep-Grasp',tier:4,hp:1600,r:36,spd:0.85,shape:'mantle',pt:3.6,sig:'arms',chaff:['mite','tempest']},
+ def:{name:'KRAKEN',epithet:'the Deep-Grasp',tier:4,hp:8000,r:36,spd:0.85,shape:'mantle',pt:3.6,sig:'arms',chaff:['mite','tempest']},
  lore:'A SOVEREIGN FROM UNDER THE LANE — KRAKEN reaches for what floats past.',
  codex:{role:'Grappler', threat:'Arms regrow; ink retreat twice; three phases',
   tell:'Two (then three) ARMS sweep slow arcs of harm; rocks do not stop them. A red line that holds is the GRASP — dash it. Hatched pools are INK MINES, slowing; circling red arcs, the WHIRLPOOL.',
@@ -4884,7 +4884,7 @@ function jgQuake(e,x,y,big){ // a wall impact's payoff: the ring IS the telegrap
  shockwave(e,x,y,{maxR:big?260:210,spd:330,dmg:Math.round(e.dmg*(big?1:0.85)),w:14,warn:0,what:'WALL QUAKE'});
  if(settings.shake) shake=Math.min(12,shake+6); spawnBurst(x,y,22,K.red,260,0.6,4); SFX.ring(); }
 BOSS_KITS.juggernaut={
- def:{name:'JUGGERNAUT',epithet:'the Unsteered',tier:4,hp:1700,r:38,spd:0.95,shape:'ram',pt:3.0,sig:'vent',chaff:['brute','drone']},
+ def:{name:'JUGGERNAUT',epithet:'the Unsteered',tier:4,hp:6800,r:38,spd:0.95,shape:'ram',pt:3.0,sig:'vent',chaff:['brute','drone']},
  lore:'A SOVEREIGN THAT CANNOT STEER — JUGGERNAUT commands by momentum alone.',
  codex:{role:'Ram', threat:'Rebounding rams; Vent Purge twice',
   tell:'A ruled red line off its prow is the RAM — its facing LOCKS once it commits. Debris dropped mid-charge is the WRECK WAKE (cover). A dashed cone astern is the EXHAUST PLUME; a dashed ring at its feet, the WALL QUAKE. In P2 rams REBOUND twice; in P3 it barely stops ramming.',
@@ -5029,7 +5029,7 @@ function ecTotality(e){ // the closing ring; the attack and the recovery share i
  addFloater(e.x,calloutY(e),'TOTALITY — HOLD THE DIM',K.red); SFX.alarm();
  return true; }
 BOSS_KITS.eclipse={
- def:{name:'ECLIPSE',epithet:'the Dimming',tier:4,hp:1400,r:32,spd:0.90,shape:'ringmoon',pt:3.6,sig:'moon',chaff:['sniper','drone']},
+ def:{name:'ECLIPSE',epithet:'the Dimming',tier:4,hp:2000,r:32,spd:0.90,shape:'ringmoon',pt:3.6,sig:'moon',chaff:['sniper','drone']},
  lore:'A SOVEREIGN THAT TAKES THE LIGHT — ECLIPSE turns, and the field goes dim.',
  codex:{role:'Rim caster', threat:'Two moons; Totality Step twice',
   tell:'A MOON orbits it, eating rounds and firing its own bursts. Twin CORONA beams pour from its rim and turn. A dashed circle closing on it is the TOTALITY — be inside when it shuts. A ticked line off the moon is the CRESCENT, flung out and back. In P3 the moon breaks into six FRAGMENTS.',
@@ -5184,7 +5184,7 @@ BOSS_KITS.eclipse={
 // and 35% (the rung below). No radial volleys.
 function nuMine(e,x,y){ return eraseZone(e,x,y,70,{life:5,warn:0.5}); }
 BOSS_KITS.nullifier={
- def:{name:'NULLIFIER',epithet:'the Silent',tier:4,hp:1250,r:30,spd:1.00,shape:'prism',pt:3.4,sig:'jam',chaff:['sniper','stalker']},
+ def:{name:'NULLIFIER',epithet:'the Silent',tier:4,hp:2800,r:30,spd:1.00,shape:'prism',pt:3.4,sig:'jam',chaff:['sniper','stalker']},
  lore:'A SOVEREIGN OF SILENCE — NULLIFIER needs you ordinary for four seconds.',
  codex:{role:'Disruptor', threat:'Follows in P2; Silent Step twice',
   tell:'A hatched DISRUPTOR FIELD drops on you and jams your systems. A dashed ring is the SILENCE PULSE — it jams your dash for 3 s. A thin ruled line is the NULL LANCE, eating your rounds along it (never the whole hull). Hatched NULL circles are VOID MINES, eating rounds inside.',
@@ -5290,7 +5290,7 @@ BOSS_KITS.nullifier={
 function chorusEchoes(e){ const out=[]; for(const o of enemies) if(o!==e&&o.kind==='chorus'&&o.echo&&!o.dead) out.push(o); return out; }
 function chorusHome(){ for(const o of enemies) if(o.kind==='chorus'&&!o.echo&&!o.summoned&&!o.dead&&o.rec&&o.chorReform) return o; return null; }
 BOSS_KITS.chorus={
- def:{name:'CHORUS',epithet:'the Norn-Choir',tier:4,hp:1400,r:28,spd:1.05,shape:'triad',pt:3.0,sig:'split',chaff:['mite','drone']},
+ def:{name:'CHORUS',epithet:'the Norn-Choir',tier:4,hp:4500,r:28,spd:1.05,shape:'triad',pt:3.0,sig:'split',chaff:['mite','drone']},
  lore:'A SOVEREIGN IN THREE VOICES — CHORUS was a people once. Every echo is true.',
  codex:{role:'Splitter', threat:'Fractures twice; Re-form twice',
   tell:'At 66% and 33% it FRACTURES into fragile synced echoes. Dashed slots triangulating you are the HARMONY, fired as one. A ticked line between echoes is the SWAP. One fan answered half a second later from every echo is the CANON. A RE-FORM call brings the echoes home.',
@@ -5429,7 +5429,7 @@ function sgConsume(e,o){ const ix=enemies.indexOf(o); if(ix<0) return false;
  rings.push({x:o.x,y:o.y,r:6,maxR:50,spd:260,dmg:0,hit:true});
  return true; }
 BOSS_KITS.singularity={
- def:{name:'SINGULARITY',epithet:'the One-Eyed',tier:5,hp:1950,r:40,spd:0.85,shape:'well',pt:4.0,sig:'wellpull',chaff:['tempest','brute']},
+ def:{name:'SINGULARITY',epithet:'the One-Eyed',tier:5,hp:2500,r:40,spd:0.85,shape:'well',pt:4.0,sig:'wellpull',chaff:['tempest','brute']},
  lore:'THE APEX — SINGULARITY, the One-Eyed. Every rank answers to it.',
  codex:{role:'Apex', threat:'Convocation; Absorption into Phase II',
   tell:'GRAVITY drags you while DEBRIS arcs out and TIDAL MARKS pull before they burst; the SPIRAL WALL keeps one gap. At half its bar the CONVOCATION lands: three SOVEREIGNS at once. At a quarter it ABSORBS the field — then Phase II: QUASAR JETS, a grinding ACCRETION DISK, bursting HAWKING SPARKS, LENSING that bends your rounds and withers homing, the EVENT HORIZON drift and the SPAGHETTIFY axis.',
