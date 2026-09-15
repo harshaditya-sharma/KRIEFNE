@@ -283,8 +283,8 @@ Upgrade cards are `req`-gated, so you never draft an improvement to a system you
 **Overdrive** — every stat stick pays: **Overclock** (+rate, −dmg) / **AP Rounds** (+dmg, −rate) /
 **Nanoweave** (+HULL, −speed). Common → Mythic variants share a stack budget; higher rarity, better rate.
 
-**Barrels** — **Gun Array** (+1 shot, slower) across common / Mk I / **Mk II ★** (lighter mounts) /
-**Split Chamber ★★★★★** (MYTHIC: DOUBLE barrels, HALVE damage — future damage picks hit twice as hard) /
+**Barrels** — **Gun Array** (+1 shot, slower) across common / Mk I / **Mk II ★** / **Mk III** (lighter mounts) /
+**Halo** (lighter still) / **Split Chamber ★★★★★** (MYTHIC: DOUBLE barrels, HALVE damage — future damage picks hit twice as hard) /
 **Minigun Amps** (+1 barrel, wider spread, damage split across barrels).
 
 **Ammo** — **Incendiary** (burn) / **Cryo** (chill) / **Slug** (+dmg, −rate, bigger) /
