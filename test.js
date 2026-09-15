@@ -3120,6 +3120,7 @@ function suitePrims() {
 // pilot that circles, fires and dashes on telegraphs. Asserts: no exception,
 // no NaN, everything in bounds, every CAP respected, no illegal jump. The
 // fight-length check (Homing Hose before RELENTLESS + 60s) is report-only.
+// The §4.6 performance floor lives in suitePerf, not here.
 function fuzzOne(kind, summoned, bad) {
  const a = boot(); seedRandom(a, 12000 + kind.length * 97 + (summoned ? 7 : 0));
  a.startRun(); give(a, 'spd', 1);
@@ -3169,18 +3170,50 @@ function suiteFuzz() {
   if (!r.done || r.t > lim) slow.push('S' + n + ' ' + kind + ' ' + (r.done ? '' : '>') + r.t.toFixed(0) + 's/' + lim + 's');
  }
  if (slow.length) console.log('  report: ' + slow.length + ' leads outlast RELENTLESS + 60s with the Homing Hose (not asserted): ' + slow.join(', '));
- // §4.6: the Apex nest with its chaff stream, 120 simulated seconds
+ console.log('  fuzz ran in ' + ((Date.now() - t0) / 1000).toFixed(1) + 's');
+ return null;
+}
+
+// ======================================================================
+//  SUITE perf -- the performance floor (spec §4.6, step 6c)
+// ======================================================================
+// The Apex nest with its chaff stream, 120 simulated seconds per window:
+// Phase 1 with the Convocation, then Phase 2's Quasar kit after walking the
+// bar through Absorption. (The old single window held the bar at 30%, so
+// Absorption at 25% never fired and Phase 2 was never measured.)
+function suitePerf() {
+ section('apex performance floor');
+ const t0 = Date.now();
+ // Phase 1 with the Convocation and the chaff stream
  {
   const a = boot(); seedRandom(a, 100100); a.startRun(); a.loadSector(99); a.forceState('playing');
   const b = bossesIn(a)[0]; a.player.autoFire = true;
-  let ms = 0; const N = 60 * 120;
+  let ms = 0, worst = 0; const N = 60 * 120;
   for (let i = 0; i < N; i++) { immortal(a); if (a.state !== 'playing') a.forceState('playing'); b.hp = Math.max(b.hp, b.maxhp * 0.3);
-   const s = process.hrtime.bigint(); a.update(DT); ms += Number(process.hrtime.bigint() - s) / 1e6; }
+   const s = process.hrtime.bigint(); a.update(DT); const d = Number(process.hrtime.bigint() - s) / 1e6; ms += d; if (d > worst) worst = d; }
   const avg = ms / N;
-  if (VERBOSE) console.log('  S100 + Convocation + chaff: ' + avg.toFixed(3) + ' ms per update');
+  if (VERBOSE) console.log('  S100 Phase 1 + Convocation + chaff: ' + avg.toFixed(3) + ' ms avg, ' + worst.toFixed(2) + ' ms worst');
   atMost('S100 with its Convocation and chaff stream updates in under 4ms on average', avg, 4);
  }
- console.log('  fuzz ran in ' + ((Date.now() - t0) / 1000).toFixed(1) + 's');
+ // Phase 2: guns quiet while the bar walks through Convocation (50%) and
+ // Absorption (25%), then a full Quasar window with the chaff stream
+ {
+  const a = boot(); seedRandom(a, 100101); a.startRun(); a.loadSector(99); a.forceState('playing');
+  const b = bossesIn(a)[0]; a.player.autoFire = false;
+  let guard = 0;
+  while (!b.ph2 && guard++ < 60 * 30) { immortal(a); if (a.state !== 'playing') a.forceState('playing');
+   if (!b.absorb && !b.absDone) b.hp = b.hpSeen = b.maxhp * 0.24;
+   a.update(DT); }
+  eq('the perf rig reaches SINGULARITY Phase 2', !!b.ph2, true);
+  a.player.autoFire = true;
+  let ms = 0, worst = 0; const N = 60 * 120;
+  for (let i = 0; i < N; i++) { immortal(a); if (a.state !== 'playing') a.forceState('playing'); b.hp = b.hpSeen = Math.max(b.hp, b.maxhp * 0.6);
+   const s = process.hrtime.bigint(); a.update(DT); const d = Number(process.hrtime.bigint() - s) / 1e6; ms += d; if (d > worst) worst = d; }
+  const avg = ms / N;
+  if (VERBOSE) console.log('  S100 Phase 2 + chaff: ' + avg.toFixed(3) + ' ms avg, ' + worst.toFixed(2) + ' ms worst');
+  atMost('S100 Phase 2 with its chaff stream updates in under 4ms on average', avg, 4);
+ }
+ console.log('  perf ran in ' + ((Date.now() - t0) / 1000).toFixed(1) + 's');
  return null;
 }
 
@@ -5702,6 +5735,7 @@ const SUITES = [
  ['teleport', suiteTeleport],
  ['prims', suitePrims],
  ['fuzz', suiteFuzz],
+ ['perf', suitePerf],
  ['combos', suiteCombos],
  ['codex', suiteCodex],
  ['endless', suitePoolExhaustion],
@@ -5722,10 +5756,10 @@ module.exports = { boot, seedRandom, fightNest, step, seconds, give, bossesIn, i
 
 if (require.main === module) {
   console.log('KRIEFNE QA harness\n------------------');
- // The simulator and the fuzz are ~2 of the 3 minutes. Everyday runs skip them;
+ // The simulator, the fuzz and the perf floor are ~2 of the 3 minutes. Everyday runs skip them;
  // `--all` (or `--full`, which also widens the simulator) is required before any
- // merge to main. `--only fightsim` / `--only fuzz` still run them alone.
- const SLOW = new Set(['fightsim', 'fuzz']);
+ // merge to main. `--only fightsim` / `--only fuzz` / `--only perf` still run them alone.
+ const SLOW = new Set(['fightsim', 'fuzz', 'perf']);
  const RUN_ALL = process.argv.indexOf('--all') >= 0 || FIGHTSIM_FULL;
  const skipped = [];
  for (const [name, fn] of SUITES) {
