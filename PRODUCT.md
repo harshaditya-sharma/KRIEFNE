@@ -14,14 +14,14 @@ Played in desktop browsers today (Vercel static deploy). A **mobile version and 
 
 ## Product Purpose
 
-KRIEFNE is an endless top-down action roguelite. The player fights down a galaxy trail of procedurally generated sectors that grow larger, denser, and harder, drafts 1-of-3 upgrades on level-up, and faces a boss nest every fifth sector, climbing a twelve-boss chain of command to the Apex at S100. The endless run is tuned to end: a deliberate wall lands between S110 and S130.
+KRIEFNE is an endless top-down action roguelite. The player fights down a galaxy trail of procedurally generated sectors that grow larger, denser, and harder, drafts 1-of-3 upgrades on level-up, and faces a boss nest every fifth sector, climbing a twenty-boss chain of command to the Apex at S100. The endless run is tuned to end: a deliberate wall lands between S110 and S130.
 
 Success: players start another run after they die, feel that each death was their own fault, and want to see the next boss and the next codex entry.
 
 ## Positioning
 
-- **Fairness rules the game enforces.** Boss recovery is a scripted beat with a budget (at most twice per fight, capped at 12% of max HP over the fight, no passive regen). The player never loses their guns. Every heavy attack has a telegraphed tell. A boss can never be lost off-screen, and upgrade cards show what the pick does for the current build. Unfairness counts as a bug.
-- **A chain of command.** Twelve bosses hold ranks (APEX, SOVEREIGN, LORD, CAPTAIN, ENFORCER), and rank decides who can summon whom. Every boss debuts alone. Later nests are courts: a commander escorted by its own subordinates. The codex presents the bosses as that command tree.
+- **Fairness rules the game enforces.** Boss recovery is a scripted beat with a budget (one recovery per HP threshold, 8% of max HP each, no passive regen). The player never loses their guns. Every heavy attack has a telegraphed tell. A boss can never be lost off-screen, and upgrade cards show what the pick does for the current build. Unfairness counts as a bug.
+- **A chain of command.** Twenty bosses hold ranks (APEX, SOVEREIGN, LORD, CAPTAIN, ENFORCER). One god leads each nest, and each calls the god directly beneath it on the trail. The codex presents the bosses as that command tree.
 - **A story told through recovered transmissions.** KRIEFNE is a human exploration ship sent long ago to find life, and home has never answered. The alien machine gods have been capturing every signal, and each god you defeat gives up its hoard. Over the climb to S100 those transmissions reveal that home and every alien civilization died out, and that only machines are left, KRIEFNE included. `LORE.md` is the canon.
 
 ## Operating Context
@@ -29,7 +29,7 @@ Success: players start another run after they die, feel that each death was thei
 - Loop: title → galaxy hub (pick a sector node) → sector fight → clear → XP gems → upgrade draft → EXIT gate → back to the hub. Cleared sectors can be replayed only as a drill: no XP, drafts or boss bonus, and the hull comes back exactly as it went in. Death ends the run, and the score and depth are banked.
 - Persistent progress: best score, deepest sector, total boss kills (each one adds a permanent +2% damage), and codex unlocks. Codex entries open on the first encounter (portrait, name, rank, tells, counters) and complete on the first kill (the field note).
 - Screens: title, galaxy hub, in-sector HUD, upgrade draft, pause, settings (O), help (H: CONTROLS · SHIELDS · ARSENAL · LORE), codex (C, reachable from title, hub, pause and mid-fight), game over.
-- Terminology already in use: sector (S1, S2…), nest, court, lieutenant, command depth, chaff, EXIT gate, Portal Cell, recall, blink, codex, status effects shown in caps (PETRIFIED, JAMMED, PHASED, ENRAGED, RELENTLESS).
+- Terminology already in use: sector (S1, S2…), nest, thrall, summoned god, chaff, EXIT gate, Portal Cell, recall, blink, codex, status effects shown in caps (PETRIFIED, JAMMED, PHASED, ENRAGED, RELENTLESS).
 
 ## Capabilities and Constraints
 
@@ -38,9 +38,9 @@ Success: players start another run after they die, feel that each death was thei
 - **Keep it simple enough to port (hard constraint).** Future mobile and Steam versions must stay easy to build. Avoid choices that tie the game to one input method, one screen size, or browser-only machinery without a reason.
 - Current implementation: vanilla JS, one Canvas with a fixed internal resolution of 960×640, and every UI element (HUD, menus, codex) drawn on the canvas rather than in the DOM. The game runs on a fixed-timestep 60Hz loop with swept circle collision, and settings are saved in `localStorage`. None of these was confirmed as a permanent constraint.
 - Current input is WASD/arrows, mouse aim, click or auto-fire, Space/Shift to dash, and E for the gate or recall. There are no touch controls yet. A mobile port will need a touch control scheme, which hasn't been designed.
-- Content: 46 upgrade cards, 12 bosses, 6 chaff enemy types, 6 sector themes (palette, obstacle style, music), and 6 layout archetypes.
+- Content: 46 upgrade cards, 20 bosses, 6 chaff enemy types, 6 sector themes (palette, obstacle style, music), and 6 layout archetypes.
 - Runs persist until death: the run is checkpointed to `localStorage` at the hub and on entering each sector, and resumes from the title with CONTINUE. XP is collect-only: gems stay on the field after a clear and are lost if you exit without them. Dash and recall that the player passes on come back as a fourth draft card.
-- Quality bar: `node test.js` (1343 checks) boots the real `game.js` headless. It pins the balance curve and the README balance figures (±20%), the S115 wall, procgen reachability and open space, XP conservation, draft gating, run save and resume, and the chain-of-command rules. Changes must keep it passing.
+- Quality bar: `node test.js` (thousands of checks) boots the real `game.js` headless. It pins the balance curve and the README balance figures (±20%), the S110–S130 wall, procgen reachability and open space, XP conservation, draft gating, run save and resume, and the chain-of-command rules. Changes must keep it passing.
 - **Undecided:**
   - the open lore questions listed in `LORE.md` §14, plus the Transmission Archive feature it proposes (planned, not built)
   - the port strategy (wrapper or native) for mobile and Steam
@@ -57,7 +57,7 @@ Success: players start another run after they die, feel that each death was thei
 
 - The playable game (`index.html`, `game.js`) and a detailed design README (`README.md`) covering the rules, balance, the boss trail, and upgrades.
 - Pinned balance data: time-to-kill tables per nest for the ceiling and farmer builds (README "Balance model", enforced by `test.js`).
-- The lore bible (`LORE.md`, draft 2), and the existing lore fragments in `game.js`: a codex lore line for all 18 enemies and bosses (around lines 2040–2130), debut lines for each boss (`DEBUT_LORE`), court lines on the hub, and the Help LORE tab. It is rewritten to match the bible.
+- The lore bible (`LORE.md`, draft 2), and the existing lore fragments in `game.js`: a codex lore line for every god and servitor, debut lines for each boss (`DEBUT_LORE`), nest lines on the hub, and the Help LORE tab. It is rewritten to match the bible.
 - **Absent, so never fabricate:** player counts, reviews or testimonials, press, store pages, screenshots or trailer assets, awards, and any release dates for the mobile or Steam versions.
 
 ## Product Principles
