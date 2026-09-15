@@ -2774,7 +2774,7 @@ BOSS_KITS.overlord={
  lore:'AN ENFORCER BARS THE TRAIL — OVERLORD, the Berserk, has never yielded a holmgang. End the saga.',
  codex:{role:'Brawler', threat:'Never recovers',
   tell:'A ruled red line off its prow is the CHARGE. A red wedge that follows you is a CLEAVE; a dashed ring at its feet, a STOMP.',
-  counter:'Step sideways off the charge line, never back along it. Leave the wedge before it swings. At half strength it calls a pack: thin it, then press.',
+  counter:'Step sideways off the charge line, never back along it. Leave the wedge before it swings. At half strength it summons chaff: thin it, then press.',
   lore:'The Berserk. The youngest of the gods, which out here means a few hundred million years old. Its makers built it to win rather than to hold, and it has never yielded a holmgang. They called this discipline. There is no one left to call it anything.'},
  cycle:['charge','cleave','stomp','charge','cleave'],
  // THRALL (spec §8): the charge and the stomp. No War Cry, never enraged, so no rebound.
@@ -6452,11 +6452,12 @@ const CODEX_TABS=['bestiary','bosses'];
 function openCodex(from){ codexFrom=from; codexSel=0; codexPage=0; codexPagerRect=null; codexIdxPagerRect=null; state='codex'; if(from==='paused'||from==='playing-paused') setMusicCfg(PAUSE_MUS); SFX.click(); }
 function closeCodex(){ SFX.click(); if(codexFrom==='paused'||codexFrom==='playing-paused') toPaused(autoPaused); else if(codexFrom==='galaxy') state='galaxy'; else if(codexFrom==='levelup') state='levelup'; else state='title'; }
 function codexTabRects(){
- let w = 200; const g = 12;
- if(W < w * 2 + g + 32) w = Math.max(80, Math.floor((W - 32 - g) / 2));
- const x0 = Math.round((W - (w * 2 + g)) / 2);
- const y = Math.max(100, 120 + Math.min(0, H - 640));
- return [0,1].map(i=>({x:x0+i*(w+g),y,w,h:30}));
+  let w = 200; const g = 12;
+  if(W < w * 2 + g + 32) w = Math.max(80, Math.floor((W - 32 - g) / 2));
+  const x0 = Math.round((W - (w * 2 + g)) / 2);
+  let y = Math.max(100, 120 + Math.min(0, H - 640));
+  try{ y = codexChrome().tabY; }catch(e){}
+  return [0,1].map(i=>({x:x0+i*(w+g),y,w,h:30}));
 }
 // ---------- codex ----------
 // One entry per thing that can kill you. TELL is what you see before it hurts,
@@ -7735,22 +7736,52 @@ function drawHelp(){
 // ---------- codex ----------
 // One centred group: a 200px index, a 24px gutter, a 560px detail plate.
 // Narrow windows squeeze both panes so the detail keeps a readable measure.
+// Vertical chrome is optically centred in the game view (the canvas itself;
+// the DOM key-hint line below it is never read, so it never centres): the
+// whole stack — title, subs, tabs, content, BACK — splits free space 42:58.
+let codexAnimKey='', codexAnimT=0;
+function codexChrome(){
+  const narrowX=codexLayout().narrow;
+  const portrait=narrowX?100:150;
+  // content height drives the stack: detail plate height, index windows to it.
+  const tabH=30, backH=44;
+  const chromeTop=8, chromeBottom=H-8;
+  // provisional content top to size the plate, then re-centre the full stack.
+  const provTabY=Math.max(100,120+Math.min(0,H-640));
+  const provY0=narrowX?Math.max(150,168+Math.min(0,H-640)):168;
+  let provPy=narrowX?Math.max(130,168+Math.min(0,H-640)):168;
+  let ph=narrowX?Math.min(378,Math.max(80,H-provPy-100)):Math.min(378,Math.max(220,H-provPy-90));
+  // full stack height with generous, fixed gaps: title 22 + subs + tabs + content + BACK.
+  const stackH=22+24+27+14+tabH+18+ph+20+backH;
+  const top=opticalTop(chromeTop,chromeBottom,stackH);
+  const titleY=top+22;
+  const sub1Y=titleY+24, sub2Y=sub1Y+16;
+  const tabY=sub2Y+14; // rect top (label sits +19 inside)
+  const contentY=tabY+tabH+18;
+  const py=contentY;
+  // shrink the plate when the window is too short for the centred stack.
+  const backY=py+ph+20;
+  const overflow=(backY+backH)-(chromeBottom);
+  if(overflow>0) ph=Math.max(narrowX?80:160,ph-overflow);
+  return {titleY,sub1Y,sub2Y,tabY,y0:contentY,py,ph,portrait,backY:py+ph+20,idxBottom:py+ph-26,tabH,backH};
+}
 function codexLayout(){
- const iw=200, gap=24, pw=560;
- if(W>=iw+gap+pw+32){
-  const ix=Math.round((W-(iw+gap+pw))/2);
-  return {ix,iw,px:ix+iw+gap,pw,narrow:false};
- }
- const w=Math.max(130,Math.min(160,W-200));
- return {ix:16,iw:w,px:16+w+12,pw:W-(16+w+12)-16,narrow:true};
+  const iw=200, gap=24, pw=560;
+  if(W>=iw+gap+pw+32){
+   const ix=Math.round((W-(iw+gap+pw))/2);
+   return {ix,iw,px:ix+iw+gap,pw,narrow:false};
+  }
+  const w=Math.max(130,Math.min(160,W-200));
+  return {ix:16,iw:w,px:16+w+12,pw:W-(16+w+12)-16,narrow:true};
 }
 function codexRects(){
- const lay=codexLayout();
- if(lay.narrow){
-  const y0=Math.max(150,168+Math.min(0,H-640));
-  return codexRows().map((r,k)=>({x:lay.ix,y:y0+k*19,w:lay.iw,h:17,row:r}));
- }
- return codexRows().map((r,k)=>({x:lay.ix,y:168+k*20,w:lay.iw,h:18,row:r}));
+  const lay=codexLayout();
+  const ch=codexChrome();
+  const y0=ch.y0;
+  if(lay.narrow){
+   return codexRows().map((r,k)=>({x:lay.ix,y:y0+k*19,w:lay.iw,h:17,row:r}));
+  }
+  return codexRows().map((r,k)=>({x:lay.ix,y:y0+k*20,w:lay.iw,h:18,row:r}));
 }
 // The preview renders the REAL sprite by building a throwaway entity and calling
 // the same draw code the game uses. Every god is drawn at ONE registered scale so
@@ -7821,14 +7852,15 @@ function commandLine(kind){
 // Visible index rows on short viewports: the window follows the selection so
 // arrow keys page the index instead of walking off-screen with no signal.
 function codexIdxSpan(){
- try{
-  const rects=codexRects();
-  if(!rects.length) return 3;
-  const bottom=BTN.back.y-14;
-  const y0=rects[0].y;
-  const pitch=rects.length>1?(rects[1].y-rects[0].y):20;
-  return Math.max(1,Math.floor((bottom-y0-20)/Math.max(1,pitch)));
- }catch(e){ return 3; }
+  try{
+   const rects=codexRects();
+   if(!rects.length) return 3;
+   let bottom=BTN.back.y-14;
+   try{ bottom=codexChrome().idxBottom; }catch(e){}
+   const y0=rects[0].y;
+   const pitch=rects.length>1?(rects[1].y-rects[0].y):20;
+   return Math.max(1,Math.floor((bottom-y0-20)/Math.max(1,pitch)));
+  }catch(e){ return 3; }
 }
 function codexIdxPage(dir){
  const order=codexRows().filter(r=>!r.hdr).map(r=>r.i);
@@ -7903,154 +7935,177 @@ function drawSummonsLine(entryE,tx,y,maxW){
  return yy;
 }
 function drawCodexScreen(){
- const L=codexList();
- if(codexSel>=L.length) codexSel=0;
- const pr=codexProgress();
- heading('CODEX',W/2,62,22,K.gold,'center');
- mono('MET '+pr.m+' / '+pr.tot+'  ·  DEFEATED '+pr.n+' / '+pr.tot+'  ·  [1/2 ←→] tab  [↑↓] entry  [C / Esc] back',W/2,86,11,K.textDim,'center');
- mono('◆ defeated  ·  ◇ met, not yet defeated  ·  ? ? ? ? ? unmet',W/2,102,11,K.textDim,'center');
- const tr=codexTabRects();
- ['BESTIARY','BOSSES'].forEach((lab,i)=>{ const r=tr[i], on=codexTab===CODEX_TABS[i], hot=on||hovered(r);
-  heading(lab,r.x+r.w/2,r.y+19,11,hot?K.gold:K.text,'center'); mono(String(i+1),r.x+4,r.y+19,10,K.textDim);
-  rule(r.x,r.y+r.h,r.w,on?K.gold:K.goldDim,on); });
-  // index column: rank headers + entries (bosses), or a flat list (bestiary).
-  // Short viewports window the list around the selection with ▲▼ signals so
-  // arrows page the index instead of walking entries off-screen unseen.
-  codexIdxPagerRect=null;
+  const L=codexList();
+  if(codexSel>=L.length) codexSel=0;
+  const pr=codexProgress();
+  const ch=codexChrome();
+  BTN.back.y=ch.backY; BTN.back.h=ch.backH;
+  // live-engrave: one authored moment — the plate re-engraves on entry/page/tab.
+  try{
+   const key=codexTab+'|'+codexSel+'|'+codexPage;
+   if(key!==codexAnimKey){ codexAnimKey=key; try{ codexAnimT=performance.now(); }catch(e){ codexAnimT=0; } }
+  }catch(e){}
+  let animK=1, animRise=0;
+  try{
+   if(!REDUCED){ const now=performance.now(); animK=Math.max(0,Math.min(1,(now-codexAnimT)/220)); animRise=(1-animK)*(1-animK)*10; }
+  }catch(e){ animK=1; animRise=0; }
+  heading('CODEX',W/2,ch.titleY,22,K.gold,'center');
+  mono('MET '+pr.m+' / '+pr.tot+'  ·  DEFEATED '+pr.n+' / '+pr.tot+'  ·  [1/2 ←→] tab  [↑↓] entry  [C / Esc] back',W/2,ch.sub1Y,11,K.textDim,'center');
+  mono('◆ defeated  ·  ◇ met, not yet defeated  ·  ? ? ? ? ? unmet',W/2,ch.sub2Y,11,K.textDim,'center');
+  const tr=codexTabRects();
+  ['BESTIARY','BOSSES'].forEach((lab,i)=>{ const r=tr[i], on=codexTab===CODEX_TABS[i], hot=on||hovered(r);
+   heading(lab,r.x+r.w/2,r.y+19,11,hot?K.gold:K.text,'center'); mono(String(i+1),r.x+4,r.y+19,10,K.textDim);
+   rule(r.x,r.y+r.h,r.w,on?K.gold:K.goldDim,on); });
+   // index column: rank headers + entries (bosses), or a flat list (bestiary).
+   // The pager owns a reserved footer row, so ▼ MORE never sits on an entry;
+   // ▲ owns the 18px gap above the first row. Arrows page the windowed list.
+   codexIdxPagerRect=null;
+   codexSummonRects=[];
+   {
+    const rects=codexRects();
+    const y0=rects.length?rects[0].y:ch.y0;
+    const pitch=rects.length>1?(rects[1].y-rects[0].y):20;
+    const FOOT=26, HEAD=16;
+    const idxTop=y0, idxBottom=ch.idxBottom;
+    let cap=Math.max(1,Math.floor((idxBottom-HEAD-idxTop)/Math.max(1,pitch)));
+    let toDraw=rects, yOff=0, showUp=false, showDown=false;
+    if(rects.length>cap){
+     cap=Math.max(1,Math.floor((idxBottom-FOOT-HEAD-idxTop)/Math.max(1,pitch)));
+     cap=Math.max(1,cap);
+     let selPos=rects.findIndex(r=>!r.hdr&&r.row.i===codexSel);
+     if(selPos<0) selPos=0;
+     let start=Math.max(0,Math.min(selPos-Math.floor(cap/2),rects.length-cap));
+     const end=Math.min(rects.length,start+cap);
+     showUp=start>0; showDown=end<rects.length;
+     toDraw=rects.slice(start,end);
+     yOff=rects[start].y-y0;
+    }
+    if(showUp) mono('▲',rects[0].x+8,y0-4,11,K.goldDim);
+    toDraw.forEach((r)=>{
+     const ry=r.y-yOff;
+     if(r.row.hdr){ const n=TIER_NAMES.indexOf(r.row.hdr); binTicks(r.x+2,ry+14,n,5,K.metal); heading(r.row.hdr,r.x+36,ry+13,9,K.textDim); return; }
+     const it=r.row.entry, on=r.row.i===codexSel, known=codexSeen(codexId(it)), killed=codexKnown(codexId(it));
+     const nm=known?(it.name||BOSSDEF[it.id].name):'? ? ? ? ?';
+     // filled pigment: defeated · hollow: met, not yet defeated
+     if(on){
+      diamond(r.x+8,ry+9,3.5,K.gold);
+      const uw=r.w-18;
+      const drawW=(!REDUCED&&animK<1)?Math.max(24,Math.round(uw*animK)):uw;
+      line(r.x+18,ry+r.h,r.x+18+drawW,ry+r.h,K.gold,1);
+     }
+     else if(known&&PIG[codexId(it)]) diamond(r.x+8,ry+9,2.5,PIG[codexId(it)].c,!killed);
+     mono(nm,r.x+(codexTab==='bosses'?22:18),ry+13,12,on?K.gold:(known?K.text:K.textDim),'left',on?600:400);
+     if(codexTab==='bosses') mono('S'+BOSSDEF[it.id].debut,r.x+r.w,ry+13,11,on?K.gold:K.textDim,'right');
+    });
+    if(showDown){
+     const dy=idxBottom+8;
+     mono('▼ MORE [↑↓]',rects[0].x+8,dy,11,K.goldDim);
+     codexIdxPagerRect={x:rects[0].x,y:dy-16,w:rects[0].w,h:22,dir:1};
+    }
+   }
+  const entryE=L[codexSel];
+  if(!entryE){ entry(BTN.back,'BACK','[Esc]',false); return; }
+  const known=codexSeen(codexId(entryE)), killed=codexKnown(codexId(entryE)), boss=codexTab==='bosses';
+  // detail: one centred plate on the same optical column. Portrait keeps its
+  // registered scale; the name block holds a fixed grid (rank · role / trait /
+  // SUMMONS / thralls, all 11px dim) and TELL / COUNTER / FIELD NOTE start
+  // below a ruled divider, so long headers can never run into the TELL.
+  const lay=codexLayout();
+  const px=lay.px, pw=lay.pw;
+  const py=ch.py, ph=ch.ph, portrait=ch.portrait;
+  const tx=px+portrait+30;
+  const headW=pw-portrait-48;
+  plate(px,py,pw,ph,K.goldDim);
+  plate(px+14,py+14,portrait,portrait,K.metalDim,false,true);
+  drawCodexSprite(entryE,px+14+portrait/2,py+14+portrait/2,!known,portrait);
+  const wrapRole=Math.max(20,Math.min(52,Math.floor(headW/6)));
+  const wrapBody=Math.max(20,Math.min(64,Math.floor((pw-36)/6)));
   codexSummonRects=[];
-  {
-   const rects=codexRects();
-   const idxBottom=BTN.back.y-14;
-   const pitch=rects.length>1?(rects[1].y-rects[0].y):20;
-   let cap=Math.max(1,Math.floor((idxBottom-(rects.length?rects[0].y:168))/Math.max(1,pitch)));
-   let toDraw=rects, yOff=0, showUp=false, showDown=false;
-   if(rects.length>cap){
-    cap=Math.max(1,Math.floor((idxBottom-(rects.length?rects[0].y:168)-20)/Math.max(1,pitch)));
-    cap=Math.max(1,cap);
-    let selPos=rects.findIndex(r=>!r.hdr&&r.row.i===codexSel);
-    if(selPos<0) selPos=0;
-    let start=Math.max(0,Math.min(selPos-Math.floor(cap/2),rects.length-cap));
-    const end=Math.min(rects.length,start+cap);
-    showUp=start>0; showDown=end<rects.length;
-    toDraw=rects.slice(start,end);
-    yOff=rects[start].y-(rects.length?rects[0].y:168);
+   if(!known){
+    heading('? ? ? ? ?',tx,py+44,18,K.textDim);
+    mono(boss?'Unidentified god':'Unidentified hostile',tx,py+68,12,K.textDim);
+    // The locked hint sits centred in the open plate, not stacked on its edge.
+    const hint2='Meet one to open its rank, tells and counters. Kill it to recover the field note.';
+    const hintLines=wrapLines(hint2,wrapBody);
+    const cxp=px+pw/2;
+    const lockY=Math.max(py+portrait+30,py+178);
+    mono('Not yet met.',cxp,lockY,13,K.text,'center');
+    const hintRoom=Math.max(0,Math.floor((py+ph-10-(lockY+17))/15));
+    codexPagerRect=null;
+    if(hintLines.length<=Math.max(1,hintRoom)){
+     hintLines.forEach((l,i)=>mono(l,cxp,lockY+17+i*15,12,K.textDim,'center'));
+    } else {
+     hintLines.slice(0,Math.max(1,hintRoom)).forEach((l,i)=>mono(l,cxp,lockY+17+i*15,12,K.textDim,'center'));
+     mono('▼ MORE [PgDn]',px+pw-14,py+ph-14,11,K.goldDim,'right');
+     codexPagerRect={x:px,y:py+ph-32,w:pw,h:22};
+     codexPage=0;
+    }
+    entry(BTN.back,'BACK','[Esc]',false);
+    return;
    }
-   const y0=rects.length?rects[0].y:168;
-   if(showUp) mono('▲',rects[0].x+8,y0-6,11,K.goldDim);
-   toDraw.forEach((r)=>{
-    const ry=r.y-yOff;
-    if(r.row.hdr){ const n=TIER_NAMES.indexOf(r.row.hdr); binTicks(r.x+2,ry+14,n,5,K.metal); heading(r.row.hdr,r.x+36,ry+13,9,K.textDim); return; }
-    const it=r.row.entry, on=r.row.i===codexSel, known=codexSeen(codexId(it)), killed=codexKnown(codexId(it));
-    const nm=known?(it.name||BOSSDEF[it.id].name):'? ? ? ? ?';
-    // filled pigment: defeated · hollow: met, not yet defeated
-    if(on){ diamond(r.x+8,ry+9,3.5,K.gold); line(r.x+18,ry+r.h,r.x+r.w,ry+r.h,K.gold,1); }
-    else if(known&&PIG[codexId(it)]) diamond(r.x+8,ry+9,2.5,PIG[codexId(it)].c,!killed);
-    mono(nm,r.x+(codexTab==='bosses'?22:18),ry+13,12,on?K.gold:(known?K.text:K.textDim),'left',on?600:400);
-    if(codexTab==='bosses') mono('S'+BOSSDEF[it.id].debut,r.x+r.w,ry+13,11,on?K.gold:K.textDim,'right');
-   });
-   if(showDown){
-    const dy=y0+toDraw.length*pitch+4;
-    mono('▼ MORE [↑↓]',rects[0].x+8,Math.min(dy,idxBottom),11,K.goldDim);
-    codexIdxPagerRect={x:rects[0].x,y:Math.min(dy,idxBottom)-16,w:rects[0].w,h:22,dir:1};
-   }
-  }
- const entryE=L[codexSel];
- if(!entryE){ entry(BTN.back,'BACK','[Esc]',false); return; }
- const known=codexSeen(codexId(entryE)), killed=codexKnown(codexId(entryE)), boss=codexTab==='bosses';
- // detail: one centred plate. The portrait keeps its registered scale, the
- // name block breathes beside it, and TELL / COUNTER / FIELD NOTE hold a
- // ~64ch measure below a generous break instead of walling the plate's left.
- const lay=codexLayout();
- const px=lay.px, pw=lay.pw;
- const py=lay.narrow?Math.max(130,168+Math.min(0,H-640)):168;
- const ph=lay.narrow?Math.min(378,Math.max(80,H-py-100)):Math.min(378,Math.max(220,H-py-90));
- const portrait=lay.narrow?100:150;
- const tx=px+portrait+30;
- const headW=pw-portrait-48;
- plate(px,py,pw,ph,K.goldDim);
- plate(px+14,py+14,portrait,portrait,K.metalDim,false,true);
- drawCodexSprite(entryE,px+14+portrait/2,py+14+portrait/2,!known,portrait);
- const wrapRole=Math.max(20,Math.min(52,Math.floor(headW/6)));
- const wrapBody=Math.max(20,Math.min(64,Math.floor((pw-36)/6)));
- codexSummonRects=[];
-  if(!known){
-   heading('? ? ? ? ?',tx,py+44,18,K.textDim);
-   mono(boss?'Unidentified god':'Unidentified hostile',tx,py+68,12,K.textDim);
-   // The locked hint sits centred in the open plate, not stacked on its edge.
-   // On a plate too short for both lines, the second becomes a pager signal
-   // instead of a silent drop.
-   const hint2='Meet one to open its rank, tells and counters. Kill it to recover the field note.';
-   const hintLines=wrapLines(hint2,wrapBody);
-   const cxp=px+pw/2;
-   mono('Not yet met.',cxp,py+178,13,K.text,'center');
-   const hintRoom=Math.max(0,Math.floor((py+ph-10-(py+178+17))/15));
-   codexPagerRect=null;
-   if(hintLines.length<=Math.max(1,hintRoom)){
-    hintLines.forEach((l,i)=>mono(l,cxp,py+178+17+i*15,12,K.textDim,'center'));
+   const name=entryE.name||BOSSDEF[entryE.id].name, pg=PIG[codexId(entryE)];
+   heading(name,tx,py+42,18,K.text);
+   if(pg) line(tx,py+51,tx+56,py+51,pg.c,2); // its pigment, as seen in the field
+   // Identity, trait, then the chain: who it summons when wounded (each a
+   // link), and from where its thralls walk. No debut sector here — the index
+   // already says it beside the name. One size for every boss: 11px dim.
+   let hy=py+66;
+   if(boss){
+    const d=BOSSDEF[entryE.id];
+    const idLines=wrapLines(TIER_NAMES[d.tier]+' · '+entryE.role,wrapRole);
+    idLines.forEach((l,i)=>mono(l,tx,hy+i*15,11,K.textDim)); hy+=idLines.length*15;
+    const trLines=wrapLines(entryE.threat+'.',wrapRole);
+    trLines.forEach((l,i)=>mono(l,tx,hy+i*15,11,K.textDim)); hy+=trLines.length*15+3;
+    hy=drawSummonsLine(entryE,tx,hy,headW)+15;
+    const th=thrallDebut(entryE.id);
+    if(th<Infinity){
+     const thLines=wrapLines('Thralls walk the trail from S'+th+'.',wrapRole);
+     thLines.forEach((l,i)=>mono(l,tx,hy+i*15,11,K.textDim)); hy+=thLines.length*15;
+    }
    } else {
-    hintLines.slice(0,Math.max(1,hintRoom)).forEach((l,i)=>mono(l,cxp,py+178+17+i*15,12,K.textDim,'center'));
-    mono('▼ MORE [PgDn]',px+pw-14,py+ph-14,11,K.goldDim,'right');
-    codexPagerRect={x:px,y:py+ph-32,w:pw,h:22};
-    codexPage=0;
+    const fLines=wrapLines(entryE.role+' · '+entryE.threat,wrapRole);
+    fLines.forEach((l,i)=>mono(l,tx,hy+i*15,11,K.textDim)); hy+=fLines.length*15;
+   }
+   // Detail blocks page inside the plate below a ruled divider: the divider
+   // sits under both the portrait and the header, so TELL never touches art
+   // or the SUMMONS line however long the header grows.
+   codexPagerRect=null;
+   {
+    const divY=Math.max(py+portrait+26,hy+12);
+    const topY=Math.min(divY,py+ph-58);
+    line(px+18,divY-10,px+pw-18,divY-10,K.metalFaint,1);
+    const blocks=[
+     {label:'TELL',col:K.red,italic:false,lines:wrapLines(entryE.tell,wrapBody)},
+     {label:'COUNTER',col:K.gold,italic:false,lines:wrapLines(entryE.counter,wrapBody)},
+     {label:'FIELD NOTE',col:K.metal,italic:true,lines:wrapLines(killed?entryE.lore:'Kill it to recover the field note.',wrapBody)},
+    ];
+    const avail=Math.max(40,(py+ph-8)-topY);
+    const built=codexDetailPages(blocks,avail);
+    const total=built.pages.length;
+    codexPage=Math.max(0,Math.min(codexPage,total-1));
+    const page=built.pages[codexPage];
+    let y=topY-animRise;
+    try{
+     if(!REDUCED&&animK<1){ ctx.save(); ctx.globalAlpha=0.35+0.65*animK; }
+    }catch(e){}
+    page.forEach((blk,bi)=>{
+     const stagger=(!REDUCED&&animK<1)?(1-animK)*6*(bi+1):0;
+     if(blk.label){ heading(blk.label,px+18,y-stagger,9,blk.col); y+=17; }
+     blk.lines.forEach((l)=>{
+      ctx.font=fM(12); ctx.fillStyle=blk.italic?K.textDim:K.text; ctx.textAlign='left'; ctx.fillText(l,px+18,y-stagger);
+      y+=15;
+     });
+     if(blk.gap) y+=11;
+    });
+    try{ if(!REDUCED&&animK<1) ctx.restore(); }catch(e){}
+    if(built.paged){
+     const up=codexPage>0?'▲ ':'';
+     mono(up+'▼ MORE '+(codexPage+1)+'/'+total+' [PgDn]',px+pw-14,py+ph-14,11,K.goldDim,'right');
+     codexPagerRect={x:px,y:py+ph-32,w:pw,h:22};
+    }
    }
    entry(BTN.back,'BACK','[Esc]',false);
-   return;
   }
-  const name=entryE.name||BOSSDEF[entryE.id].name, pg=PIG[codexId(entryE)];
-  heading(name,tx,py+42,18,K.text);
-  if(pg) line(tx,py+51,tx+56,py+51,pg.c,2); // its pigment, as seen in the field
-  // Identity, trait, then the chain: who it summons when wounded (each a
-  // link), and from where its thralls walk. No debut sector here — the index
-  // already says S25 beside the name, and no caller line going up the ladder.
-  let hy=py+66;
-  if(boss){
-   const d=BOSSDEF[entryE.id];
-   const idLines=wrapLines(TIER_NAMES[d.tier]+' · '+entryE.role,wrapRole);
-   idLines.forEach((l,i)=>mono(l,tx,hy+i*15,11,K.textDim)); hy+=idLines.length*15;
-   const trLines=wrapLines(entryE.threat+'.',wrapRole);
-   trLines.forEach((l,i)=>mono(l,tx,hy+i*15,11,K.textDim)); hy+=trLines.length*15+3;
-   hy=drawSummonsLine(entryE,tx,hy,headW)+15;
-   const th=thrallDebut(entryE.id);
-   if(th<Infinity){
-    const thLines=wrapLines('Thralls walk the trail from S'+th+'.',wrapRole);
-    thLines.forEach((l,i)=>mono(l,tx,hy+i*15,11,K.textDim)); hy+=thLines.length*15;
-   }
-  } else {
-   const fLines=wrapLines(entryE.role+' · '+entryE.threat,wrapRole);
-   fLines.forEach((l,i)=>mono(l,tx,hy+i*15,11,K.textDim)); hy+=fLines.length*15;
-  }
-  // Detail blocks page inside the plate: overflow shows ▼ MORE [PgDn] and
-  // PgDn/Space advances, so TELL / COUNTER / FIELD NOTE are never cut muted.
-  codexPagerRect=null;
-  {
-   const topY=(py+174>py+ph-58)?(py+ph-58):(py+174);
-   const blocks=[
-    {label:'TELL',col:K.red,italic:false,lines:wrapLines(entryE.tell,wrapBody)},
-    {label:'COUNTER',col:K.gold,italic:false,lines:wrapLines(entryE.counter,wrapBody)},
-    {label:'FIELD NOTE',col:K.metal,italic:true,lines:wrapLines(killed?entryE.lore:'Kill it to recover the field note.',wrapBody)},
-   ];
-   const avail=Math.max(40,(py+ph-8)-topY);
-   const built=codexDetailPages(blocks,avail);
-   const total=built.pages.length;
-   codexPage=Math.max(0,Math.min(codexPage,total-1));
-   const page=built.pages[codexPage];
-   let y=topY;
-   page.forEach((blk)=>{
-    if(blk.label){ heading(blk.label,px+18,y,9,blk.col); y+=17; }
-    blk.lines.forEach((l)=>{
-     ctx.font=fM(12); ctx.fillStyle=blk.italic?K.textDim:K.text; ctx.textAlign='left'; ctx.fillText(l,px+18,y);
-     y+=15;
-    });
-    if(blk.gap) y+=11;
-   });
-   if(built.paged){
-    const up=codexPage>0?'▲ ':'';
-    mono(up+'▼ MORE '+(codexPage+1)+'/'+total+' [PgDn]',px+pw-14,py+ph-14,11,K.goldDim,'right');
-    codexPagerRect={x:px,y:py+ph-32,w:pw,h:22};
-   }
-  }
-  entry(BTN.back,'BACK','[Esc]',false);
- }
 // Arrow navigation walks entries in the order they are LISTED (S5-first rank
 // order for bosses), skipping headers.
 function codexStep(dir){

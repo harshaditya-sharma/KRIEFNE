@@ -1203,6 +1203,10 @@ function suiteCodex() {
  ok('ORACLE summons its pair', /Summons \?\?\? ×2/.test(named.commandLine('oracle')), named.commandLine('oracle'));
  ok('the Apex summons its convocation', /Summons \?\?\?, \?\?\?, \?\?\?/.test(named.commandLine('singularity')), named.commandLine('singularity'));
  ok('the Enforcer summons chaff, not gods', /Summons chaff at half strength/.test(named.commandLine('overlord')), named.commandLine('overlord'));
+ {
+  const oc = bosses.find(b => b.id === 'overlord').counter;
+  ok('OVERLORD counter names the summon (chaff), never a pack', /summons chaff/.test(oc) && !/calls a pack/.test(oc), oc);
+ }
 
  // -- SUMMONS names are links into the summoned god's entry ---
  {
