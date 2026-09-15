@@ -449,7 +449,7 @@ const HOSE_ORDER = ['spd:1', 'seek', 'array4', 'array3', 'array2', 'array1', 'ar
  'hp4', 'hp3', 'hp', 'hp2', 'hp1', 'hp0', 'vamp', 'orbit', 'nova', 'shock'];
 const SIM_BUILDS = { hose: HOSE_ORDER, balanced: BALANCED_ORDER, greedy: GREEDY_ORDER };
 const SIM_CAP = 400;           // simulated seconds before a fight is called
-const FIGHTSIM_STRICT = false; // nest bands (spec §6) report only; wave 3 turns this on after the boss HP fit
+const FIGHTSIM_STRICT = true; // nest bands (spec §6) asserted; flipped after the 4a-4c boss HP fit
 const FIGHTSIM_FULL = process.argv.indexOf('--full') >= 0; // every build on every nest (slow)
 // Picks banked on arrival at sector n (1-based): 1.15 per cleared sector, a
 // player who pushes forward rather than replaying sectors to farm levels.
@@ -683,7 +683,7 @@ function suiteFightsim() {
   ok('S' + n + ' ' + b + ' clears the sector (mean under the patience cap)',
    mean < SIM_CAP, mean.toFixed(0) + 's, left ' + rs.map(r => Math.round(r.left)).join('/'));
  }
- // ---- nests: seconds to kill the lead; report only until the boss HP fit ----
+  // ---- nests: seconds to kill the lead, asserted against the §6 band ----
  const nests = [];
  for (const n of SIM_NESTS) {
   const builds = FIGHTSIM_FULL || n % 25 === 0 ? ['hose', 'balanced', 'greedy'] : ['hose'];
@@ -703,8 +703,24 @@ function suiteFightsim() {
   if (FIGHTSIM_STRICT) range(label, +r.t.toFixed(1), band[0], band[1]);
   else if (!r.done || r.t < band[0] || r.t > band[1]) off.push('S' + r.n + ' ' + (r.done ? '' : '>') + r.t.toFixed(0) + 's');
  }
- if (!FIGHTSIM_STRICT && off.length) console.log('  report: ' + off.length + ' nests outside the §6 band (not asserted): ' + off.join(', '));
- console.log('  fightsim ran ' + (norm.length + nests.length) + ' fights in ' + ((Date.now() - t0) / 1000).toFixed(1) + 's');
+  if (!FIGHTSIM_STRICT && off.length) console.log('  report: ' + off.length + ' nests outside the §6 band (not asserted): ' + off.join(', '));
+  // ---- the post-Apex wall (spec §1, §6): S105 clearable, the wall lands in
+  // S110-S130 and stays a wall, difficulty climbs toward S100 ----
+  const WALL_NESTS = [105, 110, 115, 120, 125, 130];
+  const wall = WALL_NESTS.map(n => simRun(n - 1, 'hose', 9300 + n * 37));
+  if (VERBOSE) { console.log(head); for (const r of wall) console.log(simRow(r)); }
+  ok('S105 the returned OVERLORD is clearable for the Homing Hose', wall[0].done,
+   wall[0].lead + ' still up after ' + SIM_CAP + 's');
+  const firstWall = WALL_NESTS.find((n, i) => !wall[i].done);
+  ok('the post-Apex wall lands inside S110-S130', firstWall !== undefined && firstWall >= 110 && firstWall <= 130,
+   'first unkillable nest: ' + (firstWall === undefined ? 'none' : 'S' + firstWall));
+  ok('S130 stays a wall for the Homing Hose', !wall[wall.length - 1].done,
+   wall[wall.length - 1].lead + ' died in ' + wall[wall.length - 1].t.toFixed(0) + 's');
+  const lateMax = Math.max.apply(null, nests.filter(x => x.build === 'hose' && x.n >= 50 && x.n <= 95).map(x => x.t));
+  const apex = nests.filter(x => x.build === 'hose' && x.n === 100)[0].t;
+  ok('difficulty climbs toward S100: the Apex outlasts every S50-S95 nest', apex > lateMax,
+   apex.toFixed(0) + 's vs S50-S95 best ' + lateMax.toFixed(0) + 's');
+  console.log('  fightsim ran ' + (norm.length + nests.length + wall.length) + ' fights in ' + ((Date.now() - t0) / 1000).toFixed(1) + 's');
  return null;
 }
 

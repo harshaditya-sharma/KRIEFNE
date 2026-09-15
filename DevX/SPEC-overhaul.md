@@ -882,7 +882,7 @@ Headless Chrome needs `window.__kriefne.forceState('playing')`. Kill stray serve
 | 4a | fit boss HP for S15–S45 to §6 with the fight simulator | **done (all seven hose nests in band, `--all` 2657 green)** |
 | 4b | fit boss HP for S50–S100 (SINGULARITY both phases) | **done (all eleven hose nests in band, `--all` 2657 green)** |
 | 4c | tune the recovery numbers (plates, pod, heal rates) | **done (counters + rates normalized, bands re-fit, `--all` 2657 green)** |
-| 4d | add S105–S130 wall checks to `fightsim`; flip `FIGHTSIM_STRICT=true` | |
+| 4d | add S105–S130 wall checks to `fightsim`; flip `FIGHTSIM_STRICT=true` | **done (wall lands at S125, bands asserted, `--all` 2679 green)** |
 | 4e | deep danger: foe damage and behaviour, nest chaff (the user's levers) | |
 | 5a–5d | docs: README chain-of-command section (a); PRODUCT.md (b); LORE.md §7/§8/§11 (c); DESIGN.md pigments and banners (d) | |
 | 6a–6d | full pass: lab captures of all 20 gods (a); maps and codex portraits (b); perf check (c); the user's playtest (d) | |
@@ -890,7 +890,7 @@ Headless Chrome needs `window.__kriefne.forceState('playing')`. Kill stray serve
 | 7b | cards: ten new Legendary/Mythic stat variants (Overclock Dynamo/Reactor/Star, AP Sabot/Nova/Extinction, Nanoweave Bastion/Ark, Gun Array Mk III/Halo) + asserts + sim re-check | **done (code + 5 asserts + halved taxes + widened bands; `--all` green)** |
 
 ### Now in progress
-**Step 4c done and green (`--all` 2657). No agent is running.** Recovery numbers normalized to the sketch: COLOSSUS plates 3%→1.2% (WARDEN plates already 1.2%, pod already 5%); PHANTOM/JUGGERNAUT/ECLIPSE/NULLIFIER heal 2.0%→2.2%/s (everyone else already in 2.2–3%: WARDEN/KRAKEN/COLOSSUS/BASILISK 2.2, RV/WYVERN 2.5, LEVIATHAN 3; ORACLE 0.4% bespoke, HYDRA/PROGENITOR/CHORUS/SINGULARITY per-spec). SENTINEL anchors were tried at 1.2% and **reverted to 2%**: the wall breaks too fast and S45 falls to 61.8, out of band (back at 87.6). The plate cut cost S55 12s, re-centered with COLOSSUS 12000→13000, which rippled down the chain (BASILISK 8000→8300, PROGENITOR 22000→19000, HARBINGER 18500→19000). All 20 hose nests in band: S15 64.5, S20 62.1; S25–S45 83–90; S50–S95 112–128; S100 187.8. Warning carried forward: S65 bifurcates on the depth-2 COLOSSUS lottery (~75–105 vs ~130–170); PROGENITOR 19000 parks the suite seed at 119.8. Next: 4d (wall checks + `FIGHTSIM_STRICT`).
+**Step 4d done and green (`--all` 2679). No agent is running.** `fightsim` now pins the post-Apex wall with the suite's seeds: S105 clearable (40s), S110–S120 clearable, S125 + S130 unkillable inside the 400s cap — the wall lands at S125, inside S110–S130, and stays a wall; difficulty climbs (S100 187.8 outlasts every S50–S95 nest). `FIGHTSIM_STRICT` is flipped: all 18 banded hose nests assert (fightsim 131→153 checks). Measured along the way, for 4e: S110/S115 are ~35s speedbumps (the returned WARDEN deals 0 damage — the S100–S110 breather is real), S120 clears at 385s (thin). Next: 4e (deep danger).
 
 **Verified state (2026-09-14, after band widening)**
 - Fast harness: **2498 green** (fightsim/fuzz skipped); `--all`: **2631 green** (fightsim 131/131, fuzz green).
@@ -931,9 +931,7 @@ Each is tagged with the step that owns it; resolved items are removed.
 - **[7, cards]** Done 2026-09-14: 7a (33 ability cards costed + physical-voice faces + `suiteCards`), 7b (ten L/M variants + 5 asserts), halved §2 taxes, widened §7 bands; `--all` 2631 green. Remaining: the README blurb commit/revert call (user).
 - **[3]** Done 2026-09-14: 3a (unified `damageAt` path for Prism/orbs/splash/tesla; splash footprint preserved for ordinary foes) + 3b (`spawnPop` clamp); `bullets` +24, `--all` 2657 green.
 - **[4]**
-  - Boss HP + recovery: S15–S100 fitted to §6 (4a/4b), recovery numbers tuned (4c), green. Open: S105–S130 wall checks + `FIGHTSIM_STRICT` (4d), deep danger (4e).
-  - Flip `FIGHTSIM_STRICT`.
-  - Add S105–S130 wall checks to `fightsim` (a wall exists, it lands in S110–S130, it stays a wall, S105 is clearable), plus "difficulty climbs toward S100".
+  - Boss HP + recovery + wall: S15–S100 fitted to §6 (4a/4b), recovery numbers tuned (4c), S105–S130 wall checks + `FIGHTSIM_STRICT` (4d), green. Open: deep danger (4e).
   - Deep danger: Hose and Greedy take almost no damage past S20. Use foe damage and behaviour, thrall density and deadlier nest chaff (the user's three levers).
 - **[5]**
   - README (the chain-of-command section, "courts", "lieutenants", 12 bosses), PRODUCT.md (content, terminology), LORE.md (§7 holmgang clauses, §8 twenty gods, §11 L04 trigger) and DESIGN.md (pigments for 20 gods, nest banners).
@@ -987,6 +985,7 @@ Each is tagged with the step that owns it; resolved items are removed.
 | 2026-09-14 | §7 band re-fit + full green | **done**: targets 50–75 / 70–105 / 100–135 (`sectorBand` follows, loosening-only); fightsim 131/131; `--all` **2631 green**; `wave3` merge-ready, merge only on the user's word | `wave3` 6fabcd3 |
 | 2026-09-14 | §16 handoff audit | **done**: checked every claim against the code (29 suites, codex meeting-marks-seen, bug line refs, ARCHON-has-no-radials correction); History rows added | `wave3` 6788d63 |
 | 2026-09-14 | WARDEN Toll Gate vs cover | **done**: rotation scoring by link clearance + `freeNear` pylon nudge; regression test (wall rig: old 2×~zero spans → new 6/6 full); kits1 173 green | `wave3` (unmerged step) |
+| 2026-09-15 | Step 4d, wall checks + STRICT | **done**: `fightsim` asserts S105 clearable, first unkillable nest inside S110–S130 (lands S125: S105–S120 done, S125/S130 cap out), S130 stays a wall, S100 outlasts every S50–S95 nest; `FIGHTSIM_STRICT=true` (fightsim 131→153, `--all` **2679 green**). Noted for 4e: S110/S115 ~35s speedbumps, S120 clears at 385s | `wave3` |
 | 2026-09-14 | Step 7b, L/M variants | **done (sim needs a tuning call)**: ten variants at approved numbers/rarities/caps, sharing family budgets (rate/dmg 10, HP 12), arrays gated on shots<8; sim order lists + combos everything-build take family-best-first; `suiteCards` +5 (existence/rarity/cap, budget shutoff, Bastion+Ark speed floor, Split still single-Mythic gated); combos max-HP pin re-fit 500 → 600 (budget-capped 565); fast harness 2498 green. Sim re-check below | `wave3` (unmerged step) |
 | 2026-09-14 | Revert hunt + verify | **done**: working-tree revert of the Toll Gate fix found via `kits1` red (172/173, two ~zero spans); `game.js` restored to HEAD → kits1 173, fast 2500 green; `--all` 2632 + S99 marginal (139 vs 100–135, user call open); README blurb committed | `wave3` |
 | 2026-09-14 | S99 band call | **done (user call: widen)**: S51+ §7 100–135→100–140, `sectorBand` follows (loosening-only); fightsim 131/131 | `wave3` |
