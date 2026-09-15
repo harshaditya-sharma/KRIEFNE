@@ -1265,7 +1265,7 @@ function genArenaValidated(baseSeed, idx, spawnTypes){
 //             to end, in the S110-S130 band. Asserted in test.js --only balance.
 // a is the 0-based sector index; S60 is a=59, S110 is a=109.
 const EXP_HP=1.057, EXP_HP_LATE=1.02, EXP_HP_APEX=1.10;
-const EXP_DMG=1.030, EXP_DMG_LATE=1.012, EXP_DMG_APEX=1.07;
+const EXP_DMG=1.030, EXP_DMG_LATE=1.017, EXP_DMG_APEX=1.07;
 function seg(a,lo,hi){ return Math.max(0,Math.min(a,hi)-lo); }
 function eHpScale(a){ return (1+0.32*Math.min(a,4))*Math.pow(EXP_HP,seg(a,4,59))*Math.pow(EXP_HP_LATE,seg(a,59,109))*Math.pow(EXP_HP_APEX,Math.max(0,a-109)); }
 function eDmgScale(a){ return (1+0.10*Math.min(a,6))*Math.pow(EXP_DMG,seg(a,6,59))*Math.pow(EXP_DMG_LATE,seg(a,59,109))*Math.pow(EXP_DMG_APEX,Math.max(0,a-109)); }
@@ -1400,7 +1400,7 @@ function mkSummoned(kind,x,y,s,chain){ return bossCore(kind,x,y,s,Math.max(1,cha
 // slots would have (x compXpScale in a normal sector, like every foe), so a
 // sector's HP budget, its pacing and its picks all hold where the fight sim
 // put them; the thrall just gathers them into one hard target.
-const THRALL={ after:25, size:0.6, hp:[4,6], dmg:0.75, count:[1,35,3], cap:[55,80], nestP:0.3, slotK:[0.4,1], q:0.12, huntR:150 };
+const THRALL={ after:25, size:0.6, hp:[4,6], dmg:0.9, count:[1,35,3], cap:[55,80], nestP:0.3, slotK:[0.4,1], q:0.12, huntR:150 };
 function thrallEligible(){ return LADDER.filter(k=>BOSS_KITS[k]&&BOSS_KITS[k].thrall!==false); }
 // The first sector a kind's thrall may appear in: 25 past its debut, and
 // every eligible kind from S101 (JUGGERNAUT's and ECLIPSE's arrive there).
@@ -4191,7 +4191,7 @@ function coAddPlates(e,ids){ const R=e.r*1.15;
  for(const k of ids){ if(e.parts.some(q=>q.id==='plate'+k)) continue;
   addPart(e,{id:'plate'+k,lx:off[k][0],ly:off[k][1],r:17,hp:e.maxhp*CO_PLATE_HP,kind:'plate'}); } }
 BOSS_KITS.colossus={
- def:{name:'COLOSSUS',epithet:'the Walled',tier:4,hp:13000,r:40,spd:0.70,shape:'fortress',pt:3.8,sig:'plates',chaff:['brute','stalker']},
+ def:{name:'COLOSSUS',epithet:'the Walled',tier:4,hp:10900,r:40,spd:0.70,shape:'fortress',pt:3.8,sig:'plates',chaff:['brute','stalker']},
  lore:'A SOVEREIGN THAT IS A WALL — COLOSSUS walks, and the ground takes notice.',
  codex:{role:'Fortress', threat:'Plates, then shrapnel; three phases',
   tell:'Four PLATES ring it, each blocking its side. A dashed ring at its feet is the TRIPLE STOMP, three waves. A red mark near you is the BOULDER; a ruled line from its feet, the QUAKE fissure.',
@@ -4468,7 +4468,7 @@ function pgLaunch(e,n){ // every living bay puts out n fighters
    m.spawnT=0.9; enemies.push(m); } }
  SFX.eshoot(); }
 BOSS_KITS.progenitor={
- def:{name:'PROGENITOR',epithet:'the Brood-Hall',tier:4,hp:19000,r:36,spd:0.80,shape:'hull',pt:3.6,sig:'bays',chaff:['drone','mite']},
+ def:{name:'PROGENITOR',epithet:'the Brood-Hall',tier:4,hp:22000,r:36,spd:0.80,shape:'hull',pt:3.6,sig:'bays',chaff:['drone','mite']},
  lore:'A SOVEREIGN THAT IS A HANGAR — PROGENITOR never flies alone for long.',
  codex:{role:'Carrier', threat:'Bays launch fighters; docks twice; three phases',
   tell:'Bay notches flare, then FIGHTERS streak out. Ruled lines along its flanks are the BROADSIDE; mines astern, the MINEFIELD; a red tow-line to a fighter, the RECALL.',
@@ -4884,7 +4884,7 @@ function jgQuake(e,x,y,big){ // a wall impact's payoff: the ring IS the telegrap
  shockwave(e,x,y,{maxR:big?260:210,spd:330,dmg:Math.round(e.dmg*(big?1:0.85)),w:14,warn:0,what:'WALL QUAKE'});
  if(settings.shake) shake=Math.min(12,shake+6); spawnBurst(x,y,22,K.red,260,0.6,4); SFX.ring(); }
 BOSS_KITS.juggernaut={
- def:{name:'JUGGERNAUT',epithet:'the Unsteered',tier:4,hp:6800,r:38,spd:0.95,shape:'ram',pt:3.0,sig:'vent',chaff:['brute','drone']},
+ def:{name:'JUGGERNAUT',epithet:'the Unsteered',tier:4,hp:7000,r:38,spd:0.95,shape:'ram',pt:3.0,sig:'vent',chaff:['brute','drone']},
  lore:'A SOVEREIGN THAT CANNOT STEER — JUGGERNAUT commands by momentum alone.',
  codex:{role:'Ram', threat:'Rebounding rams; Vent Purge twice',
   tell:'A ruled red line off its prow is the RAM — its facing LOCKS once it commits. Debris dropped mid-charge is the WRECK WAKE (cover). A dashed cone astern is the EXHAUST PLUME; a dashed ring at its feet, the WALL QUAKE. In P2 rams REBOUND twice; in P3 it barely stops ramming.',
@@ -5029,7 +5029,7 @@ function ecTotality(e){ // the closing ring; the attack and the recovery share i
  addFloater(e.x,calloutY(e),'TOTALITY — HOLD THE DIM',K.red); SFX.alarm();
  return true; }
 BOSS_KITS.eclipse={
- def:{name:'ECLIPSE',epithet:'the Dimming',tier:4,hp:2000,r:32,spd:0.90,shape:'ringmoon',pt:3.6,sig:'moon',chaff:['sniper','drone']},
+ def:{name:'ECLIPSE',epithet:'the Dimming',tier:4,hp:1700,r:32,spd:0.90,shape:'ringmoon',pt:3.6,sig:'moon',chaff:['sniper','drone']},
  lore:'A SOVEREIGN THAT TAKES THE LIGHT — ECLIPSE turns, and the field goes dim.',
  codex:{role:'Rim caster', threat:'Two moons; Totality Step twice',
   tell:'A MOON orbits it, eating rounds and firing its own bursts. Twin CORONA beams pour from its rim and turn. A dashed circle closing on it is the TOTALITY — be inside when it shuts. A ticked line off the moon is the CRESCENT, flung out and back. In P3 the moon breaks into six FRAGMENTS.',
@@ -5290,7 +5290,7 @@ BOSS_KITS.nullifier={
 function chorusEchoes(e){ const out=[]; for(const o of enemies) if(o!==e&&o.kind==='chorus'&&o.echo&&!o.dead) out.push(o); return out; }
 function chorusHome(){ for(const o of enemies) if(o.kind==='chorus'&&!o.echo&&!o.summoned&&!o.dead&&o.rec&&o.chorReform) return o; return null; }
 BOSS_KITS.chorus={
- def:{name:'CHORUS',epithet:'the Norn-Choir',tier:4,hp:4500,r:28,spd:1.05,shape:'triad',pt:3.0,sig:'split',chaff:['mite','drone']},
+ def:{name:'CHORUS',epithet:'the Norn-Choir',tier:4,hp:4700,r:28,spd:1.05,shape:'triad',pt:3.0,sig:'split',chaff:['mite','drone']},
  lore:'A SOVEREIGN IN THREE VOICES — CHORUS was a people once. Every echo is true.',
  codex:{role:'Splitter', threat:'Fractures twice; Re-form twice',
   tell:'At 66% and 33% it FRACTURES into fragile synced echoes. Dashed slots triangulating you are the HARMONY, fired as one. A ticked line between echoes is the SWAP. One fan answered half a second later from every echo is the CANON. A RE-FORM call brings the echoes home.',
@@ -5429,7 +5429,7 @@ function sgConsume(e,o){ const ix=enemies.indexOf(o); if(ix<0) return false;
  rings.push({x:o.x,y:o.y,r:6,maxR:50,spd:260,dmg:0,hit:true});
  return true; }
 BOSS_KITS.singularity={
- def:{name:'SINGULARITY',epithet:'the One-Eyed',tier:5,hp:2500,r:40,spd:0.85,shape:'well',pt:4.0,sig:'wellpull',chaff:['tempest','brute']},
+ def:{name:'SINGULARITY',epithet:'the One-Eyed',tier:5,hp:2800,r:40,spd:0.85,shape:'well',pt:4.0,sig:'wellpull',chaff:['tempest','brute']},
  lore:'THE APEX — SINGULARITY, the One-Eyed. Every rank answers to it.',
  codex:{role:'Apex', threat:'Convocation; Absorption into Phase II',
   tell:'GRAVITY drags you while DEBRIS arcs out and TIDAL MARKS pull before they burst; the SPIRAL WALL keeps one gap. At half its bar the CONVOCATION lands: three SOVEREIGNS at once. At a quarter it ABSORBS the field — then Phase II: QUASAR JETS, a grinding ACCRETION DISK, bursting HAWKING SPARKS, LENSING that bends your rounds and withers homing, the EVENT HORIZON drift and the SPAGHETTIFY axis.',
