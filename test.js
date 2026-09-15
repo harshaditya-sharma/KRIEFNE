@@ -1195,14 +1195,36 @@ function suiteCodex() {
  eq('one press of Reset records only arms it', again.codexProgress().n, before);
  again.handleKeyPress('Digit6');
  eq('wiping records clears the codex', again.codexProgress().n, 0);
- // locked entries reveal nothing through the command tree either
- ok('a locked god it calls stays ??? in the command line', /Calls \?\?\?/.test(fresh.commandLine('archon')), fresh.commandLine('archon'));
+ // locked entries reveal nothing through the summons line either
+ ok('a locked god it summons stays ??? in the summons line', /Summons \?\?\?/.test(fresh.commandLine('archon')), fresh.commandLine('archon'));
   const named = boot({ kriefne_codex: JSON.stringify(['warden', 'phantom']) });
- ok('a known god it calls is named in the command line', /Calls PHANTOM/.test(named.commandLine('revenant')), named.commandLine('revenant'));
- ok('the god that calls it is named once known', /Answers to REVENANT/.test(boot({ kriefne_codex: JSON.stringify(['revenant']) }).commandLine('phantom')));
- ok('ORACLE calls its pair', /Calls \?\?\? ×2/.test(named.commandLine('oracle')), named.commandLine('oracle'));
- ok('the Apex answers to no one', /Answers to no one/.test(named.commandLine('singularity')));
- ok('the Enforcer calls only chaff', /Calls only chaff/.test(named.commandLine('overlord')));
+ ok('a known god it summons is named in the summons line', /Summons PHANTOM/.test(named.commandLine('revenant')), named.commandLine('revenant'));
+ ok('PHANTOM summons WARDEN once WARDEN is met', /Summons WARDEN/.test(boot({ kriefne_codex: JSON.stringify(['warden']) }).commandLine('phantom')));
+ ok('ORACLE summons its pair', /Summons \?\?\? ×2/.test(named.commandLine('oracle')), named.commandLine('oracle'));
+ ok('the Apex summons its convocation', /Summons \?\?\?, \?\?\?, \?\?\?/.test(named.commandLine('singularity')), named.commandLine('singularity'));
+ ok('the Enforcer summons chaff, not gods', /Summons chaff at half strength/.test(named.commandLine('overlord')), named.commandLine('overlord'));
+
+ // -- SUMMONS names are links into the summoned god's entry ---
+ {
+  const ids = foes.map(f => f.type).concat(bosses.map(b => b.id));
+  const all = boot({ kriefne_codex: JSON.stringify(ids) });
+  all.startRun(); all.loadSector(0); all.openCodex('title'); all.setCodexTab('bosses');
+  let guard = 0;
+  while (all.codexBosses[all.codexSel].id !== 'archon' && guard++ < 60) all.codexStep(1);
+  eq('walked the index to ARCHON', all.codexBosses[all.codexSel].id, 'archon');
+  all.render();
+  const links = all.codexSummonLinks.filter(r => r.id);
+  ok('ARCHON offers SENTINEL as a summon link', links.some(r => r.id === 'sentinel'), JSON.stringify(links.map(r => r.id)));
+  const r = links.find(r => r.id === 'sentinel');
+  all.handleClick(r.x + r.w / 2, r.y + r.h / 2);
+  eq('clicking SUMMONS SENTINEL opens the SENTINEL entry', all.codexBosses[all.codexSel].id, 'sentinel');
+  const fresh2 = boot();
+  fresh2.startRun(); fresh2.loadSector(0); fresh2.openCodex('title'); fresh2.setCodexTab('bosses');
+  let g2 = 0;
+  while (fresh2.codexBosses[fresh2.codexSel].id !== 'archon' && g2++ < 60) fresh2.codexStep(1);
+  fresh2.render();
+  eq('unmet gods offer no summon links', fresh2.codexSummonLinks.filter(r => r.id).length, 0);
+ }
 
  // -- every entry renders, locked AND unlocked (exercises each live sprite) ---
  for (const unlocked of [false, true]) {
@@ -5657,7 +5679,7 @@ function suiteThralls() {
   ok('its blows are stamped "HARBINGER THRALL" under its god\'s id', src.name === 'HARBINGER THRALL' && src.id === 'harbinger' && src.thrall && !src.lt);
   a.killEnemy(a.enemies.indexOf(t));
   ok('killing a thrall does not unlock its god\'s field note (only the god does)', !a.codexKnown('harbinger') && !a.codexKnown('thrall'));
-  ok('the codex command line says when a god\'s thralls walk (HARBINGER: S95)', /Thralls from S95/.test(a.commandLine('harbinger')) && !/Thralls/.test(a.commandLine('chorus')), a.commandLine('harbinger'));
+  ok('the codex summons line says when a god\'s thralls walk (HARBINGER: S95)', /Thralls walk the trail from S95/.test(a.commandLine('harbinger')) && !/Thralls/.test(a.commandLine('chorus')), a.commandLine('harbinger'));
  }
  {
   const { a, p, t } = thrallRoom(60, 'overlord');

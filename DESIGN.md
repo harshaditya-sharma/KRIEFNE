@@ -141,7 +141,7 @@ components:
     textColor: "{colors.text}"
     typography: "{typography.body}"
     padding: "18px"
-    width: "628px"
+    width: "560px"
     height: "378px"
 ---
 
@@ -259,7 +259,7 @@ The canvas is a fixed 960×640 logical frame. `fitCanvas` scales it to the windo
 - **Title and hub:** a 64px left margin. The title stacks the wordmark, subtitle, intro, a 400px entry column and the records line on the left. The title disc (R 300, centred at 806,330) bleeds off the right edge. The hub title sits at 64,86 over a rule, and the lore line and key hint sit centred over a rule 150px from the bottom.
 - **Menus:** centred 300px entry columns at x 330 with a 48px pitch (42–44px rows). BACK always sits at 330,560, 300×44.
 - **Draft:** three 220×204 cards at x 130 + 240i, y 220. A returning dash or recall card is a 460×62 strip below them at 250,446, not a fourth column.
- - **Codex:** a 210px index column at x 48 (20px rows) and a 628×378 detail plate at 286,168. The portrait sits in a 150px dashed plate inset 14px (100px on narrow windows). Text blocks start 18px in.
+ - **Codex:** one centred group — a 200px index column (20px rows), a 24px gutter, a 560×378 detail plate. The portrait sits in a 150px dashed plate inset 14px (100px on narrow windows, where both panes squeeze). Text blocks start 18px in at a ~64ch measure.
 - **Page:** `styles.css` has three breakpoints. Below 560px of height the hint line tightens. On coarse pointers the keyboard hint is swapped for one touch line. Below 520px of width the frame padding tightens. The body respects safe-area insets.
 
 ## Elevation & Depth
@@ -327,9 +327,9 @@ A record of the hull, centred above RETRY: HULL LOST in red over a red-dim rule;
 Between two red rules, the lead god's name (`RETURNS` past S100) in red display type, then one knocked-out 12px line in 600 mono stating the order: `RANK · <the hub's line for this nest>`, the same words the hub gave, never wrapped into a widow. The clear banner reads `NAME FALLS` — or `NAME'S COURT FALLS` when summoned gods shared the nest.
 
 ### Codex
-- **Index:** rank headers show their tier as binary ticks in Bare Metal plus a 9px label. Entries are 12px mono. The selected entry gets a gold diamond and a gold underline. A defeated entry gets a filled 2.5px diamond in its pigment, a met-but-undefeated entry a hollow one, and an entry never met reads `? ? ? ? ?` in Worn Steel. The header reads `MET m · DEFEATED n / 26` (20 gods + 6 servitors).
-- **Three states:** never met (flat grey silhouette, `? ? ? ? ?`); met (the real portrait in pigment, name, rank, command line, TELL and COUNTER; FIELD NOTE reads "Recovered on the first kill."); defeated (the field note). Every encounter ends in a kill or a lost hull, so meeting is enough to earn the tells.
-- **Detail plate:** a corner-ticked tarnished-gold plate. The portrait renders the real sprite through the same draw code, at a registered scale (0.95 for gods, 2.2 for chaff) so sizes compare honestly. The name is in Michroma 18px with a 56×2px underline in its pigment. The TELL label is red, COUNTER is gold, and FIELD NOTE is Bare Metal with its text in Worn Steel, upright: no italic face is bundled, so dimmer ink alone sets the note apart.
+- **Index:** rank headers show their tier as binary ticks in Bare Metal plus a 9px label, ordered ENFORCER-up so the climb reads S5 first and the Apex last, each entry carrying its debut sector at the right. Entries are 12px mono. The selected entry gets a gold diamond and a gold underline. A defeated entry gets a filled 2.5px diamond in its pigment, a met-but-undefeated entry a hollow one, and an entry never met reads `? ? ? ? ?` in Worn Steel. The header reads `MET m · DEFEATED n / 26` (20 gods + 6 servitors).
+- **Three states:** never met (flat grey silhouette, `? ? ? ? ?`, and a centred hint in the open plate); met (the real portrait in pigment, name, rank and role, trait, SUMMONS links, TELL and COUNTER; FIELD NOTE reads "Kill it to recover the field note."); defeated (the field note). Every encounter ends in a kill or a lost hull, so meeting is enough to earn the tells.
+- **Detail plate:** a corner-ticked tarnished-gold plate. The portrait renders the real sprite through the same draw code, at a registered scale (0.95 for gods, 2.2 for chaff) so sizes compare honestly. The name is in Michroma 18px with a 56×2px underline in its pigment. Below it, one line each for rank and role, the trait, a SUMMONS line (each summoned god's name in its own pigment is a link into that entry; unmet gods stay dim `???`), and the thrall line — never a debut sector, the index already says it. The TELL label is red, COUNTER is gold, and FIELD NOTE is Bare Metal with its text in Worn Steel, upright: no italic face is bundled, so dimmer ink alone sets the note apart.
 
 ### Hostiles (`drawEnemy`, `drawBossShape`)
 - **Anatomy:** a hull filled in `body` and outlined in `c` (1.5px, 2px enraged), inner engraving in `dim`, and a small filled core in `c`. Voids are Cold Ground and armour is Armour Plate with a Bare Metal edge.

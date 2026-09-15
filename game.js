@@ -6447,6 +6447,7 @@ let codexFrom='title', codexTab='bosses', codexSel=0;
 let codexPage=0; // codex detail pager: which overflow page is shown
 let codexPagerRect=null; // clickable MORE rect while the detail overflows
 let codexIdxPagerRect=null; // clickable index ▲▼ rect while the index overflows
+let codexSummonRects=[]; // clickable god-names on the SUMMONS line (rebuilt per frame)
 const CODEX_TABS=['bestiary','bosses'];
 function openCodex(from){ codexFrom=from; codexSel=0; codexPage=0; codexPagerRect=null; codexIdxPagerRect=null; state='codex'; if(from==='paused'||from==='playing-paused') setMusicCfg(PAUSE_MUS); SFX.click(); }
 function closeCodex(){ SFX.click(); if(codexFrom==='paused'||codexFrom==='playing-paused') toPaused(autoPaused); else if(codexFrom==='galaxy') state='galaxy'; else if(codexFrom==='levelup') state='levelup'; else state='title'; }
@@ -6492,11 +6493,12 @@ const CODEX_BOSSES=LADDER.map(k=>Object.assign({id:k},BOSS_KITS[k].codex));
 function codexList(){ return codexTab==='bosses'?CODEX_BOSSES:CODEX_FOES; }
 function codexId(entry){ return codexTab==='bosses'?entry.id:entry.type; }
 // Bosses are listed as the chain of command itself — grouped under rank headers
-// from APEX down — so the list IS the hierarchy tree. Headers are not selectable.
+// from ENFORCER up, so the climb reads the way it is flown: S5 first, the Apex
+// last. Headers are not selectable.
 function codexRows(){
  const L=codexList(), rows=[];
  if(codexTab!=='bosses'){ L.forEach((entry,i)=>rows.push({entry,i})); return rows; }
- for(let t=TIER_NAMES.length-1;t>=1;t--){
+ for(let t=1;t<TIER_NAMES.length;t++){
   const members=L.map((entry,i)=>({entry,i})).filter(r=>BOSSDEF[r.entry.id]&&BOSSDEF[r.entry.id].tier===t)
    .sort((a,b)=>BOSSDEF[a.entry.id].debut-BOSSDEF[b.entry.id].debut);
   if(!members.length) continue;
@@ -6682,6 +6684,10 @@ function handleClick(x,y){
   if(state==='codex'){
    if(codexPagerRect&&inBtn(x,y,codexPagerRect)){ codexPage++; SFX.click(); return; }
    if(codexIdxPagerRect&&inBtn(x,y,codexIdxPagerRect)){ codexIdxPage(codexIdxPagerRect.dir||1); SFX.click(); return; }
+   for(const r of codexSummonRects){ if(r.id&&inBtn(x,y,r)){
+    const k=codexList().findIndex(e=>e.id===r.id);
+    if(codexTab==='bosses'&&k>=0){ if(codexSel!==k) codexPage=0; codexSel=k; SFX.click(); return; }
+   } }
    const tr=codexTabRects();
    for(let i=0;i<tr.length;i++){ if(inBtn(x,y,tr[i])){ codexTab=CODEX_TABS[i]; codexSel=0; codexPage=0; SFX.click(); return; } }
    for(const r of codexRects()){ if(!r.row.hdr&&inBtn(x,y,r)){ if(codexSel!==r.row.i) codexPage=0; codexSel=r.row.i; SFX.click(); return; } }
@@ -7727,16 +7733,24 @@ function drawHelp(){
   entry(BTN.back,'BACK','[Esc]',false);
 }
 // ---------- codex ----------
-function codexRects(){
- // Narrow windows keep the two-pane plate but squeeze both panes so the
- // detail keeps a readable 12px measure instead of bleeding off-screen.
- if(W < 720){
-  const w = Math.max(130, Math.min(160, W - 200));
-  const x = 16;
-  const y0 = Math.max(150, 168 + Math.min(0, H - 640));
-  return codexRows().map((r,k)=>({x,y:y0+k*19,w,h:17,row:r}));
+// One centred group: a 200px index, a 24px gutter, a 560px detail plate.
+// Narrow windows squeeze both panes so the detail keeps a readable measure.
+function codexLayout(){
+ const iw=200, gap=24, pw=560;
+ if(W>=iw+gap+pw+32){
+  const ix=Math.round((W-(iw+gap+pw))/2);
+  return {ix,iw,px:ix+iw+gap,pw,narrow:false};
  }
- return codexRows().map((r,k)=>({x:48,y:168+k*20,w:210,h:18,row:r}));
+ const w=Math.max(130,Math.min(160,W-200));
+ return {ix:16,iw:w,px:16+w+12,pw:W-(16+w+12)-16,narrow:true};
+}
+function codexRects(){
+ const lay=codexLayout();
+ if(lay.narrow){
+  const y0=Math.max(150,168+Math.min(0,H-640));
+  return codexRows().map((r,k)=>({x:lay.ix,y:y0+k*19,w:lay.iw,h:17,row:r}));
+ }
+ return codexRows().map((r,k)=>({x:lay.ix,y:168+k*20,w:lay.iw,h:18,row:r}));
 }
 // The preview renders the REAL sprite by building a throwaway entity and calling
 // the same draw code the game uses. Every god is drawn at ONE registered scale so
@@ -7790,17 +7804,19 @@ function drawCodexSprite(entry,cx,cy,locked,box){
  try{ ctx.filter='none'; }catch(err){}
  codexPreview=false;
 }
-// "Answers to SOVEREIGNS · Commands CAPTAINS: WARDEN, ???" — read from the
-// tier tables, so the codex can never disagree with who actually summons whom.
-// "Answers to ARCHON · Calls ORACLE" — read from the ladder itself, so the
-// codex can never disagree with who actually summons whom. Unmet gods stay ???.
+// Who a wounded god summons, read from the ladder itself so the codex can
+// never disagree with who actually answers a call. Unmet gods stay ???.
+// The detail plate draws each name as a link into its own entry; the string
+// below is the same words for the live region.
+function commandParts(kind){
+ const c={};
+ for(const k of summonsOf(kind)) c[k]=(c[k]||0)+1;
+ return Object.keys(c).map(k=>({id:k,name:codexSeen(k)?BOSSDEF[k].name:'???',known:codexSeen(k),n:c[k]}));
+}
 function commandLine(kind){
- const nm=k=>codexSeen(k)?BOSSDEF[k].name:'???';
- const up=callersOf(kind), calls=summonsOf(kind), c={};
- for(const k of calls) c[k]=(c[k]||0)+1;
- const down=Object.keys(c).map(k=>nm(k)+(c[k]>1?' ×'+c[k]:''));
+ const down=commandParts(kind).map(p=>p.name+(p.n>1?' ×'+p.n:''));
  const th=thrallDebut(kind); // its thralls, the lesser copies that walk common sectors (spec §8)
- return (up.length?'Answers to '+up.map(nm).join(', '):'Answers to no one')+'  ·  '+(down.length?'Calls '+down.join(', '):'Calls only chaff')+(th<Infinity?'  ·  Thralls from S'+th:'');
+ return 'Summons '+(down.length?down.join(', '):'chaff at half strength')+(th<Infinity?' · Thralls walk the trail from S'+th:'');
 }
 // Visible index rows on short viewports: the window follows the selection so
 // arrow keys page the index instead of walking off-screen with no signal.
@@ -7858,6 +7874,34 @@ function codexDetailPages(blocks,avail){
  if(!pages.length) pages.push(blocks.slice(0,1));
  return {pages,paged:true};
 }
+// The SUMMONS line under a god's name: one label, then a link per god it
+// calls when wounded. A met god's name is drawn in its own pigment and opens
+// that entry on click; an unmet one stays dim and inert. Returns the y below
+// the last line drawn.
+function drawSummonsLine(entryE,tx,y,maxW){
+ ctx.textAlign='left'; ctx.font=fM(11);
+ const segs=[{t:'SUMMONS ',col:K.textDim,id:null}];
+ const parts=commandParts(entryE.id);
+ if(!parts.length) segs.push({t:'CHAFF AT HALF STRENGTH',col:K.textDim,id:null});
+ parts.forEach((p,i)=>{
+  if(i) segs.push({t:', ',col:K.textDim,id:null});
+  const pg=PIG[p.id];
+  segs.push({t:p.name+(p.n>1?' ×'+p.n:''),col:(p.known&&pg)?pg.hi:K.textDim,id:p.known?p.id:null});
+ });
+ let x=tx, yy=y;
+ for(const s of segs){
+  const w=ctx.measureText(s.t).width;
+  if(x+w>tx+maxW&&x>tx){ x=tx; yy+=15; }
+  ctx.fillStyle=s.col; ctx.fillText(s.t,x,yy);
+  if(s.id){
+   const r={x,y:yy-11,w,h:15,id:s.id};
+   codexSummonRects.push(r);
+   if(hovered(r)) line(x,yy+3,x+w,yy+3,K.gold,1);
+  }
+  x+=w;
+ }
+ return yy;
+}
 function drawCodexScreen(){
  const L=codexList();
  if(codexSel>=L.length) codexSel=0;
@@ -7873,6 +7917,7 @@ function drawCodexScreen(){
   // Short viewports window the list around the selection with ▲▼ signals so
   // arrows page the index instead of walking entries off-screen unseen.
   codexIdxPagerRect=null;
+  codexSummonRects=[];
   {
    const rects=codexRects();
    const idxBottom=BTN.back.y-14;
@@ -7912,36 +7957,38 @@ function drawCodexScreen(){
  const entryE=L[codexSel];
  if(!entryE){ entry(BTN.back,'BACK','[Esc]',false); return; }
  const known=codexSeen(codexId(entryE)), killed=codexKnown(codexId(entryE)), boss=codexTab==='bosses';
- // detail: an engraved plate with corner ticks, the portrait at registered scale.
- // Wide windows keep the shipped side-by-side plate; narrow windows squeeze the
- // same plate so it stays centred with a readable 12px measure.
- const wide = W >= 800;
- const idxW = wide ? 210 : Math.max(130, Math.min(160, W - 200));
- const px = wide ? 286 : 16 + idxW + 12;
- const pw = wide ? W-px-46 : W-px-16;
- const py = wide ? 168 : Math.max(130, 168 + Math.min(0, H - 640));
- const ph = wide ? Math.min(378, Math.max(220, H - py - 90)) : Math.min(378, Math.max(80, H - py - 100));
- const portrait = wide ? 150 : 100;
- const tx = px + portrait + 30;
+ // detail: one centred plate. The portrait keeps its registered scale, the
+ // name block breathes beside it, and TELL / COUNTER / FIELD NOTE hold a
+ // ~64ch measure below a generous break instead of walling the plate's left.
+ const lay=codexLayout();
+ const px=lay.px, pw=lay.pw;
+ const py=lay.narrow?Math.max(130,168+Math.min(0,H-640)):168;
+ const ph=lay.narrow?Math.min(378,Math.max(80,H-py-100)):Math.min(378,Math.max(220,H-py-90));
+ const portrait=lay.narrow?100:150;
+ const tx=px+portrait+30;
+ const headW=pw-portrait-48;
  plate(px,py,pw,ph,K.goldDim);
  plate(px+14,py+14,portrait,portrait,K.metalDim,false,true);
  drawCodexSprite(entryE,px+14+portrait/2,py+14+portrait/2,!known,portrait);
- const wrapRole = Math.max(20, Math.min(60, Math.floor((pw-portrait-48)/6)));
- const wrapBody = Math.max(20, Math.min(84, Math.floor((pw-36)/6)));
+ const wrapRole=Math.max(20,Math.min(52,Math.floor(headW/6)));
+ const wrapBody=Math.max(20,Math.min(64,Math.floor((pw-36)/6)));
+ codexSummonRects=[];
   if(!known){
    heading('? ? ? ? ?',tx,py+44,18,K.textDim);
-   mono(boss?'Unidentified  ·  first met around S'+BOSSDEF[entryE.id].debut:'Unidentified hostile',tx,py+68,12,K.textDim);
-   // The locked hint is two short lines; on a plate too short for both, the
-   // second line becomes a pager signal instead of a silent drop.
+   mono(boss?'Unidentified god':'Unidentified hostile',tx,py+68,12,K.textDim);
+   // The locked hint sits centred in the open plate, not stacked on its edge.
+   // On a plate too short for both lines, the second becomes a pager signal
+   // instead of a silent drop.
    const hint2='Meet one to open its rank, tells and counters. Kill it to recover the field note.';
    const hintLines=wrapLines(hint2,wrapBody);
-   mono('Not yet met.',px+18,py+178,13,K.text);
+   const cxp=px+pw/2;
+   mono('Not yet met.',cxp,py+178,13,K.text,'center');
    const hintRoom=Math.max(0,Math.floor((py+ph-10-(py+178+17))/15));
    codexPagerRect=null;
    if(hintLines.length<=Math.max(1,hintRoom)){
-    hintLines.forEach((l,i)=>mono(l,px+18,py+178+17+i*15,12,K.textDim));
+    hintLines.forEach((l,i)=>mono(l,cxp,py+178+17+i*15,12,K.textDim,'center'));
    } else {
-    hintLines.slice(0,Math.max(1,hintRoom)).forEach((l,i)=>mono(l,px+18,py+178+17+i*15,12,K.textDim));
+    hintLines.slice(0,Math.max(1,hintRoom)).forEach((l,i)=>mono(l,cxp,py+178+17+i*15,12,K.textDim,'center'));
     mono('▼ MORE [PgDn]',px+pw-14,py+ph-14,11,K.goldDim,'right');
     codexPagerRect={x:px,y:py+ph-32,w:pw,h:22};
     codexPage=0;
@@ -7952,14 +7999,31 @@ function drawCodexScreen(){
   const name=entryE.name||BOSSDEF[entryE.id].name, pg=PIG[codexId(entryE)];
   heading(name,tx,py+42,18,K.text);
   if(pg) line(tx,py+51,tx+56,py+51,pg.c,2); // its pigment, as seen in the field
-  const rank=boss?TIER_NAMES[BOSSDEF[entryE.id].tier]+'  ·  ':'';
-  wrapLines(rank+entryE.role+'  ·  '+entryE.threat+(boss?'  ·  first seen S'+BOSSDEF[entryE.id].debut:''),wrapRole).forEach((l,i)=>mono(l,tx,py+66+i*15,11,K.textDim));
-  if(boss) wrapLines(commandLine(entryE.id),wrapRole).forEach((l,i)=>mono(l,tx,py+100+i*15,11,K.textDim));
+  // Identity, trait, then the chain: who it summons when wounded (each a
+  // link), and from where its thralls walk. No debut sector here — the index
+  // already says S25 beside the name, and no caller line going up the ladder.
+  let hy=py+66;
+  if(boss){
+   const d=BOSSDEF[entryE.id];
+   const idLines=wrapLines(TIER_NAMES[d.tier]+' · '+entryE.role,wrapRole);
+   idLines.forEach((l,i)=>mono(l,tx,hy+i*15,11,K.textDim)); hy+=idLines.length*15;
+   const trLines=wrapLines(entryE.threat+'.',wrapRole);
+   trLines.forEach((l,i)=>mono(l,tx,hy+i*15,11,K.textDim)); hy+=trLines.length*15+3;
+   hy=drawSummonsLine(entryE,tx,hy,headW)+15;
+   const th=thrallDebut(entryE.id);
+   if(th<Infinity){
+    const thLines=wrapLines('Thralls walk the trail from S'+th+'.',wrapRole);
+    thLines.forEach((l,i)=>mono(l,tx,hy+i*15,11,K.textDim)); hy+=thLines.length*15;
+   }
+  } else {
+   const fLines=wrapLines(entryE.role+' · '+entryE.threat,wrapRole);
+   fLines.forEach((l,i)=>mono(l,tx,hy+i*15,11,K.textDim)); hy+=fLines.length*15;
+  }
   // Detail blocks page inside the plate: overflow shows ▼ MORE [PgDn] and
   // PgDn/Space advances, so TELL / COUNTER / FIELD NOTE are never cut muted.
   codexPagerRect=null;
   {
-   const topY=(py+170>py+ph-58)?(py+ph-58):(py+170);
+   const topY=(py+174>py+ph-58)?(py+ph-58):(py+174);
    const blocks=[
     {label:'TELL',col:K.red,italic:false,lines:wrapLines(entryE.tell,wrapBody)},
     {label:'COUNTER',col:K.gold,italic:false,lines:wrapLines(entryE.counter,wrapBody)},
@@ -7987,8 +8051,8 @@ function drawCodexScreen(){
   }
   entry(BTN.back,'BACK','[Esc]',false);
  }
-// Arrow navigation walks entries in the order they are LISTED (rank order for
-// bosses), skipping headers.
+// Arrow navigation walks entries in the order they are LISTED (S5-first rank
+// order for bosses), skipping headers.
 function codexStep(dir){
  const order=codexRows().filter(r=>!r.hdr).map(r=>r.i);
  let k=order.indexOf(codexSel); if(k<0) k=0;
@@ -8743,10 +8807,10 @@ arena={seed:1337, obs:[], theme:THEMES[0], spawns:[], port:{x:800,y:500}, valida
    syncSettingsSr, settingsSrText, syncCodexSr, codexSrText, settingsRows, codexRows,
    get helpTabs(){ return HELP_TABS; }, get codexFoes(){ return CODEX_FOES; }, get codexBosses(){ return CODEX_BOSSES; },
     setHelpTab(t){ helpTab=t; helpPage=0; helpPagerRect=null; },
-    openCodex, closeCodex, codexKnown, codexSeen, handleRelease, statDiff, get endInfo(){ return endInfo; }, get restartArm(){ return restartArm; }, get exitArm(){ return exitArm; }, codexProgress, commandLine,
+    openCodex, closeCodex, codexKnown, codexSeen, handleRelease, statDiff, get endInfo(){ return endInfo; }, get restartArm(){ return restartArm; }, get exitArm(){ return exitArm; }, codexProgress, commandLine, commandParts,
     get codexTab(){ return codexTab; }, setCodexTab(t){ codexTab=t; codexSel=0; codexPage=0; codexPagerRect=null; }, get codexSel(){ return codexSel; },
     get helpPage(){ return helpPage; }, get codexPage(){ return codexPage; },
-    get helpPager(){ return helpPagerRect; }, get codexPager(){ return codexPagerRect; }, get codexIdxPager(){ return codexIdxPagerRect; },
+    get helpPager(){ return helpPagerRect; }, get codexPager(){ return codexPagerRect; }, get codexIdxPager(){ return codexIdxPagerRect; }, get codexSummonLinks(){ return codexSummonRects; },
     codexStep, codexIdxPage, codexIdxSpan, codexDetailPages,
     setViewport(w,h){ W=Math.max(280,Math.round(w)); H=Math.max(200,Math.round(h)); helpPage=0; helpPagerRect=null; codexPage=0; codexPagerRect=null; codexIdxPagerRect=null; try{ layoutButtons(); }catch(e){} },
   pool(){ return UPGRADES.filter(u=>(!u.req||u.req(player))&&(!u.max||(upgradeCounts[u.id]||0)<u.max)).map(u=>u.id); },

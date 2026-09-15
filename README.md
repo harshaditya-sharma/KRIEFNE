@@ -233,8 +233,9 @@ Generative WebAudio: ambient title theme, per-arena bass + lead, sparse pause th
     COUNTER. The **field note** (the lore) waits for the first kill, and a
     `CODEX UNLOCKED` floater says so. An entry never met shows `? ? ? ? ?` and a flat grey silhouette.
     Progress persists across runs and shows as `MET m · DEFEATED n / 26` (20 gods + 6 servitors). Wiping records clears both.
-  - **BOSSES is the command tree itself** — listed under rank headers from APEX down, each with its
-    rank, what it answers to and who it commands (subordinates you haven't met stay `???`).
+  - **BOSSES is the command tree itself** — listed under rank headers from ENFORCER up, S5
+    first and the Apex last, each with its rank, its trait, and a **SUMMONS** line naming whom it
+    calls when wounded (each a link into that god's entry; gods you haven't met stay `???`).
   - Each opened entry renders the **real sprite** from the game's own draw code, with role, threat,
     **TELL** (what you see before it hurts), **COUNTER** (what you do about it) and a field note.
   - `1/2` or `←→` switch tabs, `↑↓` or click walk entries, `C`/`Esc` back.
