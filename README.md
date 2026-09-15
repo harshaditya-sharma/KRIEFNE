@@ -232,7 +232,7 @@ Generative WebAudio: ambient title theme, per-arena bass + lead, sparse pause th
     meeting a foe opens its entry: the real portrait in its pigment, name, rank, role, TELL and
     COUNTER. The **field note** (the lore) waits for the first kill, and a
     `CODEX UNLOCKED` floater says so. An entry never met shows `? ? ? ? ?` and a flat grey silhouette.
-    Progress persists across runs and shows as `MET m · DEFEATED n / 20`. Wiping records clears both.
+    Progress persists across runs and shows as `MET m · DEFEATED n / 26` (20 gods + 6 servitors). Wiping records clears both.
   - **BOSSES is the command tree itself** — listed under rank headers from APEX down, each with its
     rank, what it answers to and who it commands (subordinates you haven't met stay `???`).
   - Each opened entry renders the **real sprite** from the game's own draw code, with role, threat,
@@ -325,7 +325,7 @@ Crit Ward (heavy) → Ward → Bulwark → Barrier → Aegis.
 
 ```sh
 node --check game.js      # syntax
-node test.js              # everyday run (~35 s): every suite except the slow fightsim and fuzz
+node test.js              # everyday run (~35 s): every suite except the slow fightsim, fuzz and perf
 node test.js --all        # everything (~3 min); required before merging to main
 node test.js --only fightsim --verbose   # the fight simulator's table
 node test.js --only kits1                # one suite
@@ -342,6 +342,7 @@ Suites, in run order:
 - **Maps and cards:** `procgen` and `pool` (card gating).
 - **The chain of command:** `fightsim` (slow), `hierarchy` and `teleport`.
 - **Boss engine:** `prims` (primitives, status, phases) and `fuzz` (slow: all 20 gods as lead and summoned).
+- **Apex performance floor:** `perf` (slow: S100 Phase 1 + Convocation and Phase 2 Quasar windows, each under 4 ms per update).
 - **Run integrity:** `combos` (card bounds), `codex`, `endless` and `cascades`.
 - **Persistence and look:** `save`, `pigment`, `maps`.
 - **Access and safety:** `voice`, `safety`, `replay` and `srmirror` (screen-reader mirrors).
