@@ -186,7 +186,7 @@ Status effects live in one `player.status` block with a single update loop and o
 
 | Status | What it does |
 |---|---|
-| root (existing) | no movement |
+| root (existing) | no movement and no dash (dash is refused while rooted; recall blink still works). BASILISK's gaze is the main source: 0.75 s ruled red cone first, then a snapshot root, so the dodge happens during the telegraph |
 | **freeze** | no movement and no dash |
 | jam (existing) | abilities and blink off |
 | slow | reduced speed |
@@ -934,7 +934,7 @@ Each is tagged with the step that owns it; resolved items are removed.
   - LEVIATHAN's Coil wake reads as dense red.
   - Perf: S100 Phase 2 plus chaff under 4 ms per frame.
 - **[fightsim]** S99 Hose 2-seed mean 139 vs old §7 100–135: **resolved 2026-09-14 (user call: widen)** — S51+ band now 100–140, `sectorBand` follows; fightsim 131/131, `--all` 2633 green.
-- **[user]** Root currently also blocks the dash; spec §3.3 says root means no movement only. It's existing behaviour, left as is until the user decides.
+- **[user] Resolved 2026-09-15 (user rule: telegraphed ⇒ dash stays blocked).** Root keeps refusing dash; §3.3 now says so. BASILISK gaze: 0.75 s locked-angle cone telegraph, snapshot root 1.0 s on catch; recall blink (0.6 s channel) is the only out once held.
 - **[bug, prod]** Death screen (`drawEnd`, game.js:8355): the record is centred in the full canvas height including the bottom key-hint zone, so it reads off-centre to a human; TELL/COUNTER rows are left-anchored (L=150/T=252), not optically centred, and long lines bleed past the right edge (prod screenshot); the score row can overlap build icons. Diagnosed 2026-09-14 with headless-Chrome captures (worst-case SINGULARITY tell + 16-refit build, 960 desktop + 420 narrow): TELL/COUNTER wrap width overflows the right edge on both widths; the centered footer lines don't wrap on narrow and bleed off both sides; the TELL block is left-anchored while everything else centers; dead gap between the god line and RETRY. **Fixed 2026-09-14 (user approved the rethink):** `drawEnd` is one measured column — `wrapPx` wraps TELL/COUNTER/score/footers by pixels, the killer line stacks past the column width, the icon grid is centered, and record + buttons + hint center in the full height together. Captures at 960 + 420 confirm no bleed or overlap.
 - **[bug, prod]** WARDEN TOLL GATE (`wdGate`, game.js:2838): **fixed 2026-09-14** — rotations are scored by worst-link `rayObs` clearance (a clipped triangle loses to a clear one before hull distance breaks the tie) and chosen pylons nudge out of cover via `freeNear`; regression test rigs a 120×120 wall west of the ship (old code: two ~zero spans; fixed: all six full). Remaining audit for other point placements (all bounds-clamp only): HYDRA acid spit pools (`acidspit`, 3438), PROGENITOR bay mines (`minefield`, 4485), KRAKEN ink mines (`ink`, 4736), HARBINGER meteor marks (`meteor`, 4618), SINGULARITY accretion disk (5435). Radial zones soft-fail (hidden inside obstacles) while beams hard-fail; player-pos/at-self placements are fine.
 
