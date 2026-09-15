@@ -879,7 +879,7 @@ Headless Chrome needs `window.__kriefne.forceState('playing')`. Kill stray serve
 | 2e | fix the stream peak red: S81 scripted cull sees peak 1 simultaneous thrall, needs ≥ 2 (thrall spacing in the stream vs the 8 s cull) | **done** (cluster fix) |
 | 3a | route Prism Lance, orbs, splash and tesla through the part and segment hit path (`hitBossPart`, `e.segs`, `hitParts`) | **done (`--all` 2657 green)** |
 | 3b | clamp the spawn-in pop scale to the hitbox; extend the `bullets` suite | **done (`spawnPop`, 24 new checks)** |
-| 4a | fit boss HP for S15–S45 to §6 with the fight simulator | |
+| 4a | fit boss HP for S15–S45 to §6 with the fight simulator | **done (all seven hose nests in band, `--all` 2657 green)** |
 | 4b | fit boss HP for S50–S100 (SINGULARITY both phases) | |
 | 4c | tune the recovery numbers (plates, pod, heal rates) | |
 | 4d | add S105–S130 wall checks to `fightsim`; flip `FIGHTSIM_STRICT=true` | |
@@ -890,7 +890,7 @@ Headless Chrome needs `window.__kriefne.forceState('playing')`. Kill stray serve
 | 7b | cards: ten new Legendary/Mythic stat variants (Overclock Dynamo/Reactor/Star, AP Sabot/Nova/Extinction, Nanoweave Bastion/Ark, Gun Array Mk III/Halo) + asserts + sim re-check | **done (code + 5 asserts + halved taxes + widened bands; `--all` green)** |
 
 ### Now in progress
-**Step 3 done and green (`--all` 2657). No agent is running.** Prism Lance, Guardian orbs, splash and tesla resolve through the unified hit path (`damageAt` → `enemyHitT`/`HIT`: parts first, then LEVIATHAN segments at `SEG_PASS`, then body with `hitParts` counting as body). Splash keeps its exact old footprint (centre within r) against ordinary foes and only extends to nearest-surface where parts/segments/hitParts exist, so the fitted normal-sector pacing never moves; orbs dropped their body-only gate (a flung moon past body range is still hittable) with the cooldown now spent only on a connect. The spawn-in pop is clamped to the hitbox (`spawnPop`, `Math.min(1, …)`). `bullets` suite +24 checks (part/segment routing, wiring of all four sources, pop clamp, far-flung orb). Ready to commit + push; Step 4 (boss-HP fit) owns any band movement from here.
+**Step 4a done and green (`--all` 2657). No agent is running.** S15–S45 hose nests all inside their §6 bands: S15 64.5, S20 62.1 (60–80); S25 89.2, S30 83.8, S35 89.5, S40 86.0, S45 87.6 (75–105). HP bases now PHANTOM 360, REVENANT 2900, LEVIATHAN 5500, HYDRA 6000, WYVERN 5800, ORACLE 250, SENTINEL 2400. S40 needed its 4c lever early: the Call heals 0.4%/s (was ~1.5%), else the heal guarantees a re-arm and the nest runs ~170s; `kits2` rate/mending asserts follow the tuned rate and the re-arm tests pin exact-full instead of relying on the old rate to get there. `liveOne` carries lance/tesla/orbital now (re-fit: the §6 fit moved HYDRA ~4x past the old stick). Nest times couple through summons (a WYVERN hike feeds S40's Call; easier ORACLE escorts swing S45 ±35s), so 4b/4c must re-verify S15–S45 after every touch. Next: 4b (S50–S100).
 
 **Verified state (2026-09-14, after band widening)**
 - Fast harness: **2498 green** (fightsim/fuzz skipped); `--all`: **2631 green** (fightsim 131/131, fuzz green).
@@ -931,7 +931,7 @@ Each is tagged with the step that owns it; resolved items are removed.
 - **[7, cards]** Done 2026-09-14: 7a (33 ability cards costed + physical-voice faces + `suiteCards`), 7b (ten L/M variants + 5 asserts), halved §2 taxes, widened §7 bands; `--all` 2631 green. Remaining: the README blurb commit/revert call (user).
 - **[3]** Done 2026-09-14: 3a (unified `damageAt` path for Prism/orbs/splash/tesla; splash footprint preserved for ordinary foes) + 3b (`spawnPop` clamp); `bullets` +24, `--all` 2657 green.
 - **[4]**
-  - Boss HP: nests die in 7–35 s against the §6 bands.
+  - Boss HP: S15–S45 fitted to §6 (4a, green). Open: S50–S100 (4b), recovery numbers (4c), S105–S130 wall checks + `FIGHTSIM_STRICT` (4d), deep danger (4e).
   - Flip `FIGHTSIM_STRICT`.
   - Add S105–S130 wall checks to `fightsim` (a wall exists, it lands in S110–S130, it stays a wall, S105 is clearable), plus "difficulty climbs toward S100".
   - Tune the recovery numbers (plate HP 1.2%, pod 5%, heals 2.2–3%/s).
@@ -993,3 +993,4 @@ Each is tagged with the step that owns it; resolved items are removed.
 | 2026-09-14 | S99 band call | **done (user call: widen)**: S51+ §7 100–135→100–140, `sectorBand` follows (loosening-only); fightsim 131/131 | `wave3` |
 | 2026-09-14 | Death-screen rethink | **done (user approved)**: `drawEnd` as one measured column (`wrapPx`, stacked killer line, centered grid, full-height centering); headless-Chrome captures at 960 + 420 show no bleed/overlap; safety/voice/replay green; `--all` **2633 green** | `wave3` |
 | 2026-09-14 | Step 3, indirect hits + spawn pop | **done**: 3a `damageAt` unifies Prism/orbs/splash/tesla through `enemyHitT`/`HIT` (parts → segs at `SEG_PASS` → body); orbs lose the body-only gate, cooldown on connect only; splash keeps the exact old footprint where no parts exist (first cut moved S12/S21/S31 means via a wider blast footprint — caught by fightsim, fixed by the strict-body hybrid, 131/131 back); 3b `spawnPop` clamps the draw to the hitbox; `bullets` +24 checks; fast 2524, `--all` **2657 green** | `wave3` |
+| 2026-09-15 | Step 4a, S15–S45 HP fit | **done**: per-boss bases fit to single-seed hose times (linear ± escort coupling; 5 fightsim rounds). S40 forced the 4c lever early (Call 1.5%→0.4%/s; one Call per nest, no re-arm). `kits2` asserts follow (rate band, exact-full re-arm pins). `liveOne` +lance/tesla/orbital (stick re-fit). S15 64.5, S20 62.1, S25 89.2, S30 83.8, S35 89.5, S40 86.0, S45 87.6; `--all` **2657 green** | `wave3` |

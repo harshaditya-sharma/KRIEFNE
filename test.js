@@ -868,11 +868,14 @@ function suiteHierarchy() {
 // for real, bar untouched, by a fixed deterministic damage build
 // (cards handed over, so a bad draft cannot masquerade as a broken boss): it
 // must take damage, move, die inside 90s and leave no hazards behind.
+// The build carries the single-target abilities a real mid-game ship owns
+// (lance, tesla, orbital) on top of the gun line: it is a killability smoke
+// test, and its strength was re-fit when the §6 HP fit moved HYDRA ~5x.
 function liveOne(kind) {
  const api = boot();
  seedRandom(api, 77000 + kind.length * 31);
  api.startRun();
- for (const id of ['dmg', 'rate', 'array', 'crit', 'slug', 'pierce', 'seek']) {
+ for (const id of ['dmg', 'rate', 'array', 'crit', 'slug', 'pierce', 'seek', 'lance', 'tesla', 'orbital']) {
   const u = api.upgrades.find(x => x.id === id);
   for (let k = 0; k < (u.max || 4); k++) { if (u.req && !u.req(api.player)) break; api.pickUpgrade(u); }
  }
@@ -3994,9 +3997,9 @@ function suiteKits2() {
   kitRun(a, 3, () => { orQuiet(a, b)(); worst = jw(); });
   ok('it walks away from the ship', Math.hypot(b.x - p.x, b.y - p.y) > d0 + 100);
   atMost('without a jump (px a frame)', worst, a.bossMaxSpeed(b) / 60 * 3);
-  range('it mends ~1.5% a second while either Wyvern lives', (b.hp - h0) / b.maxhp / 3, 0.013, 0.017);
+   range('it mends ~0.4% a second while either Wyvern lives', (b.hp - h0) / b.maxhp / 3, 0.003, 0.005);
   ok('a line runs from each Wyvern to it', !kitRenders(a));
-  const h1 = b.hp; kitRun(a, 2, () => { orQuiet(a, b)(); b.hp -= b.maxhp * 0.005 / 60; });
+   const h1 = b.hp; kitRun(a, 2, () => { orQuiet(a, b)(); b.hp -= b.maxhp * 0.002 / 60; });
   ok('even while it is being shot', b.hp > h1);
   a.killEnemy(a.enemies.indexOf(orWyv(a, b)[0])); const h2 = b.hp; kitRun(a, 1, orQuiet(a, b));
   ok('one Wyvern down, it still mends', b.mode === 'recover' && b.hp > h2);
@@ -4010,18 +4013,18 @@ function suiteKits2() {
  }
  {
   const { a, p, b } = orCallRoom();
-  b.hp = b.hpSeen = b.maxhp * 0.49; kitRun(a, 1 / 60, orQuiet(a, b));
-  b.hp = b.maxhp * 0.995; kitRun(a, 0.5, orQuiet(a, b));
+   b.hp = b.hpSeen = b.maxhp * 0.49; kitRun(a, 1 / 60, orQuiet(a, b));
+   b.hp = b.maxhp; kitRun(a, 0.5, orQuiet(a, b));
   ok('at full strength with a Wyvern alive, the Call re-arms', b.recLeft[0] === 0.5 || b.orRe === 0 || true);
   for (const x of orWyv(a, b)) a.killEnemy(a.enemies.indexOf(x));
   kitRun(a, 0.5, orQuiet(a, b));
   b.hp = b.hpSeen = b.maxhp * 0.49; kitRun(a, 1.2, orQuiet(a, b));
   ok('at 50% again it calls two more', orWyv(a, b).length === 2 && b.mode === 'recover');
-  for (const x of orWyv(a, b)) { b.hp = b.maxhp * 0.995; kitRun(a, 0.5, orQuiet(a, b)); a.killEnemy(a.enemies.indexOf(x)); }
+   for (const x of orWyv(a, b)) { b.hp = b.maxhp; kitRun(a, 0.5, orQuiet(a, b)); a.killEnemy(a.enemies.indexOf(x)); }
   kitRun(a, 1.0, orQuiet(a, b));
   b.hp = b.hpSeen = b.maxhp * 0.49; kitRun(a, 1.2, orQuiet(a, b));
   ok('the second re-arm calls a third pair', orWyv(a, b).length === 2 && b.orRe === 2);
-  for (const x of orWyv(a, b)) { b.hp = b.maxhp * 0.995; kitRun(a, 0.2, orQuiet(a, b)); }
+   for (const x of orWyv(a, b)) { b.hp = b.maxhp; kitRun(a, 0.2, orQuiet(a, b)); }
   for (const x of orWyv(a, b)) a.killEnemy(a.enemies.indexOf(x));
   kitRun(a, 0.5, orQuiet(a, b));
   b.hp = b.hpSeen = b.maxhp * 0.49; kitRun(a, 1 / 60, orQuiet(a, b));

@@ -2985,7 +2985,7 @@ function phBlink(e,x,y,decoy){ const ox=e.x, oy=e.y; if(!bossBlink(e,x,y,'blink'
 function phSpot(P,a,d,m){ const x=clamp(P.x+Math.cos(a)*d,PX0+m,PX1-m), y=clamp(P.y+Math.sin(a)*d,PY0+m,PY1-m);
  return pointBlocked(x,y,m,arena.obs)?nearSpot(P.x,P.y,190,300,m):{x,y}; }
 BOSS_KITS.phantom={
- def:{name:'PHANTOM',epithet:'the Undelivered',tier:2,hp:760,r:26,spd:1.35,shape:'diamond',pt:3.2,sig:'beam',chaff:['drone','mite']},
+ def:{name:'PHANTOM',epithet:'the Undelivered',tier:2,hp:360,r:26,spd:1.35,shape:'diamond',pt:3.2,sig:'beam',chaff:['drone','mite']},
  // Ghost Form, once (spec §5), the reference recovery: translucent on the
  // spot, rounds land at 30% (e.phased), knitting from its pool while the
  // escorts it raised live. Killing them breaks it; so does RELENTLESS.
@@ -3102,7 +3102,7 @@ function rvPodLive(e){ const q=e.rvPod; return q&&!q.dead&&q.hp>0?q:null; }
 // It docks beside the pod along the wall, so its labels never sit on the pod.
 function rvDockAt(e,q){ const d=e.r+q.r+6; return {x:clamp(q.x-q.ny*d,PX0+e.r,PX1-e.r),y:clamp(q.y+q.nx*d,PY0+e.r,PY1-e.r)}; }
 BOSS_KITS.revenant={
- def:{name:'REVENANT',epithet:'the Cold-Sleeper',tier:2,hp:900,r:28,spd:0.95,shape:'pods',pt:3.4,sig:'rime',chaff:['drone','mite']},
+ def:{name:'REVENANT',epithet:'the Cold-Sleeper',tier:2,hp:2900,r:28,spd:0.95,shape:'pods',pt:3.4,sig:'rime',chaff:['drone','mite']},
  lore:'A CAPTAIN WHO SLEPT THROUGH THE COLD — REVENANT wakes for you, and only you.',
  codex:{role:'Cryo skirmisher', threat:'Sleeper Pod, once',
   tell:'Pale RIME BOLTS freeze on a hit. A ruled line of dashed circles is a FROST LANE; a ruled line off its hull, a SHATTER DASH. A ring round your hull is a COLD SNAP.',
@@ -3250,7 +3250,7 @@ function lvSwing(e,da){ const c=Math.cos(da), s=Math.sin(da); // the whole tail 
  for(const g of e.segs){ const x=g.x-e.x, y=g.y-e.y; g.x=e.x+x*c-y*s; g.y=e.y+x*s+y*c; } }
 function lvVolley(e){ if(!e.lvV&&e.segs.length) e.lvV={t:0,i:0}; }
 BOSS_KITS.leviathan={
- def:{name:'LEVIATHAN',epithet:'the Lane-Wyrm',tier:3,hp:1700,r:36,spd:0.85,shape:'serpent',pt:4.0,sig:'segments',chaff:['mite','drone']},
+ def:{name:'LEVIATHAN',epithet:'the Lane-Wyrm',tier:3,hp:5500,r:36,spd:0.85,shape:'serpent',pt:4.0,sig:'segments',chaff:['mite','drone']},
  lore:'A LORD OF THE DEEP LANE — LEVIATHAN leaves a ghost of itself in the lane.',
  codex:{role:'Serpent', threat:'Sheds once; two phases',
   tell:'It rears and a hatched red arc marks the WHIP. A dashed ring round you is the COIL; a ruled line off its jaws, the LUNGE. Its wake is a fading red copy of its tail.',
@@ -3419,7 +3419,7 @@ function hyFireHead(e,h,C){
  h.st=null;
 }
 BOSS_KITS.hydra={
- def:{name:'HYDRA',epithet:'the Three-Throated',tier:3,hp:1500,r:34,spd:0.85,shape:'hepta',pt:3.6,sig:'throats',chaff:['stalker','mite']},
+ def:{name:'HYDRA',epithet:'the Three-Throated',tier:3,hp:6000,r:34,spd:0.85,shape:'hepta',pt:3.6,sig:'throats',chaff:['stalker','mite']},
  lore:'A LORD WITH THREE THROATS — HYDRA argues with itself, and every voice is aimed.',
  codex:{role:'Many-headed', threat:'Regrows twice; two phases',
   tell:'A frost head aims (rime that FREEZES), a fan head opens its wedge, a beam head rules its line. A dashed ring at its tail is the SLAM; green pools are ACID.',
@@ -3617,7 +3617,7 @@ function wyPerchFor(e,o){
  return {o,x:clamp(qx+ox*1,PX0+e.r,PX1-e.r),y:clamp(qy+oy*1,PY0+e.r,PY1-e.r),ox,oy};
 }
 BOSS_KITS.wyvern={
- def:{name:'WYVERN',epithet:'the Strafing Wing',tier:3,hp:1300,r:30,spd:1.15,shape:'delta',pt:3.2,sig:'strafe',chaff:['drone','tempest']},
+ def:{name:'WYVERN',epithet:'the Strafing Wing',tier:3,hp:5800,r:30,spd:1.15,shape:'delta',pt:3.2,sig:'strafe',chaff:['drone','tempest']},
  lore:'A LORD ON THE WING — WYVERN strafes the lane it lit for you. Leave the lane.',
  codex:{role:'Strafer', threat:'Roosts once; two phases',
   tell:'A RED LANE lights, then it dives down it leaving fire. A hatched cone is the GUST; ruled arcs at close range, the TALON; a dashed circle filling under you, the DIVE BOMB.',
@@ -3819,7 +3819,7 @@ function orStrikePts(e,p,n){
 }
 function orCallWyverns(e){ const out=[]; for(const o of enemies){ if(o.kind==='wyvern'&&o.caller===e.uid&&!o.dead) out.push(o); } return out; }
 BOSS_KITS.oracle={
- def:{name:'ORACLE',epithet:'the Rememberer',tier:3,hp:1150,r:30,spd:0.90,shape:'eye',pt:3.6,sig:'marks',chaff:['tempest','drone']},
+ def:{name:'ORACLE',epithet:'the Rememberer',tier:3,hp:250,r:30,spd:0.90,shape:'eye',pt:3.6,sig:'marks',chaff:['tempest','drone']},
  lore:'A LORD WHO KEEPS THE LEDGER — ORACLE has already calculated this fight.',
  codex:{role:'Zone controller', threat:'The Call, once (twice re-armed)',
   tell:'Dashed circles fill red together: STRIKE MARKS on you, on your heading and near you. Twin CLOCKBEAM streams turn both ways. After you dash, FORESIGHT marks your landing.',
@@ -3890,8 +3890,10 @@ BOSS_KITS.oracle={
    const mx=cx-e.x, my=cy-e.y, md=Math.hypot(mx,my);
    if(md>4){ const sv=steer(e,mx/md,my/md), v=Math.min(md,e.sp*1.6*C.sF*C.dt); e.x+=sv[0]*v; e.y+=sv[1]*v; e.intent+=v; }
    if(!W.length) return 'broken';
-   // ~1.5%/s while either Wyvern lives, even while being shot
-   e.hp=Math.min(e.maxhp,e.hp+e.maxhp*0.015*C.dt);
+   // ~0.4%/s while either Wyvern lives, even while being shot: enough to
+   // punish ignoring the wings, never enough to re-arm a second Call on its
+   // own (the §6 fit needs one Call per nest, not two).
+   e.hp=Math.min(e.maxhp,e.hp+e.maxhp*0.004*C.dt);
    if(e.hp>=e.maxhp-1e-6) e.orFull=true;
    return false; },
   end(e,why){ const re=e.orRe||0;
@@ -3950,7 +3952,7 @@ function snSetP1(e,face){ const a=face!=null?face:(e.sn?e.sn.face:0);
 function snSetP2(e){ const f=e.sn?e.sn.face:0;
  e.mirror.arcs=[{a:f,half:SN_HALF},{a:f+Math.PI,half:SN_HALF}]; e.mirror.reach=0; e.mirror.off=false; }
 BOSS_KITS.sentinel={
- def:{name:'SENTINEL',epithet:'the Shield-Wall',tier:3,hp:1400,r:32,spd:0.80,shape:'shield',pt:3.4,sig:'mirror',chaff:['stalker','sniper']},
+ def:{name:'SENTINEL',epithet:'the Shield-Wall',tier:3,hp:2400,r:32,spd:0.80,shape:'shield',pt:3.4,sig:'mirror',chaff:['stalker','sniper']},
  lore:'A LORD BEHIND A MIRROR — SENTINEL has held its wall for longer than walls.',
  codex:{role:'Shield-bearer', threat:'Shield-Wall, once; two phases',
   tell:'A MIRROR arc before it turns to face you and throws your rounds back. Two ruled lines ahead are the PUSH; one ruled line, the SPEAR; when the plate lowers, the RIPOSTE ring.',
