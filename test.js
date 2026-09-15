@@ -4272,7 +4272,7 @@ function suiteKits3() {
   kitRun(a, 0.05, () => noChaff(a));
   const ps = coPlates(b);
   eq('ARMOUR QUADRANTS: four plates', ps.length, 4);
-  ok('each with its own HP (3% of the body)', ps.every(q => Math.abs(q.hp - b.maxhp * 0.03) < 1e-6));
+   ok('each with its own HP (1.2% of the body)', ps.every(q => Math.abs(q.hp - b.maxhp * 0.012) < 1e-6));
   ok('the plates draw', !kitRenders(a));
   b.forcedAttack = 'stomp'; b.coS = { st: 'rest', t: 99 };
   const q = ps.find(q => Math.abs(q.x - b.x) < 2 && q.y < b.y), qh = q.hp, h0 = b.hp;

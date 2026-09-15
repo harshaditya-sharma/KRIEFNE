@@ -2995,7 +2995,7 @@ BOSS_KITS.phantom={
    for(let k=0;k<nm&&enemies.length<CAP.enemies;k++){ const s2=nearSpot(player.x,player.y,200,330,26); const m=mkEnemy(k?'mite':'drone',s2.x,s2.y,arenaIdx); m.spawnT=0.9; enemies.push(m); e.spawned.push(m.uid); }
    rings.push({x:e.x,y:e.y,r:10,maxR:120,spd:320,dmg:0,hit:true});
    addFloater(e.x,calloutY(e),'PHANTOM — GHOST FORM · kill the escorts',K.red); SFX.portal(); },
-  update(e,C){ bossHeal(e,e.maxhp*0.02*C.dt); e.spawned=e.spawned.filter(u=>enemies.some(o=>o.uid===u&&!o.dead)); return e.spawned.length===0; },
+   update(e,C){ bossHeal(e,e.maxhp*0.022*C.dt); e.spawned=e.spawned.filter(u=>enemies.some(o=>o.uid===u&&!o.dead)); return e.spawned.length===0; },
   end(e,why){ e.phased=false; rings.push({x:e.x,y:e.y,r:10,maxR:90,spd:300,dmg:0,hit:true});
    addFloater(e.x,calloutY(e),why==='broken'?'GHOST FORM BROKEN':'PHANTOM RE-FORMS',why==='broken'?K.gold:K.red); }
  },
@@ -4001,7 +4001,7 @@ BOSS_KITS.sentinel={
   start(e){ e.mirror.arcs=[{a:0,half:Math.PI}]; e.mirror.reach=e.r*1.0; e.mirror.off=false;
    e.partRot=0;
    for(let k=0;k<3;k++){ const a=k*2.094;
-    addPart(e,{id:'anchor'+k,lx:Math.cos(a)*e.r*1.6,ly:Math.sin(a)*e.r*1.6,r:12,hp:e.maxhp*0.02,kind:'anchor'}); }
+     addPart(e,{id:'anchor'+k,lx:Math.cos(a)*e.r*1.6,ly:Math.sin(a)*e.r*1.6,r:12,hp:e.maxhp*0.02,kind:'anchor'}); }
    addFloater(e.x,calloutY(e),'SHIELD-WALL · break the anchors',K.red); SFX.alarm(); },
   update(e,C){ e.partRot=(e.partRot||0)+C.dt*0.7;
    let n=0; for(const q of e.parts) if(q.kind==='anchor'&&!q.dead) n++;
@@ -4184,14 +4184,14 @@ BOSS_KITS.archon={
 // never a radial) and it stomps faster. Recovery ENTRENTCH at 55% and 30%:
 // it sinks, regrows one broken plate, and mends while two or more plates
 // stand. Calls ARCHON at 70% and 35% (the rung below). No radial volleys.
-const CO_PLATE_HP=0.03, CO_STOMP_R=230;
+const CO_PLATE_HP=0.012, CO_STOMP_R=230;
 function coPlates(e){ return (e.parts||[]).filter(q=>q.kind==='plate'&&!q.dead); }
 function coAddPlates(e,ids){ const R=e.r*1.15;
  const off=[[R,0],[0,R],[-R,0],[0,-R]];
  for(const k of ids){ if(e.parts.some(q=>q.id==='plate'+k)) continue;
   addPart(e,{id:'plate'+k,lx:off[k][0],ly:off[k][1],r:17,hp:e.maxhp*CO_PLATE_HP,kind:'plate'}); } }
 BOSS_KITS.colossus={
- def:{name:'COLOSSUS',epithet:'the Walled',tier:4,hp:12000,r:40,spd:0.70,shape:'fortress',pt:3.8,sig:'plates',chaff:['brute','stalker']},
+ def:{name:'COLOSSUS',epithet:'the Walled',tier:4,hp:13000,r:40,spd:0.70,shape:'fortress',pt:3.8,sig:'plates',chaff:['brute','stalker']},
  lore:'A SOVEREIGN THAT IS A WALL — COLOSSUS walks, and the ground takes notice.',
  codex:{role:'Fortress', threat:'Plates, then shrapnel; three phases',
   tell:'Four PLATES ring it, each blocking its side. A dashed ring at its feet is the TRIPLE STOMP, three waves. A red mark near you is the BOULDER; a ruled line from its feet, the QUAKE fissure.',
@@ -4318,7 +4318,7 @@ BOSS_KITS.colossus={
 // mending while the husk stands. Calls COLOSSUS at 70% and 35% (the rung
 // below). No radial volleys.
 BOSS_KITS.basilisk={
- def:{name:'BASILISK',epithet:'Keeper of the Held',tier:4,hp:8000,r:31,spd:1.10,shape:'hood',pt:3.4,sig:'flare',chaff:['stalker','mite']},
+ def:{name:'BASILISK',epithet:'Keeper of the Held',tier:4,hp:8300,r:31,spd:1.10,shape:'hood',pt:3.4,sig:'flare',chaff:['stalker','mite']},
  lore:'A SOVEREIGN OF QUARANTINE — its last visitor is still held in BASILISK\'s eye.',
  codex:{role:'Controller', threat:'Freezes; sheds twice; three phases',
   tell:'The hood spreads over 0.9 s, then a FREEZE ring rolls out. A ruled CONE is the GAZE: it only hurts where it points. A ruled line is the STRIKE lunge; a wedge, the SPIT, which leaves slowing pools.',
@@ -4468,7 +4468,7 @@ function pgLaunch(e,n){ // every living bay puts out n fighters
    m.spawnT=0.9; enemies.push(m); } }
  SFX.eshoot(); }
 BOSS_KITS.progenitor={
- def:{name:'PROGENITOR',epithet:'the Brood-Hall',tier:4,hp:22000,r:36,spd:0.80,shape:'hull',pt:3.6,sig:'bays',chaff:['drone','mite']},
+ def:{name:'PROGENITOR',epithet:'the Brood-Hall',tier:4,hp:19000,r:36,spd:0.80,shape:'hull',pt:3.6,sig:'bays',chaff:['drone','mite']},
  lore:'A SOVEREIGN THAT IS A HANGAR — PROGENITOR never flies alone for long.',
  codex:{role:'Carrier', threat:'Bays launch fighters; docks twice; three phases',
   tell:'Bay notches flare, then FIGHTERS streak out. Ruled lines along its flanks are the BROADSIDE; mines astern, the MINEFIELD; a red tow-line to a fighter, the RECALL.',
@@ -4619,7 +4619,7 @@ BOSS_KITS.progenitor={
 // CALL, every cadence ×1.3. No recovery — it announces; it never hides.
 // Calls PROGENITOR at 70% and 35% (the rung below).
 BOSS_KITS.harbinger={
- def:{name:'HARBINGER',epithet:'the Horn',tier:4,hp:18500,r:29,spd:1.00,shape:'horn',pt:3.2,sig:'ricos',chaff:['tempest','mite']},
+ def:{name:'HARBINGER',epithet:'the Horn',tier:4,hp:19000,r:29,spd:1.00,shape:'horn',pt:3.2,sig:'ricos',chaff:['tempest','mite']},
  lore:'A SOVEREIGN WHO SOUNDS THE HORN — HARBINGER wants you to see it coming.',
  codex:{role:'Bullet-hell caster', threat:'Never recovers; three phases',
   tell:'Three-arm RICOCHET spirals bounce twice off rock and rim. Ruled marks down your heading are the METEOR; a wide ruled cone, the HORN BLAST; a one-gap ring whose rounds bounce once, the ECHO WALL.',
@@ -4966,7 +4966,7 @@ BOSS_KITS.juggernaut={
    if(P){ const drop=P.last-e.hp; // every blow lands 2.5× while it purges
     if(drop>0) e.hp-=drop*(JG_PURGE_MUL-1);
     P.last=e.hp; }
-   bossHeal(e,e.maxhp*0.02*C.dt);
+    bossHeal(e,e.maxhp*0.022*C.dt);
    return e.rec.t>=4?'purged':false; },
   end(e,why){ e.jgPurge=null; e.charging=false; e.chargeOn=false; e.ramLx=undefined;
    addFloater(e.x,calloutY(e),why==='purged'?'PURGE SPENT':'PURGE ENDS',why==='purged'?K.gold:K.red); } },
@@ -5098,8 +5098,8 @@ BOSS_KITS.eclipse={
   start(e){ ecTotality(e);
    const nx=clamp(PX0+PX1-e.x,PX0+e.r,PX1-e.r), ny=clamp(PY0+PY1-e.y,PY0+e.r,PY1-e.r);
    bossBlink(e,nx,ny,'recover');
-   addFloater(e.x,calloutY(e),'ECLIPSE STEPS ACROSS — follow the tracker',K.red); SFX.portal(); },
-  update(e,C){ bossHeal(e,e.maxhp*0.02*C.dt); return e.rec.t>=4?'stepped':false; },
+    addFloater(e.x,calloutY(e),'ECLIPSE STEPS ACROSS — follow the tracker',K.red); SFX.portal(); },
+   update(e,C){ bossHeal(e,e.maxhp*0.022*C.dt); return e.rec.t>=4?'stepped':false; },
   end(e,why){ addFloater(e.x,calloutY(e),why==='stepped'?'STEP SPENT':'STEP ENDS',why==='stepped'?K.gold:K.red); } },
  label(e){ if(e.atk==='corona') return 'CORONA'; if(e.atk==='totality') return 'TOTALITY';
   if(e.atk==='crescent') return 'CRESCENT'; return null; },
@@ -5242,8 +5242,8 @@ BOSS_KITS.nullifier={
    bossBlink(e,nx,ny,'recover');
    e.nullJam=3;
    rings.push({x:e.x,y:e.y,r:8,maxR:70,spd:300,dmg:0,hit:true});
-   addFloater(e.x,calloutY(e),'SILENT STEP — TRACKER JAMMED',K.red); SFX.portal(); },
-  update(e,C){ bossHeal(e,e.maxhp*0.02*C.dt); return e.rec.t>=4?'stepped':false; },
+    addFloater(e.x,calloutY(e),'SILENT STEP — TRACKER JAMMED',K.red); SFX.portal(); },
+   update(e,C){ bossHeal(e,e.maxhp*0.022*C.dt); return e.rec.t>=4?'stepped':false; },
   end(e,why){ addFloater(e.x,calloutY(e),why==='stepped'?'STEP SPENT':'STEP ENDS',why==='stepped'?K.gold:K.red); } },
  label(e){ if(e.atk==='disrupt') return 'DISRUPTOR FIELD'; if(e.atk==='pulse') return 'SILENCE PULSE';
   if(e.atk==='lance') return 'NULL LANCE'; if(e.atk==='mines') return 'VOID MINES'; return null; },
