@@ -2278,6 +2278,12 @@ function suiteSrMirrors() {
   ok('role=application stays a deliberate, commented choice', /role="application" is deliberate/.test(html));
   const css = fs.readFileSync(path.join(__dirname, 'styles.css'), 'utf8');
   ok('both mirrors dock on focus like the draft', /#settings-sr:focus-within/.test(css) && /#codex-sr:focus-within/.test(css));
+  // game.js/styles.css keep fixed names across deploys, so a long cache would pin players to an old build
+  const vc = JSON.parse(fs.readFileSync(path.join(__dirname, 'vercel.json'), 'utf8'));
+  for (const f of ['/game.js', '/styles.css']) {
+   const h = (vc.headers.find(r => r.source === f) || {headers: []}).headers.find(x => x.key === 'Cache-Control');
+   ok(f + ' revalidates on every load', !!h && /must-revalidate/.test(h.value) && !/immutable/.test(h.value));
+  }
  }
 }
 function suiteCards() {
