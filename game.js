@@ -1025,8 +1025,10 @@ function layoutDebris(R,obs,C,idx){
  for(let t=0;t<12;t++){
   const ax=R()*6.283, lx=C.px+Math.cos(ax)*(340+R()*300), ly=C.py+Math.sin(ax)*(260+R()*220);
   if(!C.inBounds(lx,ly,120)) continue;
-  const tilt=R()*6.283, lr=(26+R()*12)*sz, step=Math.max(92,lr*2+12); // pylons never touch: deep sectors grow them
-  const trio=[0,1,2].map(k=>shapeNGon(lx+Math.cos(tilt)*step*k,ly+Math.sin(tilt)*step*k,lr,6,tilt));
+   const tilt=R()*6.283, lr=(26+R()*12)*sz, step=Math.max(92,lr*2+12); // pylons never touch: deep sectors grow them
+   // an avenue, not a stamp: the middle pylon runs larger and each is turned
+   // 30° from the last, so the row never reads as one cast repeated (6b)
+   const trio=[0,1,2].map(k=>shapeNGon(lx+Math.cos(tilt)*step*k,ly+Math.sin(tilt)*step*k,lr*(k===1?1.12:0.94),6,tilt+k*0.524));
   if(trio.every(o=>C.inBounds(o.x,o.y,o.r+8)&&!C.clearOfSpawn(o.x,o.y,o.r)&&!obsClash(o,obs,24))){ for(const o of trio) obs.push(o); break; }
  }
 }
@@ -2641,8 +2643,12 @@ function drawBossUnder(th){
  const P=th&&th.pal?th.pal:null;
  if(arena&&arena.obs&&P){ const ld=th.light||0, Lx=Math.cos(ld), Ly=Math.sin(ld); for(const o of arena.obs) if(o.temp){ ctx.save(); ctx.globalAlpha=clamp((o.life-o.t)*2,0,1); engrave(ctx,o,Lx,Ly,P); ctx.restore(); } }
  for(const d of discs){ if(d.r<1) continue; const safe=d.t<d.safe;
-  ctx.save(); ctx.globalAlpha=safe?0.25:0.16; ctx.fillStyle=K.red; ctx.beginPath(); ctx.arc(d.x,d.y,d.r,0,6.283); ctx.fill();
-  ctx.globalAlpha=safe?0.35:0.5; ctx.strokeStyle=K.red; ctx.lineWidth=1; if(safe) ctx.setLineDash([4,4]); ctx.stroke(); ctx.setLineDash([]); ctx.restore(); }
+  // a fading copy, not a hazard mass: alpha falls with age and old discs
+  // step down to dried oxide, so a piled trail (LEVIATHAN's coil) never
+  // reads as one solid red shape (6b). Hitbox and life are untouched.
+  const fade=1-clamp(d.t/d.life,0,1), old=!safe&&d.t/d.life>0.5, ink=old?K.redDim:K.red;
+  ctx.save(); ctx.globalAlpha=(safe?0.25:0.16)*fade; ctx.fillStyle=ink; ctx.beginPath(); ctx.arc(d.x,d.y,d.r,0,6.283); ctx.fill();
+  ctx.globalAlpha=(safe?0.35:0.5)*fade; ctx.strokeStyle=ink; ctx.lineWidth=1; if(safe) ctx.setLineDash([4,4]); ctx.stroke(); ctx.setLineDash([]); ctx.restore(); }
  for(const z of bossZones){ const R=zoneR(z), arming=z.t<z.warn; if(R<2) continue;
   ctx.save(); ctx.globalAlpha=arming?0.7:0.85; ctx.beginPath(); ctx.arc(z.x,z.y,R,0,6.283); ctx.save(); ctx.clip();
   ctx.strokeStyle=K.redDim; ctx.lineWidth=1; ctx.beginPath(); for(let d=-R;d<R;d+=6){ ctx.moveTo(z.x+d,z.y-R); ctx.lineTo(z.x+d-R,z.y+R); } ctx.stroke(); ctx.restore();
@@ -3368,7 +3374,9 @@ BOSS_KITS.leviathan={
   ctx.restore(); },
  draw(e,g){ // an armoured wedge head with mandibles; in the codex, its tail curled round it
   const R=g.R, a=e.vis!=null?e.vis:(e.facing||0);
-  if(codexPreview){ ctx.save(); for(let k=4;k>=0;k--){ const t=a+Math.PI-1.1+k*0.62, r=R*(0.62-k*0.07), x=Math.cos(t)*R*1.2-Math.cos(a)*R*0.2, y=Math.sin(t)*R*1.2-Math.sin(a)*R*0.2;
+  // the curl sits off-centre, so its segments never ring the rank rings
+  // concentrically (6b: the plate shimmered with circles on circles)
+  if(codexPreview){ ctx.save(); for(let k=4;k>=0;k--){ const t=a+Math.PI-1.1+k*0.62, r=R*(0.62-k*0.07), x=Math.cos(t)*R*1.2-Math.cos(a)*R*0.2+R*0.3, y=Math.sin(t)*R*1.2-Math.sin(a)*R*0.2-R*0.28;
     ctx.save(); ctx.translate(x,y); ctx.rotate(t-1.5708); polyPts([[r,0],[r*0.45,-r*0.9],[-r*0.55,-r*0.84],[-r,0],[-r*0.55,r*0.84],[r*0.45,r*0.9]]);
     ctx.fillStyle=g.body; ctx.fill(); ctx.strokeStyle=g.col; ctx.lineWidth=1.5; ctx.stroke(); ctx.restore(); } ctx.restore(); }
   ctx.save(); ctx.rotate(a);
@@ -6875,8 +6883,10 @@ function paintWorld(g,th){
  // beyond the rim the field is deeper, so the sector's edge reads without a wall
  g.fillStyle=P.deep; g.fillRect(0,0,WW,PY0); g.fillRect(0,PY1,WW,HH-PY1); g.fillRect(0,PY0,PX0,PY1-PY0); g.fillRect(PX1,PY0,WW-PX1,PY1-PY0);
  paintStars(g,WW,HH,Math.round(WW*HH/7000),seed^0x5a5a,true);
- // the one light: a dying star past the rim, engraved as concentric hairlines
- const far=Math.max(WW,HH), sx=WW/2-Lx*far*0.95, sy=HH/2-Ly*far*0.95, sr=far*0.55;
+ // the one light: a dying star past the rim, engraved as concentric hairlines.
+ // Its core sits a full radius clear of the rim, so only the faint outer
+ // hairlines ever drift into frame (6b: the core used to wash under the HUD).
+ const far=Math.max(WW,HH), sx=WW/2-Lx*far*1.02, sy=HH/2-Ly*far*1.02, sr=far*0.55;
  g.strokeStyle=P.faint; g.lineWidth=1;
  for(let k=0;k<9;k++){ g.beginPath(); g.arc(sx,sy,sr+k*9,0,6.283); g.stroke(); }
  g.strokeStyle=P.dim; g.beginPath(); g.arc(sx,sy,sr,0,6.283); g.stroke();
@@ -7732,7 +7742,11 @@ function codexRects(){
 // the same draw code the game uses. Every god is drawn at ONE registered scale so
 // their sizes compare honestly; chaff share another. Locked entries use the same
 // shape as a flat shadow, so a silhouette is recognisable before it is readable.
-function drawCodexSprite(entry,cx,cy,locked){
+function drawCodexSprite(entry,cx,cy,locked,box){
+ // The sprite keeps its registered scale (0.95 gods, 2.2 chaff) so sizes
+ // compare honestly; the plate was widened to 150 so rank rings and wide
+ // arms (KRAKEN, SINGULARITY) sit inside the dashed frame with padding (6b).
+ const ch=((box||134)-4)/2, cs=ch*2;
  let e=null;
  try{ e=(codexTab==='bosses')?mkBoss(entry.id,cx,cy,9):mkEnemy(entry.type,cx,cy,2); }catch(err){ return; }
  e.x=cx; e.y=cy; e.t=locked?0.6:performance.now()/1000; e.flash=0; e.spawnT=0; e.vscale=1;
@@ -7744,10 +7758,10 @@ function drawCodexSprite(entry,cx,cy,locked){
  // pass every frame. Paint once per entry into an offscreen tile and blit.
  if(locked){
   try{
-   const dk=devicePx>0?devicePx:1, key=codexTab+':'+(entry.id||entry.type)+':'+k.toFixed(2)+':'+dk.toFixed(2);
+   const dk=devicePx>0?devicePx:1, key=codexTab+':'+(entry.id||entry.type)+':'+k.toFixed(2)+':'+dk.toFixed(2)+':'+cs;
    const hit=codexSilCache[key];
-   if(hit&&hit.c){ ctx.save(); ctx.beginPath(); ctx.rect(cx-65,cy-65,130,130); ctx.clip(); ctx.globalAlpha=0.9; ctx.drawImage(hit.c,cx-65,cy-65,130,130); ctx.restore(); return; }
-   const S=130, c=mkCanvas(Math.max(1,Math.round(S*dk)),Math.max(1,Math.round(S*dk)));
+   if(hit&&hit.c){ ctx.save(); ctx.beginPath(); ctx.rect(cx-ch,cy-ch,cs,cs); ctx.clip(); ctx.globalAlpha=0.9; ctx.drawImage(hit.c,cx-ch,cy-ch,cs,cs); ctx.restore(); return; }
+   const S=Math.round(cs), c=mkCanvas(Math.max(1,Math.round(S*dk)),Math.max(1,Math.round(S*dk)));
    if(c){
     const g=c.getContext('2d'); try{ g.setTransform(dk,0,0,dk,0,0); }catch(_){}
     const realCtx=ctx; ctx=g;
@@ -7761,14 +7775,14 @@ function drawCodexSprite(entry,cx,cy,locked){
      g.restore(); try{ g.filter='none'; }catch(_){}
     }finally{ ctx=realCtx; codexPreview=false; }
     codexSilCache[key]={c};
-    ctx.save(); ctx.beginPath(); ctx.rect(cx-65,cy-65,130,130); ctx.clip(); ctx.globalAlpha=0.9; ctx.drawImage(c,cx-65,cy-65,130,130); ctx.restore();
+    ctx.save(); ctx.beginPath(); ctx.rect(cx-ch,cy-ch,cs,cs); ctx.clip(); ctx.globalAlpha=0.9; ctx.drawImage(c,cx-ch,cy-ch,cs,cs); ctx.restore();
     return;
    }
   }catch(err){}
  }
  codexPreview=true;
  ctx.save();
- ctx.beginPath(); ctx.rect(cx-65,cy-65,130,130); ctx.clip();
+ ctx.beginPath(); ctx.rect(cx-ch,cy-ch,cs,cs); ctx.clip();
  if(locked){ try{ ctx.filter='brightness(0) invert(0.32)'; }catch(err){} ctx.globalAlpha=0.9; }
  ctx.translate(cx,cy); ctx.scale(k,k); ctx.translate(-cx,-cy);
  try{ drawEnemy(e); }catch(err){}
@@ -7907,11 +7921,11 @@ function drawCodexScreen(){
  const pw = wide ? W-px-46 : W-px-16;
  const py = wide ? 168 : Math.max(130, 168 + Math.min(0, H - 640));
  const ph = wide ? Math.min(378, Math.max(220, H - py - 90)) : Math.min(378, Math.max(80, H - py - 100));
- const portrait = wide ? 134 : 100;
+ const portrait = wide ? 150 : 100;
  const tx = px + portrait + 30;
  plate(px,py,pw,ph,K.goldDim);
  plate(px+14,py+14,portrait,portrait,K.metalDim,false,true);
- drawCodexSprite(entryE,px+14+portrait/2,py+14+portrait/2,!known);
+ drawCodexSprite(entryE,px+14+portrait/2,py+14+portrait/2,!known,portrait);
  const wrapRole = Math.max(20, Math.min(60, Math.floor((pw-portrait-48)/6)));
  const wrapBody = Math.max(20, Math.min(84, Math.floor((pw-36)/6)));
   if(!known){
