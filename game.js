@@ -1676,6 +1676,13 @@ let titleSel=0, titleRowCol=0, pauseSel=0, settingsSel=5, draftSel=0, endSel=0;
 const ARM_MS=3000; // every destructive confirm drains over the same window
 function confirmFrac(armT){ return clamp((armT-performance.now())/ARM_MS,0,1); }
 function drainBar(x0,x1,y,frac){ if(frac<=0) return; line(x0,y,x0+(x1-x0)*clamp(frac,0,1),y,K.red,2); }
+// The draft is a slot machine: three reels spin up and land left to right,
+// and the lever at the side re-spins them once per draft. REDUCED skips the
+// motion entirely — the cards are simply there.
+const SPIN={lead:260,step:160,tick:70};
+let draftSpin=null;      // {t0, land:[ms,ms,ms]} while the reels are turning
+let draftPulls=0;        // lever pulls left on this draft (one, or none)
+let draftLever=null;     // the lever's hit rect, set by the draw
 let draftAt=0, draftPress=-1; const DRAFT_GRACE=300; // a draft ignores the mouse briefly after opening: clicks meant as shots must not pick
 function handleRelease(x,y){ if(state!=='levelup'||draftPress<0) return; const i=draftPress; draftPress=-1; const r=draftRect(i); if(levelChoices[i]&&x>r.x&&x<r.x+r.w&&y>r.y&&y<r.y+r.h) pickUpgrade(levelChoices[i]); }
 function loadArena(i){
@@ -1827,16 +1834,10 @@ function openLevelUp(){
   const picks=[get('spd'),get('pcell')].filter(Boolean).filter(avail);
   const rest=UPGRADES.filter(u=>picks.indexOf(u)<0&&avail(u));
   while(picks.length<3&&rest.length) picks.push(rest.splice((Math.random()*rest.length)|0,1)[0]);
-  openDraft(picks); return;
+  openDraft(picks,null,true); return;
  }
   const pool=UPGRADES.filter(avail);
-  const cp=pool.slice(); const picks=[];
-  while(picks.length<3&&cp.length){ // rarity-weighted sample without replacement
-   let tot=0; for(const u of cp) tot+=rarityW(u);
-   let r=Math.random()*tot, ix=0;
-   while(ix<cp.length-1&&r>rarityW(cp[ix])){ r-=rarityW(cp[ix]); ix++; }
-   picks.push(cp.splice(ix,1)[0]);
-  }
+  const picks=rollPicks(3,pool);
   // The most overdue locked core ability comes back as a FOURTH card, under the
   // usual three — never in place of one, so passing on it costs nothing.
   const due=CORE_UNLOCKS.filter(c=>c.locked(player)&&pity[c.id]>=PITY_DRAFTS&&!picks.some(u=>u.id===c.id)).sort((a,b)=>pity[b.id]-pity[a.id]);
@@ -1844,18 +1845,64 @@ function openLevelUp(){
   if(back) picks.push(back);
   openDraft(picks,back);
 }
+// The reels: a rarity-weighted sample without replacement. Shared by the
+// draft and by the lever, so a rerolled card is drawn on exactly the odds the
+// first three were.
+function rollPicks(n,pool){
+ const avail=u=>(!u.req||u.req(player))&&(!u.max||(upgradeCounts[u.id]||0)<u.max);
+ const cp=(pool||UPGRADES.filter(avail)).slice(), picks=[];
+ while(picks.length<n&&cp.length){
+  let tot=0; for(const u of cp) tot+=rarityW(u);
+  let r=Math.random()*tot, ix=0;
+  while(ix<cp.length-1&&r>rarityW(cp[ix])){ r-=rarityW(cp[ix]); ix++; }
+  picks.push(cp.splice(ix,1)[0]);
+ }
+ return picks;
+}
 // Single exit for every draft, starter included. Endless runs eventually exhaust
 // a capped pool; without a repeatable filler the draft opens with zero cards and
 // the 1/2/3 handler throws on undefined — a hard softlock at the exact moment a
 // run is going well.
-function openDraft(picks,back){
+function openDraft(picks,back,starterOnly){
  if(!picks.length) picks=[REFIT];
  levelBack=back||null;
  for(const c of CORE_UNLOCKS){
   if(!c.locked(player)) pity[c.id]=0;
   else pity[c.id]=picks.some(u=>u.id===c.id)?0:pity[c.id]+1;
  }
-  levelChoices=picks; floaters=[]; state='levelup'; draftAt=performance.now(); draftPress=-1; draftSel=0; SFX.levelup();
+  levelChoices=picks; floaters=[]; state='levelup'; draftAt=performance.now(); draftPress=-1; draftSel=0;
+  // The starter draft hands over dash and recall: it is not a gamble, so it
+  // gets no lever.
+  draftPulls=starterOnly?0:1;
+  spinReels(); SFX.levelup();
+}
+// Spin every reel that is not the offered-again card (it is not a gamble).
+function spinReels(){
+ if(REDUCED){ draftSpin=null; return; }
+ const t0=performance.now(), land=[];
+ for(let i=0;i<levelChoices.length;i++) land.push(t0+SPIN.lead+i*SPIN.step);
+ draftSpin={t0,land};
+}
+// True while reel i is still turning.
+function reelSpinning(i){ return !!(draftSpin&&draftSpin.land[i]!=null&&performance.now()<draftSpin.land[i]); }
+function spinning(){ return !!(draftSpin&&performance.now()<draftSpin.land[draftSpin.land.length-1]); }
+// Any key or click lands the reels at once: a press during the spin is a
+// "stop", never a pick, so nothing is drafted by accident.
+function landReels(){ if(!spinning()) return false; draftSpin=null; SFX.click(); return true; }
+// The lever: one pull per draft re-spins the three cards. The offered-again
+// fourth card is kept — passing on it must always stay free.
+function pullLever(){
+ if(state!=='levelup'||draftPulls<=0) return false;
+ draftPulls--;
+ const keep=levelBack&&levelChoices[levelChoices.length-1]===levelBack?levelBack:null;
+ const picks=rollPicks(3);
+ if(!picks.length) return false;
+ if(keep) picks.push(keep);
+ levelChoices=picks; draftSel=0; draftPress=-1; draftAt=performance.now();
+ rowsCache.of=null;
+ spinReels(); SFX.rare();
+ try{ syncDraftSr(); }catch(e){}
+ return true;
 }
 function pickUpgrade(u){
  if(!u) return;
@@ -6366,6 +6413,11 @@ function handleKeyPress(code){
    else if(code==='Escape'||code==='KeyH'||code==='Enter') closeHelp();
    return; }
    if(state==='levelup'){
+    // A press during the spin lands the reels. Keys that would draft a card
+    // stop there — a stop is never a pick — but the codex, help and the lever
+    // still answer, so nothing feels jammed while the reels run.
+    if(landReels()&&(code==='Enter'||code==='Space'||/^Digit[1-4]$/.test(code))) return;
+    if(code==='KeyR'){ if(!pullLever()) SFX.brk(); return; }
     if(code==='KeyC'){ openCodex('levelup'); return; }
     if(code==='KeyH'){ openHelp('levelup'); return; }
     const n=levelChoices.length;
@@ -6581,6 +6633,7 @@ controls:[
 '  E drops a gate (1 charge). E again channels a blink (520px, cooldown).',
 '  Overdrive cuts cooldown, Transit cuts channel time. Space cancels the blink.',
 'PICK: 1 / 2 / 3 or click a card. PAUSE: Esc / P. MUTE: M. SETTINGS: O. CODEX: C.',
+'LEVER: R re-spins the three cards, once per draft. The offered-again card stays.',
 'STATUS: PETRIFIED roots you; JAMMED locks dash + recall. Neither stops your guns.',
 'TIP: first draft offers dash + recall — take one, then build damage.'],
 shields:[
@@ -6751,6 +6804,8 @@ function handleClick(x,y){
    }
   if(state==='levelup'){ // a press only arms a card; the pick lands on release (handleRelease)
    draftPress=-1; if(performance.now()-draftAt<DRAFT_GRACE) return;
+   if(landReels()) return;
+   if(draftLever&&draftPulls>0&&x>draftLever.x&&x<draftLever.x+draftLever.w&&y>draftLever.y&&y<draftLever.y+draftLever.h){ pullLever(); return; }
    for(let i=0;i<levelChoices.length;i++){ const r=draftRect(i); if(x>r.x&&x<r.x+r.w&&y>r.y&&y<r.y+r.h){ draftPress=i; return; } }
    return;
   }
@@ -8355,6 +8410,47 @@ function draftRect(i){
  }catch(e){}
  return levelChoices[i]===levelBack?{x:Math.round((W-460)/2),y:Math.round(H/2+126),w:460,h:62}:{x:130+i*240,y:220,w:220,h:204};
 }
+// A reel mid-spin: refits blurring past behind the frame. The face swaps on
+// SPIN.tick and slides upward, so the card reads as turning rather than
+// flickering. Nothing here is the real card — that lands when the reel stops.
+function drawReel(r,i,ink){
+ const t=performance.now(), land=draftSpin?draftSpin.land[i]:0;
+ const seed=i*7+Math.floor(t/SPIN.tick), u=UPGRADES[Math.abs(seed*2654435761)%UPGRADES.length];
+ const left=Math.max(0,land-t), slide=Math.min(1,left/220);
+ ctx.save();
+ ctx.beginPath(); ctx.rect(r.x+1,r.y+1,r.w-2,r.h-2); ctx.clip();
+ ctx.globalAlpha=0.55;
+ const wide=r.h>=170, cx=wide?r.x+r.w/2:r.x+34, cy=(wide?r.y+66:r.y+r.h/2)-Math.round(28*slide);
+ drawIcon(u.id,cx,cy,wide?19:13);
+ const nm=u.name.toUpperCase();
+ if(wide) heading(nm.length>16?nm.slice(0,16):nm,r.x+r.w/2,r.y+118-Math.round(28*slide),11,ink.dim,'center');
+ else { const nf=headFit(nm,r.w-70,11,9); heading(nf.lines[0],r.x+58,r.y+44-Math.round(20*slide),nf.px,ink.dim); }
+ ctx.restore();
+}
+// The lever: a post and a ball beside the row, gold while a pull is left and
+// dim once it is spent. It is a real hit rect, and [R] pulls it.
+function drawLever(rects,ink){
+ draftLever=null;
+ const L=draftLayout(); if(!L||!L.rects) return;
+ const idx=Object.keys(L.rects).map(k=>L.rects[k]); if(!idx.length) return;
+ const right=Math.max.apply(null,idx.map(r=>r.x+r.w)), top=Math.min.apply(null,idx.map(r=>r.y));
+ const bot=Math.max.apply(null,idx.map(r=>r.y+r.h));
+ const live=draftPulls>0, col=live?ink.main:K.metalDim;
+ if(L.kind==='row'&&right+54<=W-8){
+  const lx=right+30, y0=top+24, y1=bot-28, ky=live?y0+10:y1-10;
+  draftLever={x:lx-22,y:y0-14,w:44,h:(y1-y0)+34};
+  line(lx,y1,lx,ky,col,3);                       // the post
+  ctx.strokeStyle=col; ctx.lineWidth=3; ctx.beginPath(); ctx.arc(lx,ky,9,0,6.283); ctx.stroke(); // the ball
+  line(lx-12,y1+4,lx+12,y1+4,K.metalDim,3);      // the mount
+  mono(live?'[R]':'USED',lx,y1+22,9,live?ink.dim:K.metalDim,'center');
+  return;
+ }
+ // stacked or a narrow window: a plain button under the cards
+ const bw=Math.min(200,W-32), bx=Math.round((W-bw)/2), by=Math.min(bot+10,H-30);
+ draftLever={x:bx,y:by-16,w:bw,h:24};
+ plate(bx,by-16,bw,24,col,false);
+ mono(live?'PULL [R] · 1 REROLL':'LEVER SPENT',bx+bw/2,by+1,10,live?ink.main:K.metalDim,'center',600);
+}
 function drawBackOffer(u,i,ink){
  const r=draftRect(i), dn=(typeof u.dyn==='function')?u.dyn(player):null, sel=draftSel===i, hot=hovered(r)||sel;
  ctx.strokeStyle=ink.main; ctx.lineWidth=hot?1.5:1; if(!hot) ctx.setLineDash([5,4]); ctx.strokeRect(r.x+0.5,r.y+0.5,r.w,r.h); ctx.setLineDash([]);
@@ -8387,7 +8483,8 @@ function drawLevelUp(){
  const ink={main:K.gold,text:K.text,dim:K.textDim};
  iconInk(false);
   // phones get the short line and a smaller header, so neither runs off the glass
-  const keysLine=W<600?('[1–'+levelChoices.length+'] pick · [←→] + [Enter] · [C] codex'):('['+levelChoices.map((_,i)=>i+1).join(' / ')+'] pick · [←→] select + [Enter] · click · [C] codex · [H] help');
+  const pull=draftPulls>0?' · [R] reroll':'';
+  const keysLine=W<600?('[1–'+levelChoices.length+'] pick · [←→] + [Enter]'+pull+' · [C] codex'):('['+levelChoices.map((_,i)=>i+1).join(' / ')+'] pick · [←→] select + [Enter] · click'+pull+' · [C] codex · [H] help');
   const hSz=W<600?16:20;
  const lead=inv&&nestTally.kinds.length?BOSSDEF[nestTally.kinds[0]]:null;
  let HY=164, SY=192, KY=192;
@@ -8402,6 +8499,7 @@ function drawLevelUp(){
   levelChoices.forEach((u,i)=>{
    if(u===levelBack){ drawBackOffer(u,i,ink); return; }
    const r=draftRect(i), sel=draftSel===i, hot=hovered(r)||sel, dn=(typeof u.dyn==='function')?u.dyn(player):null;
+   if(reelSpinning(i)){ plate(r.x,r.y,r.w,r.h,K.metalDim,true); drawReel(r,i,ink); return; }
    // Every card gets a full frame — gold when hot/selected, dim otherwise —
    // so unpicked cards never read as broken corner ticks.
    plate(r.x,r.y,r.w,r.h,hot?ink.main:K.metalDim,true);
@@ -8441,6 +8539,8 @@ function drawLevelUp(){
    const df=draftDiffs()[i]||[], ng=draftNegs()[i]||[], dy0=r.y+124+nl.length*17+10+dl.length*16+6;
    df.slice(0,2).forEach((l,k)=>{ const yy=dy0+k*15; if(yy<r.y+r.h-6) mono(l,r.x+r.w/2,yy,11,ng[k]?K.red:ink.main,'center',600); });
   });
+  // the lever, beside the row (or under a stacked column)
+  try{ drawLever(null,ink); }catch(e){ draftLever=null; }
   // the hull so far: one row in the empty lower third, level draft and nest
   // draft alike. Hover names the refit and its true count.
   let headY=null; try{ headY=draftLayout().buildY; }catch(e){}
@@ -8719,7 +8819,7 @@ function syncDraftSr(){
    if(draftSrSig!==''){ draftSrSig=''; try{ while(draftSrEl.firstChild) draftSrEl.removeChild(draftSrEl.firstChild); }catch(e){ try{ draftSrEl.innerHTML=''; }catch(_){} } }
    return;
   }
-  const sig=levelChoices.map((u,i)=>draftCardText(u,i)).join('|');
+  const sig=levelChoices.map((u,i)=>draftCardText(u,i)).join('|')+'|pull'+draftPulls;
   if(sig!==draftSrSig){
    draftSrSig=sig;
    try{ while(draftSrEl.firstChild) draftSrEl.removeChild(draftSrEl.firstChild); }catch(e){ try{ draftSrEl.innerHTML=''; }catch(_){} }
@@ -8737,6 +8837,16 @@ function syncDraftSr(){
      draftSrEl.appendChild(b);
     }catch(e){}
    });
+   // the lever, so a reader can reroll without the canvas
+   if(draftPulls>0){
+    try{
+     const lv=document.createElement('button');
+     lv.type='button'; lv.textContent='Pull the lever: reroll these three cards (R). 1 pull left.';
+     try{ lv.setAttribute('data-draft','lever'); }catch(e){}
+     lv.addEventListener('click',()=>{ try{ pullLever(); }catch(e){} });
+     draftSrEl.appendChild(lv);
+    }catch(e){}
+   }
   }
    try{
     const kids=draftSrEl.children||[];
@@ -8885,7 +8995,7 @@ function srSummary(){
   const nestNames=()=>{ const c=nestSummons(arenaIdx); return BOSSDEF[leadFor(arenaIdx+1)].name+(c.length?', who calls '+callNames(c):''); };
   return where+(isBossSector(arenaIdx)?' Boss nest: '+nestNames()+'.':' Hostiles inbound.')+low+coach; }
  if(state==='levelup'){
-  const head=(nestDraftAt>0&&nestTally.kinds.length?BOSSDEF[nestTally.kinds[0]].name+(nestTally.kinds.length>1?"'s court falls.":' falls.')+(nestTally.felled?' '+nestTally.felled+(nestTally.felled>1?' gods':' god')+' recorded.':''):(nestDraftAt>0?'Nest cleared.':'Level '+(player?player.level:'')+'.'))+' Choose an upgrade; C opens the codex, H help. ';
+  const head=(nestDraftAt>0&&nestTally.kinds.length?BOSSDEF[nestTally.kinds[0]].name+(nestTally.kinds.length>1?"'s court falls.":' falls.')+(nestTally.felled?' '+nestTally.felled+(nestTally.felled>1?' gods':' god')+' recorded.':''):(nestDraftAt>0?'Nest cleared.':'Level '+(player?player.level:'')+'.'))+' Choose an upgrade'+(draftPulls>0?'; R pulls the lever for one reroll':'')+'; C opens the codex, H help. ';
   const cards=levelChoices.map((u,i)=>{ const dn=(typeof u.dyn==='function')?u.dyn(player):null; let s=(i+1)+': '+((dn&&dn.name)||u.name)+', '+((dn&&dn.desc)||u.desc); try{ const df=statDiff(u); if(df&&df.length) s+=' Changes: '+df.join('; ')+'.'; }catch(e){} if(u===levelBack) s+=', offered again'; return s+'.'; }).join(' ');
   let build='';
   try{ const ids=Object.keys(upgradeCounts).filter(id=>upgradeCounts[id]>0); if(ids.length) build=' Build: '+ids.map(id=>{ try{ return buildTipFor(id).name+' '+buildTipFor(id).sub; }catch(e){ const u=UPGRADES.find(q=>q.id===id); return (u?u.name:id)+' ×'+upgradeCounts[id]; } }).join(', ')+'.'; }catch(e){}
@@ -8941,6 +9051,8 @@ arena={seed:1337, obs:[], theme:THEMES[0], spawns:[], port:{x:800,y:500}, valida
     codexStep, codexIdxPage, codexIdxSpan, codexDetailPages,
     // Depth without generating a map: the harness drafts as it descends, so
     // depth-scaled plating (plateK) is fitted the way a run really builds it.
+    // the slot machine: reels, and the one lever pull a draft carries
+    get draftPulls(){ return draftPulls; }, get spinning(){ return spinning(); }, landReels, pullLever,
     get arenaIdx(){ return arenaIdx; }, setArenaIdx(n){ arenaIdx=Math.max(0,n|0); hullFit(); return arenaIdx; },
     get plateK(){ return plateK(); }, get PLATE_K(){ return PLATE_K; },
     setViewport(w,h){ W=Math.max(280,Math.round(w)); H=Math.max(200,Math.round(h)); helpPage=0; helpPagerRect=null; codexPage=0; codexPagerRect=null; codexIdxPagerRect=null; try{ layoutButtons(); }catch(e){} },

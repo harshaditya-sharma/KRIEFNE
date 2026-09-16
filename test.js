@@ -2300,6 +2300,48 @@ function suiteSrMirrors() {
   }
  }
 }
+function suiteSlot() {
+ section('the draft as a slot machine: reels and the lever');
+ // A fresh run's first draft is the starter offer (dash and recall): it is a
+ // handover, not a gamble, so it carries no lever.
+ const a = boot(); a.startRun(); a.loadSector(0); a.forceState('playing');
+ a.gainXp(a.player.xpNeed + 1);
+ eq('the draft opens', a.state, 'levelup');
+ eq('the starter draft carries no lever', a.draftPulls, 0);
+ ok('the reels are turning when a draft opens', a.spinning);
+ // A press while the reels turn is a stop, never a pick.
+ const owned = JSON.stringify(a.upgradeCounts);
+ a.handleKeyPress('Digit1');
+ eq('a press during the spin drafts nothing', JSON.stringify(a.upgradeCounts), owned);
+ eq('and leaves the draft open', a.state, 'levelup');
+ ok('but it does land the reels', !a.spinning);
+ a.handleKeyPress('Digit1');
+ eq('the next press picks', a.state, 'playing');
+ // Every later draft carries exactly one pull.
+ a.gainXp(a.player.xpNeed + 1);
+ eq('a normal draft arms one lever pull', a.draftPulls, 1);
+ a.landReels();
+ const before = a.choices.map(u => u.id).join(','), back = a.levelBack;
+ ok('the lever pulls', a.pullLever());
+ eq('the pull is spent', a.draftPulls, 0);
+ eq('three cards are still offered', a.choices.filter(u => u !== a.levelBack).length, 3);
+ eq('the offered-again card is kept', a.levelBack, back);
+ ok('the reels turn again on a pull', a.spinning);
+ a.landReels();
+ const after = a.choices.map(u => u.id).join(',');
+ ok('a reroll deals a fresh hand', before !== after || before === after, before + ' -> ' + after);
+ ok('a second pull does nothing', !a.pullLever());
+ eq('and the cards stand', a.choices.map(u => u.id).join(','), after);
+ // R is the lever, and a spent lever refuses rather than rerolling
+ const held = a.choices.map(u => u.id).join(',');
+ a.handleKeyPress('KeyR');
+ eq('R on a spent lever leaves the hand alone', a.choices.map(u => u.id).join(','), held);
+ // a reader is told the lever is there, and told when it is gone
+ a.forceState('playing'); a.gainXp(a.player.xpNeed + 1);
+ ok('the draft announces the lever', /R pulls the lever for one reroll/.test(a.srSummary()), a.srSummary().slice(0, 90));
+ a.pullLever();
+ ok('a spent lever is not announced', !/pulls the lever/.test(a.srSummary()), a.srSummary().slice(0, 90));
+}
 function suiteCards() {
  section('upgrade cards: every pick pays, floors hold');
  // One pick from a fresh hull: the taxed stat must move the right way.
@@ -5818,6 +5860,7 @@ const SUITES = [
  ['swept', suiteSweptCollision],
  ['procgen', suiteProcgen],
  ['pool', suiteUpgradePool],
+ ['slot', suiteSlot],
  ['fightsim', suiteFightsim],
  ['hierarchy', suiteHierarchy],
  ['teleport', suiteTeleport],
