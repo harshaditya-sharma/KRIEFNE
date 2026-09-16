@@ -6774,6 +6774,21 @@ function rule(x,y,w,col,solid){ line(x,y,x+w,y,col,solid?1.5:1,solid?null:[4,4])
 function diamond(x,y,s,col,hollow){ ctx.beginPath(); ctx.moveTo(x,y-s); ctx.lineTo(x+s,y); ctx.lineTo(x,y+s); ctx.lineTo(x-s,y); ctx.closePath(); if(hollow){ ctx.strokeStyle=col; ctx.lineWidth=1; ctx.stroke(); } else { ctx.fillStyle=col; ctx.fill(); } }
 function hovered(b){ return mouse.x>b.x&&mouse.x<b.x+b.w&&mouse.y>b.y&&mouse.y<b.y+b.h; }
 // Display lettering: engraver's wide capitals, tracked.
+// Engraved width at a size, tracking included.
+function headW(t,px){
+ try{ ctx.font=fD(px); track(Math.round(px*0.18)); const w=ctx.measureText(t).width; track(0); return w; }catch(e){ return t.length*px*0.72; }
+}
+// A name on a narrow card: step the size down to min, and only if it still
+// overruns, break it across two lines. The engraving never leaves the frame.
+function headFit(t,maxPx,px,min){
+ let s=px; while(s>min&&headW(t,s)>maxPx) s--;
+ if(headW(t,s)<=maxPx) return {px:s,lines:[t]};
+ const words=String(t).split(' '), lines=[]; let line='';
+ for(const w of words){ const cand=line?line+' '+w:w;
+  if(line&&headW(cand,s)>maxPx){ lines.push(line); line=w; } else line=cand; }
+ if(line) lines.push(line);
+ return {px:s,lines:lines.slice(0,2)};
+}
 function heading(t,x,y,px,col,align){ ctx.textAlign=align||'left'; ctx.font=fD(px); ctx.fillStyle=col||K.gold; track(Math.round(px*0.18)); ctx.fillText(t,x,y); track(0); }
 function mono(t,x,y,px,col,align,w){ ctx.textAlign=align||'left'; ctx.font=fM(px,w); ctx.fillStyle=col||K.text; ctx.fillText(t,x,y); }
 // Engraved menu entry. `on` is the keyboard-selected choice: a 3px focus ring
@@ -8364,12 +8379,19 @@ function drawLevelUp(){
    mono('['+(i+1)+']',r.x+58,r.y+24,11,ink.dim);
    if(u.r>=2) heading(rarityName(u),r.x+r.w-12,r.y+24,9,rc,'right');
    const nm=((dn&&dn.name)||u.name).toUpperCase();
-   heading(nm,r.x+58,r.y+44,11,ink.text);
-   const wrapN=Math.max(20,Math.floor((r.w-76)/6.6));
-   const dl=wrapLines((dn&&dn.desc)||u.desc,Math.min(48,wrapN)); dl.slice(0,2).forEach((l,k)=>mono(l,r.x+58,r.y+62+k*15,11,ink.dim));
+   // A long name on a narrow card steps down a size, then breaks in two,
+   // rather than crossing the frame.
+   const nf=headFit(nm,r.w-70,11,9);
+   nf.lines.forEach((l,k)=>heading(l,r.x+58,r.y+44+k*14,nf.px,ink.text));
    const df=draftDiffs()[i]||[], ng=draftNegs()[i]||[];
    // gain then cost, stacked up from the bottom edge into the empty band
-   if(r.h>=128){ const dd=df.slice(0,2); dd.forEach((l,k)=>mono(l,r.x+58,r.y+r.h-12-(dd.length-1-k)*15,11,ng[k]?K.red:ink.main,'left',600)); }
+   const dd=r.h>=128?df.slice(0,2):[], dTop=r.y+r.h-12-Math.max(0,dd.length-1)*15;
+   const wrapN=Math.max(20,Math.floor((r.w-76)/6.6));
+   const dy=r.y+62+(nf.lines.length-1)*14;
+   // as many text lines as clear the change lines: 3 on a 140px card, 2 at 128
+   const room=Math.max(1,Math.floor(((dd.length?dTop-11:r.y+r.h-6)-dy)/15)+1);
+   const dl=wrapLines((dn&&dn.desc)||u.desc,Math.min(48,wrapN)); dl.slice(0,room).forEach((l,k)=>mono(l,r.x+58,dy+k*15,11,ink.dim));
+   dd.forEach((l,k)=>mono(l,r.x+58,dTop+k*15,11,ng[k]?K.red:ink.main,'left',600));
    return;
   }
   mono('['+(i+1)+']',r.x+12,r.y+22,11,ink.dim);
@@ -8499,7 +8521,11 @@ function statRows(u){
   if(fa===fb){ const g=fine||(v=>v.toFixed(2)); fa=g(a); fb=g(b); if(fa===fb) continue; }
   rows.push({t:label+' '+fa+' → '+fb,neg:NEG_UP.has(k)?(b>a):(b<a)}); }
  for(const [k,label] of FLAG_VIEW) if(!player[k]&&q[k]) rows.unshift({t:label+' OFF → ON',neg:false});
- return rows.filter(r=>!r.neg).concat(rows.filter(r=>r.neg));
+ // A card shows two lines, so lead with the best gain and the worst cost:
+ // one of each, then whatever else changed.
+ const up=rows.filter(r=>!r.neg), dn=rows.filter(r=>r.neg);
+ const out=[]; if(up.length) out.push(up.shift()); if(dn.length) out.push(dn.shift());
+ return out.concat(up,dn);
 }
 function statDiff(u){ return statRows(u).map(r=>r.t); }
 function statDiffNeg(u){ return statRows(u).map(r=>r.neg); }

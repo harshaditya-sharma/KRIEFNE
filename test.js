@@ -2447,6 +2447,11 @@ function suiteSafety() {
    for (const l of d) if (/ (\S+) → \1$/.test(l)) flat.push(u.id + ': ' + l);
   }
   ok('every card shows a gain, and leads with it', costFirst.length === 0, costFirst.join('; '));
+  // the card has two lines: one gain, then one cost — never two costs
+  const twoCosts = api.upgrades.filter(u => { const n = api.statDiffNeg(u); return n[0] && n[1]; }).map(u => u.id);
+  ok('the two lines a card shows are one gain and one cost', twoCosts.length === 0, twoCosts.join('; '));
+  const sal = api.statDiff(api.upgrades.find(u => u.id === 'salvage'));
+  ok('Salvage Protocol leads with XP, then its rate cost', /^XP /.test(sal[0]) && /^RATE /.test(sal[1]), sal.join(' | '));
   ok('no preview line reads as no change', flat.length === 0, flat.join('; '));
   const star = api.upgrades.find(u => u.id === 'rate6'), sd = api.statDiff(star), sn = api.statDiffNeg(star);
   ok('Overclock Star shows its rate in gold, then the damage bleed in red', /^RATE /.test(sd[0]) && !sn[0] && /^DMG /.test(sd[1]) && sn[1], sd.join(' | '));
