@@ -304,14 +304,25 @@ An engraved label on a ruled line, not a button in a box.
 - **Binary ticks (`binTicks`):** recall charges as cuts 6px apart. A held charge is a tall (10px, 2px wide) gold cut, and an empty slot is a short (4px) Dim Metal cut.
 - **Shield tags:** active shields are listed by their full card names (AEGIS PULSE, WARDING PLATE, BULWARK ×n, CRIT WARD, BARRIER n, STASIS ×n) as 600 mono gold text on a ground patch hung under the strip, with a tarnished-gold underline.
 
+### The refit cylinder (the draft)
+The draft is drawn as a machine the hull operates, not a row of choices. One chassis binds the three card windows: a ticked rail above and below, a post between reels, detent ticks down both jambs of every aperture, and two gold seat marks at mid-height where a face comes to rest. A cast lever hangs off the right cheek — mount plate, bolts, pivot pin, a ratchet track with detents, a shaft and a ball. Live, the shaft is solid gold with a filled ball; spent, it goes dashed and hollow, like every locked thing here. Stacked layouts lay the same mechanism on its side in the slot the column already holds open.
+
+Pulling the lever (R, click, or the reader's button) throws it through its arc in 150ms and springs it back in 430ms, and re-spins the three cards once per draft. The offered-again fourth card never rides a reel: it is not a gamble.
+
+**The roll.** Each reel carries a strip of nine refits with the card it will seat at index 0, and rolls 11 faces plus 5 more per column, so the hand lands left to right (520ms, +170 per reel). Faces slide vertically behind the aperture; the reel overshoots its seat by a tenth of a face and is pulled back onto it. Above seven faces per beat the strip reads as a comb of hairlines with the engraving repeating down it at falling opacity — speed is line density, never blur. Any key or click seats every reel at once, and that press is a stop, never a pick. `REDUCED` opens on a seated hand.
+
+**The voice.** `SFX.lever` is the yank, `SFX.ratchet` counts detents as a reel slows, and `SFX.thunk(i)` seats each reel a tone lower than the last; a rare face seats with the rare chime. The sound follows the roll itself rather than a timeline, so stopping the reels early sounds like stopping a mechanism.
+
+**The dice are separate.** Reel faces draw on their own stream (`reelRnd`), never the run's seeded RNG: what rolls past is decoration and must not change the cards a run deals.
+
 ### Draft cards
 - **At rest:** a corner-ticked `plate` in gold with rarity rim ticks, a `[n]` key, an engraved refit icon (46 icons, all monoline, inside a 1px ring), the name in Michroma 11px and the description in 11px mono.
 - **Hover:** the plate becomes a solid 1.5px full frame.
 - **Returning core (dash or recall):** a dashed full-frame strip that turns solid on hover. The name leads; the `[n]` key and "offered again" sit at the right in 11px mono, as the key does on the other cards. No label above the name.
 
 ### Draft header and cards
-- The key line under every draft title reads `press 1 / 2 / 3 or click · [C] codex · [H] help`; the codex and help return to the same cards.
-- Each card shows `OWNED n OF max` (10px mono, top right, under RARE when rare) once the hull carries it, and up to two `STAT a → b` lines in 600 mono in the card's main ink under the description. They come from `statDiff`, which applies the card to a copy of the ship; `previewing` makes any field side effect (Magnet Core's vacuum) a no-op.
+- The key line under every draft title carries `[R] reroll` while a pull is left; the codex and help return to the same cards.
+- Each card leads with one gain in the card's ink and one cost in red (`statRows`), and shows `OWNED n OF max` (10px mono, top right, under RARE when rare) once the hull carries it, and up to two `STAT a → b` lines in 600 mono in the card's main ink under the description. They come from `statDiff`, which applies the card to a copy of the ship; `previewing` makes any field side effect (Magnet Core's vacuum) a no-op.
 - Mouse picks land on release, on the card the press began on, after a 300ms grace from the draft opening.
 
 ### Nest draft (the one inversion)

@@ -2336,6 +2336,44 @@ function suiteSlot() {
  const held = a.choices.map(u => u.id).join(',');
  a.handleKeyPress('KeyR');
  eq('R on a spent lever leaves the hand alone', a.choices.map(u => u.id).join(','), held);
+ // the reels are a real strip: faces roll past and the seated card is the one
+ // that comes to rest, and the roll only ever counts down
+ a.forceState('playing'); a.gainXp(a.player.xpNeed + 1);
+ const reels = a.reels;
+ eq('every card rides its own reel', reels.length, a.choices.length);
+ eq('the seated card is the face the reel stops on', reels[0].faces[0], a.choices[0]);
+ atLeast('a reel carries a strip of refits to roll past', reels[0].faces.length, 5);
+ ok('later reels roll longer, so the hand lands left to right',
+  reels[0].dur < reels[1].dur && reels[1].dur < reels[2].dur);
+ const t0 = reels[0].t0;
+ const walk = [0, 0.25, 0.5, 0.75].map(f => a.reelOff(reels[0], t0 + reels[0].dur * f));
+ ok('the roll only slows, never speeds up', walk[0] > walk[1] && walk[1] > walk[2] && walk[2] > walk[3], walk.join(' > '));
+ eq('and it comes to rest exactly on the seat', a.reelOff(reels[0], t0 + reels[0].dur), 0);
+ let threw = null; try { a.reelTick(t0 + reels[0].dur * 0.9); a.reelTick(t0 + reels[2].dur + 10); } catch (e) { threw = e; }
+ ok('the ratchet and the seating thunks run without throwing', !threw, threw && threw.message);
+ // the lever swings and springs back
+ a.landReels();
+ eq('the lever rests before it is thrown', a.leverThrow(), 0);
+ a.pullLever();
+ const at = a.leverAt;
+ ok('the throw reaches the bottom of its travel', a.leverThrow(at + 150) > 0.9, String(a.leverThrow(at + 150)));
+ ok('and springs back onto the stop', a.leverThrow(at + 150 + 430) === 0, String(a.leverThrow(at + 580)));
+ // reduced motion seats the hand instead of rolling it
+ a.setReduced(true);
+ a.forceState('playing'); a.gainXp(a.player.xpNeed + 1);
+ ok('reduced motion opens on a seated hand', !a.spinning && !a.reels);
+ eq('and a press picks straight away', (a.handleKeyPress('Digit1'), a.state), 'playing');
+ a.setReduced(false);
+ // what rolls past is decoration: the hand dealt must not depend on it
+ {
+  const hands = [false, true].map(red => {
+   const f = boot(); seedRandom(f, 4242); f.setReduced(red);
+   f.startRun(); f.loadSector(0); f.forceState('playing');
+   for (let k = 0; k < 12; k++) { f.landReels(); if (f.state !== 'levelup') f.gainXp(f.player.xpNeed + 1); f.landReels(); if (f.choices.length) f.pickUpgrade(f.choices[0]); }
+   return JSON.stringify(f.upgradeCounts);
+  });
+  eq('the reels never touch the cards the run deals', hands[0], hands[1]);
+ }
  // a reader is told the lever is there, and told when it is gone
  a.forceState('playing'); a.gainXp(a.player.xpNeed + 1);
  ok('the draft announces the lever', /R pulls the lever for one reroll/.test(a.srSummary()), a.srSummary().slice(0, 90));

@@ -209,7 +209,7 @@ function SZ(px){ try{ return (settings&&settings.largeText)?px+2:px; }catch(e){ 
 function fD(px){ return SZ(px)+'px '+FONT_D; }
 function fM(px,w){ return (w||400)+' '+SZ(px)+'px '+FONT_M; }
 function track(px){ try{ if(ctx.letterSpacing!==undefined) ctx.letterSpacing=px+'px'; }catch(e){} }
-const REDUCED=(()=>{ try{ return !!(window.matchMedia&&window.matchMedia('(prefers-reduced-motion: reduce)').matches); }catch(e){ return false; } })();
+let REDUCED=(()=>{ try{ return !!(window.matchMedia&&window.matchMedia('(prefers-reduced-motion: reduce)').matches); }catch(e){ return false; } })();
 // Hold the first frames until the bundled faces are ready, so nothing flashes
 // in a fallback font. Never waits more than 1.5s.
 let fontsReady=true;
@@ -333,7 +333,12 @@ const SFX={
   ring(){ tone('sawtooth',120,60,0.2,0.16); },
   brk(){ tone('square',700,90,0.3,0.22); noiseHit(0.2,0.12,900); },
   stasis(){ [220,330,440,660,880].forEach((f,i)=>tone('sine',f,f*1.01,0.22,0.16,i*0.1)); },
-  rare(){ [660,880,1320,1760].forEach((f,i)=>tone('triangle',f,f,0.12,0.14,i*0.08)); }
+  rare(){ [660,880,1320,1760].forEach((f,i)=>tone('triangle',f,f,0.12,0.14,i*0.08)); },
+  // the refit cylinder: a yanked lever, the ratchet counting detents as the
+  // reels slow, and a seated thunk per reel (each one lower than the last)
+  lever(){ tone('square',200,88,0.15,0.16); noiseHit(0.07,0.1,700); },
+  ratchet(){ tone('square',1500,1150,0.02,0.045); },
+  thunk(i){ const f=330-(i||0)*60; tone('square',f,Math.max(60,f*0.4),0.11,0.16); noiseHit(0.05,0.07,600); }
 };
 function setMusic(pat,tempo,lead,wave){ musicPat=pat.slice(); musicTempo=tempo; musicLead=(lead||[]).slice(); musicWave=wave||'square'; if(musicTimer){ clearInterval(musicTimer); musicTimer=null; } if(!settings.music) return; try{ ac(); applyVol(); musicTimer=setInterval(()=>{ musicStep++; if(muted||!settings.music) return; try{ const f=musicPat[musicStep%musicPat.length]; if(f) tone('sawtooth',f,f*0.99,0.22,0.09,0,musicBus); if(musicLead.length){ const lf=musicLead[musicStep%musicLead.length]; if(lf) tone(musicWave,lf,lf*1.004,0.15,0.055,0,musicBus); } if(musicStep%2===1) noiseHit(0.03,0.025,7000,0,musicBus); }catch(e){} },musicTempo); }catch(e){} }
 function setMusicCfg(c){ if(!c) return; setMusic(c.bass,c.tempo,c.lead,c.lwave); }
@@ -1676,13 +1681,26 @@ let titleSel=0, titleRowCol=0, pauseSel=0, settingsSel=5, draftSel=0, endSel=0;
 const ARM_MS=3000; // every destructive confirm drains over the same window
 function confirmFrac(armT){ return clamp((armT-performance.now())/ARM_MS,0,1); }
 function drainBar(x0,x1,y,frac){ if(frac<=0) return; line(x0,y,x0+(x1-x0)*clamp(frac,0,1),y,K.red,2); }
-// The draft is a slot machine: three reels spin up and land left to right,
-// and the lever at the side re-spins them once per draft. REDUCED skips the
-// motion entirely — the cards are simply there.
-const SPIN={lead:260,step:160,tick:70};
-let draftSpin=null;      // {t0, land:[ms,ms,ms]} while the reels are turning
+// The draft is the hull's refit cylinder: three machined reels roll refits
+// past an aperture and seat one each, left to right, and the lever at the
+// side re-spins them once per draft. REDUCED seats them without the roll.
+// `strip` faces ride each reel; `spins` is how many roll past before it
+// seats, `back` the detent overshoot it pulls itself out of.
+const REEL={strip:9,lead:520,step:170,spins:11,more:5,back:0.1,tail:0.16,fast:7};
+let draftReels=null;     // [{faces,t0,dur,spins,seen,done}] while the reels roll
 let draftPulls=0;        // lever pulls left on this draft (one, or none)
 let draftLever=null;     // the lever's hit rect, set by the draw
+let leverAt=0;           // when the lever was last thrown
+const LEVER={down:150,up:430,rest:8,pull:96,len:94}; // ms down, ms spring back, degrees from upright
+// 0 at rest, 1 at the bottom of the throw: a fast yank, a slower spring back.
+function leverThrow(now){
+ if(!leverAt) return 0;
+ const t=(now===undefined?performance.now():now)-leverAt;
+ if(t<0) return 0;
+ if(t<LEVER.down) return t/LEVER.down;
+ const u=(t-LEVER.down)/LEVER.up;
+ return u>=1?0:(1-u)*(1-u)*(1-u); // eased back onto the stop
+}
 let draftAt=0, draftPress=-1; const DRAFT_GRACE=300; // a draft ignores the mouse briefly after opening: clicks meant as shots must not pick
 function handleRelease(x,y){ if(state!=='levelup'||draftPress<0) return; const i=draftPress; draftPress=-1; const r=draftRect(i); if(levelChoices[i]&&x>r.x&&x<r.x+r.w&&y>r.y&&y<r.y+r.h) pickUpgrade(levelChoices[i]); }
 function loadArena(i){
@@ -1873,34 +1891,73 @@ function openDraft(picks,back,starterOnly){
   levelChoices=picks; floaters=[]; state='levelup'; draftAt=performance.now(); draftPress=-1; draftSel=0;
   // The starter draft hands over dash and recall: it is not a gamble, so it
   // gets no lever.
-  draftPulls=starterOnly?0:1;
+  draftPulls=starterOnly?0:1; leverAt=0;
   spinReels(); SFX.levelup();
 }
-// Spin every reel that is not the offered-again card (it is not a gamble).
+// The faces that roll past are decoration, so they draw on their own dice:
+// the run's seeded stream must produce the same cards whether or not anything
+// is being animated.
+let reelSeed=(Date.now()^0x9e3779b9)>>>0;
+function reelRnd(){ reelSeed^=reelSeed<<13; reelSeed^=reelSeed>>>17; reelSeed^=reelSeed<<5; reelSeed>>>=0; return reelSeed/4294967296; }
+// Load the reels: each one carries a strip of refits with the card it will
+// seat at index 0, and rolls a little longer than the reel to its left.
 function spinReels(){
- if(REDUCED){ draftSpin=null; return; }
- const t0=performance.now(), land=[];
- for(let i=0;i<levelChoices.length;i++) land.push(t0+SPIN.lead+i*SPIN.step);
- draftSpin={t0,land};
+ if(REDUCED){ draftReels=null; return; }
+ const t0=performance.now();
+ draftReels=levelChoices.map((u,i)=>{
+  const faces=[u];
+  while(faces.length<REEL.strip) faces.push(UPGRADES[(reelRnd()*UPGRADES.length)|0]);
+  return {faces,t0,dur:REEL.lead+i*REEL.step,spins:REEL.spins+i*REEL.more,seen:-1,done:false};
+ });
 }
-// True while reel i is still turning.
-function reelSpinning(i){ return !!(draftSpin&&draftSpin.land[i]!=null&&performance.now()<draftSpin.land[i]); }
-function spinning(){ return !!(draftSpin&&performance.now()<draftSpin.land[draftSpin.land.length-1]); }
-// Any key or click lands the reels at once: a press during the spin is a
+// How far reel i still has to roll, counted in faces above the seated one.
+// An exponential settle, then the detent: it overshoots by REEL.back and is
+// pulled back onto the stop, which is the moment the thunk lands on.
+function reelOff(r,now){
+ const p=clamp(((now===undefined?performance.now():now)-r.t0)/r.dur,0,1);
+ if(p>=1) return 0;
+ let off=r.spins*Math.pow(1-p,3);
+ if(p>1-REEL.tail) off-=REEL.back*Math.sin((p-(1-REEL.tail))/REEL.tail*Math.PI);
+ return off;
+}
+function reelSpinning(i){ const r=draftReels&&draftReels[i]; return !!(r&&performance.now()<r.t0+r.dur); }
+function spinning(){ return !!(draftReels&&draftReels.some((r,i)=>reelSpinning(i))); }
+// The ratchet counts detents as a reel slows, and each reel seats with its own
+// thunk — the sound is the mechanism, so it follows the roll instead of a
+// timeline.
+function reelTick(now){
+ if(!draftReels) return;
+ draftReels.forEach((r,i)=>{
+  const live=now<r.t0+r.dur, off=reelOff(r,now), face=Math.floor(off);
+  if(live&&r.seen!==face){
+   const was=r.seen; r.seen=face;
+   if(was>=0&&off<REEL.fast) SFX.ratchet(); // only once it is slow enough to count
+  }
+  if(!live&&!r.done){ r.done=true; r.seen=0; SFX.thunk(i);
+   const u=levelChoices[i]; if(u&&u.r>=4) SFX.rare(); }
+ });
+}
+// Any key or click seats the reels at once: a press during the roll is a
 // "stop", never a pick, so nothing is drafted by accident.
-function landReels(){ if(!spinning()) return false; draftSpin=null; SFX.click(); return true; }
+function landReels(){
+ if(!spinning()) return false;
+ const n=draftReels?draftReels.length:0;
+ draftReels=null;
+ for(let i=0;i<n;i++) SFX.thunk(i);
+ return true;
+}
 // The lever: one pull per draft re-spins the three cards. The offered-again
 // fourth card is kept — passing on it must always stay free.
 function pullLever(){
  if(state!=='levelup'||draftPulls<=0) return false;
- draftPulls--;
+ draftPulls--; leverAt=performance.now(); SFX.lever();
  const keep=levelBack&&levelChoices[levelChoices.length-1]===levelBack?levelBack:null;
  const picks=rollPicks(3);
  if(!picks.length) return false;
  if(keep) picks.push(keep);
  levelChoices=picks; draftSel=0; draftPress=-1; draftAt=performance.now();
  rowsCache.of=null;
- spinReels(); SFX.rare();
+ spinReels();
  try{ syncDraftSr(); }catch(e){}
  return true;
 }
@@ -7170,7 +7227,7 @@ function render(){
  drawExitGuide();
  drawBossGuide();
  if(state==='playing'){ try{ drawCoach(); }catch(e){} }
- if(state==='levelup') drawLevelUp();
+ if(state==='levelup'){ try{ reelTick(performance.now()); }catch(e){} drawLevelUp(); }
  if(state==='paused') drawPaused();
  if(state==='gameover') drawEnd();
  if(bossWarnT>0&&state==='playing'&&hostiles()>0){
@@ -8410,46 +8467,142 @@ function draftRect(i){
  }catch(e){}
  return levelChoices[i]===levelBack?{x:Math.round((W-460)/2),y:Math.round(H/2+126),w:460,h:62}:{x:130+i*240,y:220,w:220,h:204};
 }
-// A reel mid-spin: refits blurring past behind the frame. The face swaps on
-// SPIN.tick and slides upward, so the card reads as turning rather than
-// flickering. Nothing here is the real card — that lands when the reel stops.
+// One face on the reel: the engraving and the name, cut the way the seated
+// card cuts them, so what rolls past is plainly the same stock.
+function drawFace(u,r,yOff,ink,dim){
+ const wide=r.h>=170, a=ctx.globalAlpha;
+ ctx.globalAlpha=a*(dim?0.4:0.75);
+ if(wide){
+  drawIcon(u.id,r.x+r.w/2,r.y+yOff+66,19);
+  const nm=u.name.toUpperCase(), nl=wrapLines(nm,18);
+  heading(nl[0],r.x+r.w/2,r.y+yOff+118,11,ink.dim,'center');
+ }else{
+  drawIcon(u.id,r.x+34,r.y+yOff+r.h/2,13);
+  const nf=headFit(u.name.toUpperCase(),r.w-70,11,9);
+  heading(nf.lines[0],r.x+58,r.y+yOff+44,nf.px,ink.dim);
+ }
+ ctx.globalAlpha=a;
+}
+// A reel mid-roll: the strip runs vertically behind the aperture, one face
+// sliding out as the next slides in. Speed is drawn the way this world draws
+// light — by line density: at full tilt the faces give way to a comb of
+// hairlines, which thins out as the reel slows and the faces resolve again.
 function drawReel(r,i,ink){
- const t=performance.now(), land=draftSpin?draftSpin.land[i]:0;
- const seed=i*7+Math.floor(t/SPIN.tick), u=UPGRADES[Math.abs(seed*2654435761)%UPGRADES.length];
- const left=Math.max(0,land-t), slide=Math.min(1,left/220);
+ const rl=draftReels&&draftReels[i]; if(!rl) return;
+ const now=performance.now(), off=reelOff(rl,now), fast=off>REEL.fast;
+ const len=rl.faces.length, frac=off-Math.floor(off), h=r.h;
  ctx.save();
  ctx.beginPath(); ctx.rect(r.x+1,r.y+1,r.w-2,r.h-2); ctx.clip();
- ctx.globalAlpha=0.55;
- const wide=r.h>=170, cx=wide?r.x+r.w/2:r.x+34, cy=(wide?r.y+66:r.y+r.h/2)-Math.round(28*slide);
- drawIcon(u.id,cx,cy,wide?19:13);
- const nm=u.name.toUpperCase();
- if(wide) heading(nm.length>16?nm.slice(0,16):nm,r.x+r.w/2,r.y+118-Math.round(28*slide),11,ink.dim,'center');
- else { const nf=headFit(nm,r.w-70,11,9); heading(nf.lines[0],r.x+58,r.y+44-Math.round(20*slide),nf.px,ink.dim); }
+ if(fast){
+  // the comb: hairlines packed tighter the faster the strip runs, with two
+  // engravings smeared along it so the stock is still readable as refits
+  const n=Math.round(clamp(10+off,10,26)), gap=h/n, roll=(now*0.9*Math.min(3,off/4))%gap;
+  for(let k=-1;k<n;k++){ const y=r.y+k*gap+roll;
+   line(r.x+6,y,r.x+r.w-6,y,K.metalDim,1);
+   line(r.x+14,y+2,r.x+r.w-14,y+2,K.metalFaint,1); }
+  // the engraving repeats down the strip as it runs: more copies, fainter —
+  // speed drawn as line density, never as blur
+  const ix=r.h>=170?r.x+r.w/2:r.x+34, sz=r.h>=170?19:13;
+  for(let k=0;k<3;k++){ ctx.globalAlpha=[0.3,0.17,0.09][k];
+   const u=rl.faces[(Math.floor(off)+k+len*8)%len];
+   drawIcon(u.id,ix,r.y+(((frac+k*0.55)*h)%h),sz); }
+  ctx.globalAlpha=1;
+ }else{
+  for(let k=-1;k<=1;k++){
+   const u=rl.faces[(Math.floor(off)+k+len*8)%len]; if(!u) continue;
+   drawFace(u,r,(frac+k)*h,ink,k!==0||off>0.04);
+  }
+ }
  ctx.restore();
+ // the aperture: the reel runs behind a cut window, so the frame carries a
+ // heavier lip top and bottom and detent ticks down both jambs
+ line(r.x+1,r.y+2,r.x+r.w-1,r.y+2,K.metalDim,2);
+ line(r.x+1,r.y+r.h-2,r.x+r.w-1,r.y+r.h-2,K.metalDim,2);
 }
-// The lever: a post and a ball beside the row, gold while a pull is left and
-// dim once it is spent. It is a real hit rect, and [R] pulls it.
-function drawLever(rects,ink){
+// The cabinet: one chassis binding the three apertures, with the lever hung
+// off its right cheek. Rails carry graduations like every other instrument in
+// the ship, and the two seat marks at mid-height say where a face comes to
+// rest.
+function drawCabinet(ink){
  draftLever=null;
  const L=draftLayout(); if(!L||!L.rects) return;
- const idx=Object.keys(L.rects).map(k=>L.rects[k]); if(!idx.length) return;
- const right=Math.max.apply(null,idx.map(r=>r.x+r.w)), top=Math.min.apply(null,idx.map(r=>r.y));
- const bot=Math.max.apply(null,idx.map(r=>r.y+r.h));
- const live=draftPulls>0, col=live?ink.main:K.metalDim;
- if(L.kind==='row'&&right+54<=W-8){
-  const lx=right+30, y0=top+24, y1=bot-28, ky=live?y0+10:y1-10;
-  draftLever={x:lx-22,y:y0-14,w:44,h:(y1-y0)+34};
-  line(lx,y1,lx,ky,col,3);                       // the post
-  ctx.strokeStyle=col; ctx.lineWidth=3; ctx.beginPath(); ctx.arc(lx,ky,9,0,6.283); ctx.stroke(); // the ball
-  line(lx-12,y1+4,lx+12,y1+4,K.metalDim,3);      // the mount
-  mono(live?'[R]':'USED',lx,y1+22,9,live?ink.dim:K.metalDim,'center');
+ const cards=levelChoices.map((u,i)=>u===levelBack?null:L.rects[i]).filter(Boolean);
+ if(!cards.length) return;
+ const x0=Math.min.apply(null,cards.map(r=>r.x)), x1=Math.max.apply(null,cards.map(r=>r.x+r.w));
+ const y0=Math.min.apply(null,cards.map(r=>r.y)), y1=Math.max.apply(null,cards.map(r=>r.y+r.h));
+ const row=L.kind==='row';
+ if(row){
+  // top and bottom rails, ticked every 24px, with posts between the reels
+  for(const y of [y0-10,y1+10]){
+   line(x0-14,y,x1+14,y,K.metalDim,1);
+   for(let x=x0;x<=x1;x+=24) line(x,y-3,x,y,K.metalFaint,1);
+  }
+  cards.forEach((r,k)=>{ if(k) line(r.x-10,y0-10,r.x-10,y1+10,K.metalFaint,1); });
+  // every window is a cut aperture: detent ticks down both jambs, always
+  cards.forEach(r=>{ for(let k=0;k<5;k++){ const y=r.y+10+k*(r.h-20)/4;
+   line(r.x-5,y,r.x-1,y,K.metalFaint,1); line(r.x+r.w+1,y,r.x+r.w+5,y,K.metalFaint,1); } });
+  // the seat marks: where the cylinder comes to rest
+  const my=(y0+y1)/2;
+  line(x0-14,my,x0-6,my,ink.main,2); line(x1+6,my,x1+14,my,ink.main,2);
+ }
+ drawLever(row,x0,x1,y0,y1,ink);
+}
+// The lever: a mount plate bolted to the cheek, a pivot, a cast shaft and a
+// ball. It swings through its throw when pulled and springs back onto the
+// stop; spent, the shaft goes dashed and the ball hollow, the way every
+// locked thing in this world reads.
+function drawLever(row,x0,x1,y0,y1,ink){
+ const live=draftPulls>0, thrown=leverThrow();
+ const col=live?ink.main:K.metalDim;
+ if(row&&x1+52<=W-8){
+  // pivot low on the cheek, arm up at rest, ball swinging down through the
+  // throw — the arc is a ratchet track with a stop at each end
+  // the arm never swings past the frame: its reach is clamped to the room
+  // the throw actually has
+  const px=x1+30, py=y1-10;
+  const len=Math.min(LEVER.len,(y1-y0)*0.55,(W-14-9-px)/Math.sin(LEVER.pull*Math.PI/180));
+  const a=(LEVER.rest+(LEVER.pull-LEVER.rest)*(live?thrown:1))*Math.PI/180;
+  const kx=px+Math.sin(a)*len, ky=py-Math.cos(a)*len;
+  draftLever={x:px-22,y:py-len-16,w:46,h:len+30};
+  // mount plate, bolted, with the pivot pin through it
+  ctx.strokeStyle=K.metalDim; ctx.lineWidth=1; ctx.strokeRect(px-10,py-13,20,26);
+  for(const b of [[-5,-8],[5,-8],[-5,8],[5,8]]) line(px+b[0]-1,py+b[1],px+b[0]+1,py+b[1],K.metal,2);
+  ctx.strokeStyle=K.metalDim; ctx.lineWidth=1.5; ctx.beginPath(); ctx.arc(px,py,4,0,6.283); ctx.stroke();
+  // the track the ball runs, ticked at the detents
+  ctx.strokeStyle=K.metalFaint; ctx.lineWidth=1;
+  ctx.beginPath(); ctx.arc(px,py,len,-Math.PI/2+LEVER.rest*Math.PI/180,-Math.PI/2+LEVER.pull*Math.PI/180); ctx.stroke();
+  for(let k=0;k<=3;k++){ const t=(LEVER.rest+(LEVER.pull-LEVER.rest)*k/3)*Math.PI/180;
+   line(px+Math.sin(t)*(len-4),py-Math.cos(t)*(len-4),px+Math.sin(t)*(len+4),py-Math.cos(t)*(len+4),K.metalFaint,1); }
+  // shaft, collar, ball
+  ctx.save(); if(!live) ctx.setLineDash([5,4]);
+  line(px,py,kx,ky,col,3);
+  ctx.restore();
+  const cl=len*0.6; line(px+Math.sin(a)*cl-4,py-Math.cos(a)*cl,px+Math.sin(a)*cl+4,py-Math.cos(a)*cl,col,2);
+  ctx.strokeStyle=col; ctx.lineWidth=live?3:1.5;
+  ctx.beginPath(); ctx.arc(kx,ky,9,0,6.283); ctx.stroke();
+  if(live){ ctx.fillStyle=ink.main; ctx.beginPath(); ctx.arc(kx,ky,3,0,6.283); ctx.fill(); }
+  mono(live?'[R]':'SPENT',px,y1+26,9,live?ink.dim:K.metalDim,'center');
   return;
  }
- // stacked or a narrow window: a plain button under the cards
- const bw=Math.min(200,W-32), bx=Math.round((W-bw)/2), by=Math.min(bot+10,H-30);
- draftLever={x:bx,y:by-16,w:bw,h:24};
- plate(bx,by-16,bw,24,col,false);
- mono(live?'PULL [R] · 1 REROLL':'LEVER SPENT',bx+bw/2,by+1,10,live?ink.main:K.metalDim,'center',600);
+ // stacked or narrow: the same mechanism laid on its side, seated in the gap
+ // the column already holds open, so it never crowds the BUILD plate
+ let gapTop=y1, gapBot=H-16;
+ try{ const L2=draftLayout(); if(L2&&L2.buildY) gapBot=L2.buildY-10; }catch(e){}
+ const by=Math.round(Math.min(gapTop+22,Math.max(gapTop+14,(gapTop+gapBot)/2)));
+ const bw=Math.min(236,W-40), bx=Math.round((W-bw)/2);
+ draftLever={x:bx,y:by-14,w:bw,h:28};
+ const px=bx+10, len=bw-96, a=(live?thrown:1)*0.5;
+ // mount plate and pivot, then the arm swinging down through its throw
+ ctx.strokeStyle=K.metalDim; ctx.lineWidth=1; ctx.strokeRect(px-8,by-9,16,18);
+ ctx.beginPath(); ctx.arc(px,by,3,0,6.283); ctx.stroke();
+ ctx.save(); if(!live) ctx.setLineDash([5,4]);
+ const kx=px+Math.cos(a)*len, ky=by+Math.sin(a)*len*0.42;
+ line(px,by,kx,ky,col,3);
+ ctx.restore();
+ ctx.strokeStyle=col; ctx.lineWidth=live?3:1.5;
+ ctx.beginPath(); ctx.arc(kx,ky,8,0,6.283); ctx.stroke();
+ if(live){ ctx.fillStyle=ink.main; ctx.beginPath(); ctx.arc(kx,ky,2.5,0,6.283); ctx.fill(); }
+ mono(live?'PULL [R]':'SPENT',bx+bw-6,by+4,9,live?ink.dim:K.metalDim,'right');
 }
 function drawBackOffer(u,i,ink){
  const r=draftRect(i), dn=(typeof u.dyn==='function')?u.dyn(player):null, sel=draftSel===i, hot=hovered(r)||sel;
@@ -8499,7 +8652,7 @@ function drawLevelUp(){
   levelChoices.forEach((u,i)=>{
    if(u===levelBack){ drawBackOffer(u,i,ink); return; }
    const r=draftRect(i), sel=draftSel===i, hot=hovered(r)||sel, dn=(typeof u.dyn==='function')?u.dyn(player):null;
-   if(reelSpinning(i)){ plate(r.x,r.y,r.w,r.h,K.metalDim,true); drawReel(r,i,ink); return; }
+   if(reelSpinning(i)&&u!==levelBack){ plate(r.x,r.y,r.w,r.h,K.metalDim,true); drawReel(r,i,ink); return; }
    // Every card gets a full frame — gold when hot/selected, dim otherwise —
    // so unpicked cards never read as broken corner ticks.
    plate(r.x,r.y,r.w,r.h,hot?ink.main:K.metalDim,true);
@@ -8540,7 +8693,7 @@ function drawLevelUp(){
    df.slice(0,2).forEach((l,k)=>{ const yy=dy0+k*15; if(yy<r.y+r.h-6) mono(l,r.x+r.w/2,yy,11,ng[k]?K.red:ink.main,'center',600); });
   });
   // the lever, beside the row (or under a stacked column)
-  try{ drawLever(null,ink); }catch(e){ draftLever=null; }
+  try{ drawCabinet(ink); }catch(e){ draftLever=null; }
   // the hull so far: one row in the empty lower third, level draft and nest
   // draft alike. Hover names the refit and its true count.
   let headY=null; try{ headY=draftLayout().buildY; }catch(e){}
@@ -9053,6 +9206,8 @@ arena={seed:1337, obs:[], theme:THEMES[0], spawns:[], port:{x:800,y:500}, valida
     // depth-scaled plating (plateK) is fitted the way a run really builds it.
     // the slot machine: reels, and the one lever pull a draft carries
     get draftPulls(){ return draftPulls; }, get spinning(){ return spinning(); }, landReels, pullLever,
+    get reels(){ return draftReels; }, reelOff, leverThrow, reelTick, get leverAt(){ return leverAt; },
+    get reduced(){ return REDUCED; }, setReduced(v){ REDUCED=!!v; return REDUCED; },
     get arenaIdx(){ return arenaIdx; }, setArenaIdx(n){ arenaIdx=Math.max(0,n|0); hullFit(); return arenaIdx; },
     get plateK(){ return plateK(); }, get PLATE_K(){ return PLATE_K; },
     setViewport(w,h){ W=Math.max(280,Math.round(w)); H=Math.max(200,Math.round(h)); helpPage=0; helpPagerRect=null; codexPage=0; codexPagerRect=null; codexIdxPagerRect=null; try{ layoutButtons(); }catch(e){} },
