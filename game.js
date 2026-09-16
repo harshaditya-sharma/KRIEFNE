@@ -8553,7 +8553,10 @@ function drawCabinet(ink){
 // locked thing in this world reads.
 function drawLever(row,x0,x1,y0,y1,ink){
  const live=draftPulls>0, thrown=leverThrow();
- const col=live?ink.main:K.metalDim;
+ // A lever mid-throw is a committed lever: it stays solid gold through the
+ // swing and only goes dashed and hollow once it has settled back spent.
+ const swing=thrown>0.002, hot=live||swing;
+ const col=hot?ink.main:K.metalDim;
  if(row&&x1+52<=W-8){
   // pivot low on the cheek, arm up at rest, ball swinging down through the
   // throw — the arc is a ratchet track with a stop at each end
@@ -8561,7 +8564,7 @@ function drawLever(row,x0,x1,y0,y1,ink){
   // the throw actually has
   const px=x1+30, py=y1-10;
   const len=Math.min(LEVER.len,(y1-y0)*0.55,(W-14-9-px)/Math.sin(LEVER.pull*Math.PI/180));
-  const a=(LEVER.rest+(LEVER.pull-LEVER.rest)*(live?thrown:1))*Math.PI/180;
+  const a=(LEVER.rest+(LEVER.pull-LEVER.rest)*(live||swing?thrown:1))*Math.PI/180;
   const kx=px+Math.sin(a)*len, ky=py-Math.cos(a)*len;
   draftLever={x:px-22,y:py-len-16,w:46,h:len+30};
   // mount plate, bolted, with the pivot pin through it
@@ -8574,14 +8577,15 @@ function drawLever(row,x0,x1,y0,y1,ink){
   for(let k=0;k<=3;k++){ const t=(LEVER.rest+(LEVER.pull-LEVER.rest)*k/3)*Math.PI/180;
    line(px+Math.sin(t)*(len-4),py-Math.cos(t)*(len-4),px+Math.sin(t)*(len+4),py-Math.cos(t)*(len+4),K.metalFaint,1); }
   // shaft, collar, ball
-  ctx.save(); if(!live) ctx.setLineDash([5,4]);
+  ctx.save(); if(!hot) ctx.setLineDash([5,4]);
   line(px,py,kx,ky,col,3);
   ctx.restore();
   const cl=len*0.6; line(px+Math.sin(a)*cl-4,py-Math.cos(a)*cl,px+Math.sin(a)*cl+4,py-Math.cos(a)*cl,col,2);
-  ctx.strokeStyle=col; ctx.lineWidth=live?3:1.5;
+  ctx.strokeStyle=col; ctx.lineWidth=hot?3:1.5;
   ctx.beginPath(); ctx.arc(kx,ky,9,0,6.283); ctx.stroke();
-  if(live){ ctx.fillStyle=ink.main; ctx.beginPath(); ctx.arc(kx,ky,3,0,6.283); ctx.fill(); }
-  mono(live?'[R]':'SPENT',px,y1+26,9,live?ink.dim:K.metalDim,'center');
+  if(hot){ ctx.fillStyle=ink.main; ctx.beginPath(); ctx.arc(kx,ky,3,0,6.283); ctx.fill(); }
+  // mid-throw the lever speaks for itself; the label returns once it settles
+  if(!swing) mono(live?'[R]':'SPENT',px,y1+26,9,live?ink.dim:K.metalDim,'center');
   return;
  }
  // stacked or narrow: the same mechanism laid on its side, seated in the gap
@@ -8595,14 +8599,14 @@ function drawLever(row,x0,x1,y0,y1,ink){
  // mount plate and pivot, then the arm swinging down through its throw
  ctx.strokeStyle=K.metalDim; ctx.lineWidth=1; ctx.strokeRect(px-8,by-9,16,18);
  ctx.beginPath(); ctx.arc(px,by,3,0,6.283); ctx.stroke();
- ctx.save(); if(!live) ctx.setLineDash([5,4]);
+ ctx.save(); if(!hot) ctx.setLineDash([5,4]);
  const kx=px+Math.cos(a)*len, ky=by+Math.sin(a)*len*0.42;
  line(px,by,kx,ky,col,3);
  ctx.restore();
- ctx.strokeStyle=col; ctx.lineWidth=live?3:1.5;
+ ctx.strokeStyle=col; ctx.lineWidth=hot?3:1.5;
  ctx.beginPath(); ctx.arc(kx,ky,8,0,6.283); ctx.stroke();
- if(live){ ctx.fillStyle=ink.main; ctx.beginPath(); ctx.arc(kx,ky,2.5,0,6.283); ctx.fill(); }
- mono(live?'PULL [R]':'SPENT',bx+bw-6,by+4,9,live?ink.dim:K.metalDim,'right');
+ if(hot){ ctx.fillStyle=ink.main; ctx.beginPath(); ctx.arc(kx,ky,2.5,0,6.283); ctx.fill(); }
+ if(!swing) mono(live?'PULL [R]':'SPENT',bx+bw-6,by+4,9,live?ink.dim:K.metalDim,'right');
 }
 function drawBackOffer(u,i,ink){
  const r=draftRect(i), dn=(typeof u.dyn==='function')?u.dyn(player):null, sel=draftSel===i, hot=hovered(r)||sel;
