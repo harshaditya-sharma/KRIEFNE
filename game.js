@@ -338,7 +338,10 @@ const SFX={
   // reels slow, and a seated thunk per reel (each one lower than the last)
   lever(){ tone('square',200,88,0.15,0.16); noiseHit(0.07,0.1,700); },
   ratchet(){ tone('square',1500,1150,0.02,0.045); },
-  thunk(i){ const f=330-(i||0)*60; tone('square',f,Math.max(60,f*0.4),0.11,0.16); noiseHit(0.05,0.07,600); }
+  thunk(i){ const f=330-(i||0)*60; tone('square',f,Math.max(60,f*0.4),0.11,0.16); noiseHit(0.05,0.07,600); },
+  // the payoff: the hand is loaded. Two struck bells a fifth apart, the
+  // second on the heel of the first, the way a till answers a win
+  chaching(){ [[1568,0],[2349,0.07]].forEach(([f,d])=>{ tone('triangle',f,f*0.996,0.4,0.13,d); tone('sine',f*2,f*1.99,0.22,0.05,d); }); }
 };
 function setMusic(pat,tempo,lead,wave){ musicPat=pat.slice(); musicTempo=tempo; musicLead=(lead||[]).slice(); musicWave=wave||'square'; if(musicTimer){ clearInterval(musicTimer); musicTimer=null; } if(!settings.music) return; try{ ac(); applyVol(); musicTimer=setInterval(()=>{ musicStep++; if(muted||!settings.music) return; try{ const f=musicPat[musicStep%musicPat.length]; if(f) tone('sawtooth',f,f*0.99,0.22,0.09,0,musicBus); if(musicLead.length){ const lf=musicLead[musicStep%musicLead.length]; if(lf) tone(musicWave,lf,lf*1.004,0.15,0.055,0,musicBus); } if(musicStep%2===1) noiseHit(0.03,0.025,7000,0,musicBus); }catch(e){} },musicTempo); }catch(e){} }
 function setMusicCfg(c){ if(!c) return; setMusic(c.bass,c.tempo,c.lead,c.lwave); }
@@ -1893,6 +1896,7 @@ function openDraft(picks,back,starterOnly){
   // gets no lever.
   draftPulls=starterOnly?0:1; leverAt=0;
   spinReels(); SFX.levelup();
+  if(!draftReels) SFX.chaching(); // nothing to roll: the hand is already loaded
 }
 // The faces that roll past are decoration, so they draw on their own dice:
 // the run's seeded stream must produce the same cards whether or not anything
@@ -1934,7 +1938,9 @@ function reelTick(now){
    if(was>=0&&off<REEL.fast) SFX.ratchet(); // only once it is slow enough to count
   }
   if(!live&&!r.done){ r.done=true; r.seen=0; SFX.thunk(i);
-   const u=levelChoices[i]; if(u&&u.r>=4) SFX.rare(); }
+   const u=levelChoices[i]; if(u&&u.r>=4) SFX.rare();
+   if(draftReels.every(q=>q.done)) SFX.chaching(); // the hand is loaded
+  }
  });
 }
 // Any key or click seats the reels at once: a press during the roll is a
@@ -1944,6 +1950,7 @@ function landReels(){
  const n=draftReels?draftReels.length:0;
  draftReels=null;
  for(let i=0;i<n;i++) SFX.thunk(i);
+ SFX.chaching();
  return true;
 }
 // The lever: one pull per draft re-spins the three cards. The offered-again
@@ -3137,7 +3144,7 @@ function phBlink(e,x,y,decoy){ const ox=e.x, oy=e.y; if(!bossBlink(e,x,y,'blink'
 function phSpot(P,a,d,m){ const x=clamp(P.x+Math.cos(a)*d,PX0+m,PX1-m), y=clamp(P.y+Math.sin(a)*d,PY0+m,PY1-m);
  return pointBlocked(x,y,m,arena.obs)?nearSpot(P.x,P.y,190,300,m):{x,y}; }
 BOSS_KITS.phantom={
- def:{name:'PHANTOM',epithet:'the Undelivered',tier:2,hp:360,r:26,spd:1.35,shape:'diamond',pt:3.2,sig:'beam',chaff:['drone','mite']},
+ def:{name:'PHANTOM',epithet:'the Undelivered',tier:2,hp:410,r:26,spd:1.35,shape:'diamond',pt:3.2,sig:'beam',chaff:['drone','mite']},
  // Ghost Form, once (spec §5), the reference recovery: translucent on the
  // spot, rounds land at 30% (e.phased), knitting from its pool while the
  // escorts it raised live. Killing them breaks it; so does RELENTLESS.
