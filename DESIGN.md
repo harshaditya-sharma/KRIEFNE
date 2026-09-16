@@ -348,6 +348,7 @@ Between two red rules, the lead god's name (`RETURNS` past S100) in red display 
 - **HP bars:** a Dim Metal track with a pigment fill (3px for bosses with quarter ticks, 2px for chaff).
 - **Boss tracker (`drawBossGuide`):** a pigment chevron and a distance label at the screen edge, so when summoned gods share the field each arrow names its god before the label does.
 - **Telegraphs:** red, ruled and ticked (`tickedLine`), and never glowing.
+- **Crossings:** a god never appears somewhere new unannounced. `blinkArm` marks the arrival spot first — a dashed red reticle whose cross ticks close as the mark runs out, with the ruled path from the god to that spot — and only then does `bossBlink` cross it (PHANTOM 0.3s, CHORUS 0.4s, ECLIPSE and NULLIFIER 0.5s). The mark is a tell, so reduced motion keeps it.
 
 ### Sector world layer (`paintWorld`)
 Painted once per sector into an offscreen canvas at device density. It holds the deep field past the rim, stars, the one dying star, the motif (`relays`, `shards`, `ring`, `belt`, `veil` or `none`, always 1px in the sector's `motif` tone), the engraved wreckage (`engrave`) and the graduated rim.

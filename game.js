@@ -337,6 +337,8 @@ const SFX={
   // the refit cylinder: a yanked lever, the ratchet counting detents as the
   // reels slow, and a seated thunk per reel (each one lower than the last)
   lever(){ tone('square',200,88,0.15,0.16); noiseHit(0.07,0.1,700); },
+  // a god winding up to cross: a rise that lands on the blink itself
+  warp(){ tone('sine',220,760,0.3,0.1); },
   ratchet(){ tone('square',1500,1150,0.02,0.045); },
   thunk(i){ const f=330-(i||0)*60; tone('square',f,Math.max(60,f*0.4),0.11,0.16); noiseHit(0.05,0.07,600); },
   // the payoff: the hand is loaded. Two struck bells a fifth apart, the
@@ -2062,9 +2064,49 @@ const TELEPORT_OK={phantom:'always',eclipse:'recovery',nullifier:'recovery',chor
 // step inside, and no echoes to swap.
 function canBlink(e,why){ const r=TELEPORT_OK[e.kind]; if(!r) return false; if(r==='always') return true; if(e.thrall) return false;
  if(r==='recovery') return e.mode==='recover'; return r==='swap'&&why==='swap'; }
+// Every legal jump is armed first (spec §3.5, and the fairness rule that a
+// god never takes information away): the destination is marked, the path is
+// ruled between the two, and only then does the god cross. `lead` is how long
+// the mark stands — long enough to read, short enough that a blinker still
+// feels like one. `then` runs on arrival, so a kit can sequence off the jump.
+const BLINK_LEAD={phantom:0.3,eclipse:0.5,nullifier:0.5,chorus:0.4};
+function blinkArm(e,x,y,why,then){
+ if(!canBlink(e,why)) return false;
+ const lead=BLINK_LEAD[e.kind]||0.3;
+ e.tele={x:clamp(x,PX0+e.r,PX1-e.r),y:clamp(y,PY0+e.r,PY1-e.r),why,t:lead,lead,then:then||null};
+ SFX.warp();
+ return true;
+}
+// Count the mark down and cross when it runs out. Called once per boss frame,
+// before the kit, so an arriving god acts from where it actually stands.
+function blinkTick(e,dt){
+ const T=e.tele; if(!T) return;
+ T.t-=dt;
+ if(T.t>0) return;
+ e.tele=null;
+ if(bossBlink(e,T.x,T.y,T.why)&&T.then){ try{ T.then(e); }catch(err){} }
+}
+// The mark itself: the arrival reticle in harm red, dashed while it arms, and
+// the ruled path the god will take. Drawn for the player, never gated on
+// reduced motion — it is a tell, not decoration.
+function drawBlinkMark(e){
+ const T=e.tele; if(!T) return;
+ const p=clamp(1-T.t/T.lead,0,1), r=e.r*(1.25-0.25*p);
+ ctx.save();
+ ctx.setLineDash([6,5]); ctx.lineDashOffset=-timeSec*26;
+ tickedLine(e.x,e.y,T.x,T.y,K.redDim,1,26,4);
+ ctx.strokeStyle=K.red; ctx.lineWidth=1.5;
+ ctx.beginPath(); ctx.arc(T.x,T.y,r,0,6.283); ctx.stroke();
+ ctx.setLineDash([]);
+ // cross ticks closing on the spot as the mark runs out
+ const k=r+8-6*p;
+ for(const a of [0,1.5708,3.1416,4.7124]) line(T.x+Math.cos(a)*k,T.y+Math.sin(a)*k,T.x+Math.cos(a)*(k+6),T.y+Math.sin(a)*(k+6),K.red,1.5);
+ ctx.restore();
+}
 function bossBlink(e,x,y,why){
  if(!canBlink(e,why)) return false;
  rings.push({x:e.x,y:e.y,r:8,maxR:70,spd:300,dmg:0,hit:true});
+ e.teleFrom={x:e.x,y:e.y};
  e.x=clamp(x,PX0+e.r,PX1-e.r); e.y=clamp(y,PY0+e.r,PY1-e.r); resolveObstacles(e);
  e.blinkAt=timeSec; rings.push({x:e.x,y:e.y,r:8,maxR:70,spd:300,dmg:0,hit:true}); SFX.portal();
  return true;
@@ -2255,6 +2297,7 @@ function bossUpdate(e,C){
  // disengagement ramp: backing off never pays, the boss only hunts harder
  e.hunger=clamp((timeSec-e.lastHit-8)/12,0,1);
  if(aiFrozen()) return;
+ blinkTick(e,dt); // an armed jump crosses before the kit runs
  if(e.mode==='beat'){ e.beatT-=dt; if(e.beatT<=0) e.mode='hunt'; return; }
  bossCtx(e,C);
  bossWatchdog(e,C);
@@ -2283,6 +2326,7 @@ function thrallUpdate(e,C){
  e.fightT+=dt;
  e.hunger=clamp((timeSec-e.lastHit-8)/12,0,1);
  if(aiFrozen()) return;
+ blinkTick(e,dt); // a thrall's blink is armed and marked like its god's
  bossCtx(e,C);
  bossWatchdog(e,C);
  bossThink(e,C);
@@ -3139,8 +3183,11 @@ const PH_LABEL={blinkfan:'BLINK FAN',afterimage:'AFTERIMAGE',crossfire:'CROSSFIR
 function phDecoy(e,x,y,kind){ const G=e.ghosts||(e.ghosts=[]); if(G.length>=4) G.shift();
  const g={x,y,t:0,kind,a:null,done:false,life:kind==='fan'?1.2:1.5}; G.push(g); return g; }
 // A blink that leaves an afterimage (a fan decoy) where it stood, unless told not to.
-function phBlink(e,x,y,decoy){ const ox=e.x, oy=e.y; if(!bossBlink(e,x,y,'blink')) return false;
- if(decoy!==false) phDecoy(e,ox,oy,'fan'); return true; }
+// A blink that leaves an afterimage (a fan decoy) where it stood, unless told
+// not to. The mark stands first: the ship is told where PHANTOM is going.
+function phBlink(e,x,y,decoy,then){
+ return blinkArm(e,x,y,'blink',g=>{ if(decoy!==false) phDecoy(g,g.teleFrom.x,g.teleFrom.y,'fan'); if(then) then(g); });
+}
 function phSpot(P,a,d,m){ const x=clamp(P.x+Math.cos(a)*d,PX0+m,PX1-m), y=clamp(P.y+Math.sin(a)*d,PY0+m,PY1-m);
  return pointBlocked(x,y,m,arena.obs)?nearSpot(P.x,P.y,190,300,m):{x,y}; }
 BOSS_KITS.phantom={
@@ -3174,22 +3221,27 @@ BOSS_KITS.phantom={
    C.orbit(1.1); let S=e.phF; if(e.atkT===0||!S) S=e.phF={t:0.3,aim:0};
    S.t-=C.dt;
    if(S.aim>0){ S.aim-=C.dt; if(S.aim<=0){ for(let k=-2;k<=2;k++) eshot(e,C.aim+k*0.16,260,5); SFX.eshoot(); } }
-   else if(S.t<=0){ S.t=C.enrage?1.3:1.8; const tp=nearSpot(C.p.x,C.p.y,190,300,e.r+16); phBlink(e,tp.x,tp.y); S.aim=0.35; } },
+   else if(S.t<=0&&!e.tele){ S.t=C.enrage?1.3:1.8; const tp=nearSpot(C.p.x,C.p.y,190,300,e.r+16);
+    phBlink(e,tp.x,tp.y,true,()=>{ S.aim=0.35; }); } },
   afterimage(e,C){ // three quick blinks round the ship; the afterimages do the shooting
    C.orbit(0.8); let S=e.phA; if(e.atkT===0||!S) S=e.phA={t:0.25,n:0,ang:Math.atan2(e.y-C.p.y,e.x-C.p.x),dir:Math.random()<0.5?1:-1};
    S.t-=C.dt;
-   if(S.t<=0){ if(S.n<3){ S.n++; S.ang+=1.2*S.dir; const q=phSpot(C.p,S.ang,230,e.r+16); phBlink(e,q.x,q.y); S.t=0.55; }
+   if(S.t<=0&&!e.tele){ if(S.n<3){ S.n++; S.ang+=1.2*S.dir; const q=phSpot(C.p,S.ang,230,e.r+16); phBlink(e,q.x,q.y); S.t=0.55; }
     else { S.n=0; S.t=C.enrage?0.6:1.0; } } },
   crossfire(e,C){ // your flank and its afterimage opposite: two beams cross on you
    C.mv(0.1); let S=e.phX; if(e.atkT===0||!S) S=e.phX={t:0.25,st:'wait'};
    S.t-=C.dt;
-   if(S.st==='wait'&&S.t<=0){ const P=C.p, base=Math.atan2(e.y-P.y,e.x-P.x)+1.5708*(Math.random()<0.5?1:-1);
-    const A=phSpot(P,base,240,e.r+16); phBlink(e,A.x,A.y,false);
-    const g=phDecoy(e,0,0,'cross'), B=phSpot(P,base+Math.PI-0.9,240,e.r+16); g.x=B.x; g.y=B.y;
-    const dmg=Math.round(e.dmg*0.6), o={warn:0.8,live:0.4,w:12,follow:false,dmg,what:'CROSSFIRE'};
-    bossBeam(e,Object.assign({a:Math.atan2(P.y-e.y,P.x-e.x)},o));
-    const b2=bossBeam(e,Object.assign({a:Math.atan2(P.y-g.y,P.x-g.x)},o)); if(b2){ b2.x=g.x; b2.y=g.y; beamEnds(b2); }
-    addFloater(e.x,calloutY(e),'CROSSFIRE',K.red); SFX.alarm();
+   if(S.st==='wait'&&S.t<=0&&!e.tele){ const P=C.p, base=Math.atan2(e.y-P.y,e.x-P.x)+1.5708*(Math.random()<0.5?1:-1);
+    const A=phSpot(P,base,240,e.r+16);
+    // the flank is marked, then taken; the crossfire is laid from where it
+    // actually stands, so both lines come off a position the ship has seen
+    phBlink(e,A.x,A.y,false,g=>{
+     const gd=phDecoy(g,0,0,'cross'), B=phSpot(P,base+Math.PI-0.9,240,g.r+16); gd.x=B.x; gd.y=B.y;
+     const dmg=Math.round(g.dmg*0.6), o={warn:0.8,live:0.4,w:12,follow:false,dmg,what:'CROSSFIRE'};
+     bossBeam(g,Object.assign({a:Math.atan2(P.y-g.y,P.x-g.x)},o));
+     const b2=bossBeam(g,Object.assign({a:Math.atan2(P.y-gd.y,P.x-gd.x)},o)); if(b2){ b2.x=gd.x; b2.y=gd.y; beamEnds(b2); }
+     addFloater(g.x,calloutY(g),'CROSSFIRE',K.red); SFX.alarm();
+    });
     S.st='rest'; S.t=C.enrage?1.5:2.2; }
    else if(S.st==='rest'&&S.t<=0){ S.st='wait'; S.t=0.2; } }
  },
@@ -5258,8 +5310,10 @@ BOSS_KITS.eclipse={
  recover:{ at:[0.55,0.30], pool:0.08, label:'TOTALITY STEP', hold:true, max:5,
   start(e){ ecTotality(e);
    const nx=clamp(PX0+PX1-e.x,PX0+e.r,PX1-e.r), ny=clamp(PY0+PY1-e.y,PY0+e.r,PY1-e.r);
-   bossBlink(e,nx,ny,'recover');
-    addFloater(e.x,calloutY(e),'ECLIPSE STEPS ACROSS — follow the tracker',K.red); SFX.portal(); },
+   // the far side is marked before it is taken, and the call goes out with
+   // the mark rather than after the fact
+   blinkArm(e,nx,ny,'recover',g=>{ SFX.portal(); });
+    addFloater(e.x,calloutY(e),'ECLIPSE STEPS ACROSS — follow the tracker',K.red); },
    update(e,C){ bossHeal(e,e.maxhp*0.022*C.dt); return e.rec.t>=4?'stepped':false; },
   end(e,why){ addFloater(e.x,calloutY(e),why==='stepped'?'STEP SPENT':'STEP ENDS',why==='stepped'?K.gold:K.red); } },
  label(e){ if(e.atk==='corona') return 'CORONA'; if(e.atk==='totality') return 'TOTALITY';
@@ -5345,7 +5399,7 @@ BOSS_KITS.eclipse={
 // and 35% (the rung below). No radial volleys.
 function nuMine(e,x,y){ return eraseZone(e,x,y,70,{life:5,warn:0.5}); }
 BOSS_KITS.nullifier={
- def:{name:'NULLIFIER',epithet:'the Silent',tier:4,hp:4200,r:30,spd:1.00,shape:'prism',pt:3.4,sig:'jam',chaff:['sniper','stalker']},
+ def:{name:'NULLIFIER',epithet:'the Silent',tier:4,hp:3100,r:30,spd:1.00,shape:'prism',pt:3.4,sig:'jam',chaff:['sniper','stalker']},
  lore:'A SOVEREIGN OF SILENCE — NULLIFIER needs you ordinary for four seconds.',
  codex:{role:'Disruptor', threat:'Follows in P2; Silent Step twice',
   tell:'A hatched DISRUPTOR FIELD drops on you and jams your systems. A dashed ring is the SILENCE PULSE — it jams your dash for 3 s. A thin ruled line is the NULL LANCE, eating your rounds along it (never the whole hull). Hatched NULL circles are VOID MINES, eating rounds inside.',
@@ -5400,10 +5454,11 @@ BOSS_KITS.nullifier={
    const top=Math.random()<0.5;
    const nx=clamp(Math.random()<0.5?PX0+e.r+24:(Math.random()<0.5?PX1-e.r-24:m), PX0+e.r, PX1-e.r);
    const ny=top?PY0+e.r+24:PY1-e.r-24;
-   bossBlink(e,nx,ny,'recover');
-   e.nullJam=3;
-   rings.push({x:e.x,y:e.y,r:8,maxR:70,spd:300,dmg:0,hit:true});
-    addFloater(e.x,calloutY(e),'SILENT STEP — TRACKER JAMMED',K.red); SFX.portal(); },
+   // the corner it takes is marked; the tracker jams on arrival, so the mark
+   // is the one honest reading the ship gets of where it went
+   blinkArm(e,nx,ny,'recover',g=>{ g.nullJam=3;
+    rings.push({x:g.x,y:g.y,r:8,maxR:70,spd:300,dmg:0,hit:true}); SFX.portal(); });
+    addFloater(e.x,calloutY(e),'SILENT STEP — TRACKER JAMMED',K.red); },
    update(e,C){ bossHeal(e,e.maxhp*0.022*C.dt); return e.rec.t>=4?'stepped':false; },
   end(e,why){ addFloater(e.x,calloutY(e),why==='stepped'?'STEP SPENT':'STEP ENDS',why==='stepped'?K.gold:K.red); } },
  label(e){ if(e.atk==='disrupt') return 'DISRUPTOR FIELD'; if(e.atk==='pulse') return 'SILENCE PULSE';
@@ -5451,7 +5506,7 @@ BOSS_KITS.nullifier={
 function chorusEchoes(e){ const out=[]; for(const o of enemies) if(o!==e&&o.kind==='chorus'&&o.echo&&!o.dead) out.push(o); return out; }
 function chorusHome(){ for(const o of enemies) if(o.kind==='chorus'&&!o.echo&&!o.summoned&&!o.dead&&o.rec&&o.chorReform) return o; return null; }
 BOSS_KITS.chorus={
- def:{name:'CHORUS',epithet:'the Norn-Choir',tier:4,hp:4700,r:28,spd:1.05,shape:'triad',pt:3.0,sig:'split',chaff:['mite','drone']},
+ def:{name:'CHORUS',epithet:'the Norn-Choir',tier:4,hp:4400,r:28,spd:1.05,shape:'triad',pt:3.0,sig:'split',chaff:['mite','drone']},
  lore:'A SOVEREIGN IN THREE VOICES — CHORUS was a people once. Every echo is true.',
  codex:{role:'Splitter', threat:'Fractures twice; Re-form twice',
   tell:'At 66% and 33% it FRACTURES into fragile synced echoes. Dashed slots triangulating you are the HARMONY, fired as one. A ticked line between echoes is the SWAP. One fan answered half a second later from every echo is the CANON. A RE-FORM call brings the echoes home.',
@@ -5487,9 +5542,11 @@ BOSS_KITS.chorus={
    else if(S.st==='aim'&&S.t<=0){ S.st='rest'; S.t=C.enrage?2.6:3.6;
     const A=S.a, B=S.b;
     if(A&&B&&!A.dead&&!B.dead&&enemies.indexOf(A)>=0&&enemies.indexOf(B)>=0){
-     const ax=A.x, ay=A.y;
-     if(bossBlink(A,B.x,B.y,'swap')) bossBlink(B,ax,ay,'swap');
-     addFloater(e.x,calloutY(e),'SWAP',K.red); SFX.portal(); } } },
+     const ax=A.x, ay=A.y, bx=B.x, by=B.y;
+     // each echo marks the seat it is crossing to, so the swap can be read
+     // before it happens instead of after
+     if(blinkArm(A,bx,by,'swap',()=>SFX.portal())) blinkArm(B,ax,ay,'swap');
+     addFloater(e.x,calloutY(e),'SWAP',K.red); } } },
   canon(e,C){ // one pattern now, every echo answering 0.5 s later
    C.mv(0.35);
    let S=e.chN; if(e.atkT===0||!S) S=e.chN={t:0.5};
@@ -5590,7 +5647,7 @@ function sgConsume(e,o){ const ix=enemies.indexOf(o); if(ix<0) return false;
  rings.push({x:o.x,y:o.y,r:6,maxR:50,spd:260,dmg:0,hit:true});
  return true; }
 BOSS_KITS.singularity={
- def:{name:'SINGULARITY',epithet:'the One-Eyed',tier:5,hp:2500,r:40,spd:0.85,shape:'well',pt:4.0,sig:'wellpull',chaff:['tempest','brute']},
+ def:{name:'SINGULARITY',epithet:'the One-Eyed',tier:5,hp:2050,r:40,spd:0.85,shape:'well',pt:4.0,sig:'wellpull',chaff:['tempest','brute']},
  lore:'THE APEX — SINGULARITY, the One-Eyed. Every rank answers to it.',
  codex:{role:'Apex', threat:'Convocation; Absorption into Phase II',
   tell:'GRAVITY drags you while DEBRIS arcs out and TIDAL MARKS pull before they burst; the SPIRAL WALL keeps one gap. At half its bar the CONVOCATION lands: three SOVEREIGNS at once. At a quarter it ABSORBS the field — then Phase II: QUASAR JETS, a grinding ACCRETION DISK, bursting HAWKING SPARKS, LENSING that bends your rounds and withers homing, the EVENT HORIZON drift and the SPAGHETTIFY axis.',
@@ -7417,6 +7474,7 @@ function drawBossShape(e,enrage,flash){
 // hull that the hit test called solid.
 function spawnPop(e){ return e.spawnT>0?Math.min(1,1.45-e.spawnT):1; }
 function drawEnemy(e){
+ if(e.tele) drawBlinkMark(e); // where it is about to cross, in world space
  ctx.save(); ctx.translate(e.x,e.y); const pop=spawnPop(e); ctx.scale(e.vscale*pop,e.vscale*pop);
  const P=pigOf(e), flash=e.flash>0, body=flash?P.flash:P.body, col=P.c, dim=P.dim;
  if(e.type==='drone'){ ctx.rotate(e.t*2); ctx.fillStyle=body; ctx.strokeStyle=col; ctx.lineWidth=1.5; ctx.beginPath(); ctx.arc(0,0,e.r,0,6.283); ctx.fill(); ctx.stroke(); ctx.strokeStyle=dim; ctx.lineWidth=1; ctx.beginPath(); ctx.moveTo(-e.r*0.6,0); ctx.lineTo(e.r*0.6,0); ctx.moveTo(0,-e.r*0.6); ctx.lineTo(0,e.r*0.6); ctx.stroke(); ctx.fillStyle=col; ctx.fillRect(-2,-2,4,4); }

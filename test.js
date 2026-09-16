@@ -954,7 +954,10 @@ function suiteTeleport() {
  const api0 = boot(), OK = api0.teleportOk;
  deepEq('the allow-list is PHANTOM, ECLIPSE, NULLIFIER and CHORUS only', Object.keys(OK).sort(), ['chorus', 'eclipse', 'nullifier', 'phantom']);
  ok('LEVIATHAN has no burrow left in its kit', !api0.bossKits.leviathan.attacks.burrow && api0.bossKits.leviathan.cycle.indexOf('burrow') < 0);
- const bad = [], seen = new Set();
+ const bad = [], seen = new Set(), unmarked = [];
+ // every legal jump must be announced first: a mark stands on the arrival
+ // spot for long enough to read, and the god lands on the spot it marked
+ const marks = new Map();
  let segGap = 0;
  for (const kind of ALL_BOSSES) {
   const n = api0.bossdefs[kind].debut;
@@ -978,15 +981,24 @@ function suiteTeleport() {
     if (q) {
      const j = Math.hypot(e.x - q.x, e.y - q.y), lim = a.bossMaxSpeed(e) * DT * 3;
      const legal = OK[e.kind] && e.blinkAt === a.time;
+     if (legal && j > lim) {
+      const mk = marks.get(e.uid);
+      if (!mk || mk.t < 0.2) unmarked.push(e.kind + ' crossed on a ' + (mk ? mk.t.toFixed(2) + 's' : 'missing') + ' mark @' + t.toFixed(2) + 's');
+      // it lands on the spot it marked, give or take the nudge out of cover
+      else if (Math.hypot(mk.x - e.x, mk.y - e.y) > 8) unmarked.push(e.kind + ' landed ' + Math.hypot(mk.x - e.x, mk.y - e.y).toFixed(1) + 'px off its mark');
+      marks.delete(e.uid);
+     }
      if (j > lim && !legal) bad.push(e.kind + (e.summoned ? '(summoned)' : '') + ' ' + j.toFixed(1) + '>' + lim.toFixed(1) + ' @' + t.toFixed(2) + 's ' + a.bossLabel(e));
     }
     last.set(e.uid, { x: e.x, y: e.y });
+    if (e.tele) { const mk = marks.get(e.uid) || { t: 0 }; mk.t += DT; mk.x = e.tele.x; mk.y = e.tele.y; marks.set(e.uid, mk); }
     if (e.kind === 'leviathan' && e.segs) { let prev = e; for (const g of e.segs) { segGap = Math.max(segGap, Math.hypot(g.x - prev.x, g.y - prev.y) - e.r * 0.82); prev = g; } }
    }
   }
   releaseKeys(a);
  }
  eq('no god jumps further than it can travel (60s in every nest)', bad.length, 0, bad.slice(0, 6).join('; '));
+ eq('and no god crosses unannounced: every blink is marked first', unmarked.length, 0, unmarked.slice(0, 8).join(' | '));
  atLeast('every kind was stepped', seen.size, 20);
  atMost('LEVIATHAN segments stay attached to the head', segGap, 0.5);
  // bossBlink refuses anything off the allow-list, and stamps what it allows
@@ -3614,10 +3626,19 @@ function suiteKits1() {
   const { a, p, b } = kitRoom('phantom', 14);
   b.forcedAttack = 'blinkfan'; b.phB = 99; const px = p.x, py = p.y, pin = () => { p.x = px; p.y = py; };
   const x0 = b.x, y0 = b.y;
-  kitRun(a, 0.4, pin);
+  kitRun(a, 0.35, pin);
+  // the crossing is marked before it happens: the spot is shown, and PHANTOM
+  // is still standing where it was
+  ok('BLINK FAN: the arrival is marked first', !!b.tele, JSON.stringify(b.tele || null));
+  ok('and it has not crossed yet', !(b.blinkAt > 0), String(b.blinkAt));
+  range('the mark stands 190-300px from the ship', Math.hypot(b.tele.x - px, b.tele.y - py), 150, 320);
+  kitRun(a, 0.35, pin);
   ok('BLINK FAN: PHANTOM blinks, legally stamped', b.blinkAt > 0 && Math.hypot(b.x - x0, b.y - y0) > 60);
   range('190-300px from the ship', Math.hypot(b.x - px, b.y - py), 150, 320);
-  ok('leaving an afterimage where it stood', (b.ghosts || []).some(g => g.kind === 'fan' && Math.hypot(g.x - x0, g.y - y0) < 90 && Math.hypot(g.x - b.x, g.y - b.y) > 150));
+  // the afterimage is left on the spot it departed from, not where it was
+  // standing when the mark went up (it keeps orbiting while the mark stands)
+  ok('leaving an afterimage where it stood', (b.ghosts || []).some(g => g.kind === 'fan' &&
+   Math.hypot(g.x - b.teleFrom.x, g.y - b.teleFrom.y) < 4 && Math.hypot(g.x - b.x, g.y - b.y) > 150));
   eq('nothing fires during the 0.35s aim', a.ebullets.length, 0);
   ok('the aim and the afterimage draw', !kitRenders(a));
   kitRun(a, 0.35, pin);
@@ -3629,7 +3650,7 @@ function suiteKits1() {
  {
   const { a, p, b } = kitRoom('phantom', 14);
   b.forcedAttack = 'afterimage'; b.phB = 99; const seen = new Set(), blinks = new Set();
-  kitRun(a, 2.0, () => { for (const g of b.ghosts || []) seen.add(g); if (b.blinkAt > 0) blinks.add(b.blinkAt); });
+  kitRun(a, 3.2, () => { for (const g of b.ghosts || []) seen.add(g); if (b.blinkAt > 0) blinks.add(b.blinkAt); });
   atLeast('AFTERIMAGE: a chain of three quick blinks', blinks.size, 3);
   atLeast('each leaving a decoy', seen.size, 3);
  }
@@ -3637,6 +3658,8 @@ function suiteKits1() {
   const { a, p, b } = kitRoom('phantom', 14);
   b.forcedAttack = 'crossfire'; b.phB = 99; const px = p.x, py = p.y;
   kitRun(a, 0.3, () => { p.x = px; p.y = py; });
+  ok('CROSSFIRE marks the flank before taking it', !!b.tele);
+  kitRun(a, 0.35, () => { p.x = px; p.y = py; });
   const bm = a.bossBeams.filter(q => q.owner === b && q.src.what === 'CROSSFIRE');
   eq('CROSSFIRE: two beams', bm.length, 2);
   const dl = q => { const dx = Math.cos(q.a), dy = Math.sin(q.a); return Math.abs((px - q.x) * dy - (py - q.y) * dx); };
@@ -3647,7 +3670,7 @@ function suiteKits1() {
   atLeast('a ship left on the X is struck', hitStill.CROSSFIRE || 0, 1);
   const r2 = kitRoom('phantom', 14); const A = r2.a, P = r2.p, B = r2.b;
   B.forcedAttack = 'crossfire'; B.phB = 99; const qx = P.x, qy = P.y;
-  kitRun(A, 0.3, () => { P.x = qx; P.y = qy; });
+  kitRun(A, 0.65, () => { P.x = qx; P.y = qy; });
   const b2 = A.bossBeams.filter(q => q.owner === B), m = b2.length ? (b2[0].a + b2[1].a) / 2 : 0;
   let best = null; for (const s of [0, Math.PI / 2, Math.PI, 3 * Math.PI / 2]) { const tx = qx + Math.cos(m + s) * 90, ty = qy + Math.sin(m + s) * 90; const d = Math.min(...b2.map(q => Math.abs((tx - q.x) * Math.sin(q.a) - (ty - q.y) * Math.cos(q.a)))); if (!best || d > best.d) best = { tx, ty, d }; }
   const stepped = kitRun(A, 1.0, () => { P.x = best.tx; P.y = best.ty; });

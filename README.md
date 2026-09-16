@@ -150,7 +150,7 @@ against the wall in the S110–S130 band, by measurement, not by decree.
 
 - **OVERLORD** — brawler. BURST / SUMMON / CHARGE / SWEEP. Never recovers.
 - **WARDEN** — siege fortress. Spirals, guards, seismic slams, twin staggered waves.
-- **PHANTOM** — blink skirmisher. Bolt fans, teleports, a locked LASER line.
+- **PHANTOM** — blink skirmisher. Bolt fans, blinks (each one marked before it crosses), a locked LASER line.
 - **REVENANT** — cold-sleeper. Rime volleys; retreats to its Sleeper Pod to mend.
 - **LEVIATHAN** — segmented serpent. Burrows and resurfaces under you; the body hurts.
 - **HYDRA** — three-throated. Acid spit pools; severed heads regrow and mend it.
