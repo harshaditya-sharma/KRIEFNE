@@ -224,7 +224,7 @@ Generative WebAudio: ambient title theme, per-arena bass + lead, sparse pause th
 - **Settings** (O): screen shake, particles, music, auto-fire default, seed display, wipe records,
   music + SFX volume, damage numbers — all persisted.
 - **Pause** shows the hull as it stands: its refits (with stack counts) on the left, its systems
-  (hull, damage, rate, shots, crit, speed, magnet, boss bonus) on the right. The hub shows the build too.
+  (hull, damage, rate, shots, crit, speed, magnet, gods slain) on the right. The hub shows the build too.
 - **Help** (H): `CONTROLS · SHIELDS · ARSENAL · LORE`.
 - **Codex** (C) is its own screen, reachable from the **title, galaxy hub and pause** — and mid-fight,
   where it pauses and returns you to the pause menu rather than straight back into combat.
@@ -258,8 +258,10 @@ so the late game never becomes a formality. Two sides hold it in check:
     run ends.
 - Enemy *damage* grows slower than player max HP, so depth kills you through density and pressure
   rather than two-shotting you.
-- **+3 max HP per level**, passively — so builds that don't spend most of their picks on Nanoweave
-  stay viable at depth.
+- **Nothing but a card moves a stat.** No level-up bonus, no bank carried in from past runs — a hull
+  is exactly what this run drafted onto it.
+- **Plating is live**: a Nanoweave is worth more the deeper the hull flies (`PLATE_K.div`), so armour
+  keeps pace with boss damage instead of freezing at its family cap.
 - Summoned gods scale sub-linearly: 45% of lead HP at this sector, hitting at 85%, so a called
   god is busier and harder, not a second full fight.
 

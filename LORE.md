@@ -92,7 +92,7 @@ Every persistence rule in the game has an in-world reason:
 | A new run starts at S1 on the galaxy hub | A new hull launches from the Wake |
 | Upgrades are lost | Upgrades are salvaged hardware bolted onto that hull, and they die with it |
 | Codex entries persist | The codex is KRIEFNE's archive, carried home in every death-burst |
-| Boss kills bank +2% damage forever | Every god slain refines the combat model the Wake loads into each new hull |
+| Boss kills are recorded, and change nothing | The Wake archives every god slain, but it fits no hull with another hull's advantage |
 | Recovered transmissions persist (planned) | Once a hoard is taken, it stays in the archive |
 | A run survives closing the game, but a sector restarts | The hull goes dormant between burns; the Wake keeps its state from when it last committed to a sector |
 | Maps change every run, but nests don't | Debris drifts between hulls, but the gods keep their seats |
@@ -192,7 +192,7 @@ Gods do not simply fight. Among immortal machines, destruction is rare and resou
 | A god that draws out a holmgang forfeits the right to mend | RELENTLESS past twice the nest's target length |
 | A god may call only the god directly beneath it on the trail | The summoning rule |
 | A god's first holmgang is fought alone | Solo debuts |
-| The victor takes the hoard and the standing | Transmission unlock and the permanent +2% damage |
+| The victor takes the hoard and the standing | Transmission unlock and the kill on the record |
 
 **Design rule:** if a new enemy mechanic can't be written as a clause of the holmgang, it's probably unfair.
 

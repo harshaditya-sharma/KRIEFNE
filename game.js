@@ -414,7 +414,7 @@ try{
 function lsGet(k){ try{ return localStorage.getItem('kriefne_'+k); }catch(e){ return null; } }
 function lsSet(k,v){ try{ localStorage.setItem('kriefne_'+k,v); }catch(e){} }
 function lsDel(k){ try{ localStorage.removeItem('kriefne_'+k); }catch(e){} }
-let best=0, depth=0, bosses=0; // best score, deepest sector, total boss kills (banks +2% dmg each)
+let best=0, depth=0, bosses=0; // best score, deepest sector, total boss kills (a record only: stats come from cards)
 try{ best=parseInt(lsGet('best')||'0',10)||0; depth=parseInt(lsGet('depth')||'0',10)||0; bosses=parseInt(lsGet('bosses')||'0',10)||0; }catch(e){}
 function saveMeta(){ try{ lsSet('best',String(best)); lsSet('depth',String(depth)); lsSet('bosses',String(bosses)); }catch(e){} }
 // Codex progress: ids of every foe type and boss kind defeated at least once,
@@ -636,6 +636,29 @@ function rarityCol(u){ const r=u.r||0; return r>=5?K.red:(r===4?K.redHi:(r===3?K
 // family share a stack budget, so a higher rarity is a better deal, not extra
 // power on top.
 function odFam(ids){ let n=0; for(const id of ids) n+=upgradeCounts[id]||0; return n; }
+// Plating is fitted to the trail it is drafted on: a Nanoweave taken at S80
+// is cut from the same yard as the hulls out there, so armour keeps pace with
+// the guns instead of flattening at its family cap. `PLATE_K.div` is the
+// fitting knob (test.js --only fightsim, and the farmer-bar audit).
+const PLATE_K={div:30};
+// Plating is fitted to the trail the hull is flying, not the one it was
+// drafted on: a Nanoweave is a plating unit, and a unit is worth more the
+// deeper the sector. Without this, the family cap (12 picks) freezes armour
+// at ~130 HP while boss hits climb past 200 — a one-shot at S95. `div` is the
+// fitting knob (test.js --only fightsim, plus the farmer-bar audit).
+function plateK(){ try{ return 1+Math.max(0,arenaIdx)/PLATE_K.div; }catch(e){ return 1; } }
+function plateHp(base){ return Math.round(base*plateK()); }
+// Max HP is always the bare frame plus what the plating is worth here.
+function hullMax(p){ return Math.max(1,Math.round((p.hullBase!=null?p.hullBase:p.maxhp)+(p.plateU||0)*plateK())); }
+// Re-fit the hull to this sector, carrying the gain into current HP so a
+// descent never leaves the bar reading over its own maximum.
+function hullFit(){
+ if(!player) return;
+ const was=player.maxhp, now=hullMax(player);
+ if(now===was) return;
+ player.maxhp=now;
+ player.hp=now>was?Math.min(now,player.hp+(now-was)):Math.min(player.hp,now);
+}
 const RATE_FAM=['rate0','rate','rate3','rate4','rate5','rate6'], DMG_FAM=['dmg0','dmg','dmg3','dmg4','dmg5','dmg6'], HP_FAM=['hp0','hp1','hp2','hp','hp3','hp4'];
 const UPGRADES=[
  // Stack caps on the four core multipliers. Uncapped, `dmg` and `rate` compounded
@@ -658,12 +681,24 @@ const UPGRADES=[
  {id:'dmg4', name:'AP Lance', desc:'EPIC: +40% damage, -3% rate', max:3, r:3, req(p){ return odFam(DMG_FAM)<10; }, apply(p){ p.dmgMult+=0.40; p.fireRate*=0.97; }},
  {id:'dmg5', name:'AP Nova', desc:'Nova shell: +50% damage, -3% rate', max:3, r:4, req(p){ return odFam(DMG_FAM)<10; }, apply(p){ p.dmgMult+=0.50; p.fireRate*=0.97; }},
  {id:'dmg6', name:'AP Extinction', desc:'Extinction event: +65% damage, -4% rate', max:2, r:5, req(p){ return odFam(DMG_FAM)<10; }, apply(p){ p.dmgMult+=0.65; p.fireRate*=0.96; }},
- {id:'hp0', name:'Nanoweave Mesh', desc:'+5 Max HP, heal 5, heavier', max:6, r:0, req(p){ return odFam(HP_FAM)<12; }, apply(p){ p.maxhp+=5; p.hp=Math.min(p.maxhp,p.hp+5); p.speed=Math.max(170,p.speed-1); }},
- {id:'hp1', name:'Nanoweave Weave', desc:'+10 Max HP, heal 10, heavier', max:8, r:1, req(p){ return odFam(HP_FAM)<12; }, apply(p){ p.maxhp+=10; p.hp=Math.min(p.maxhp,p.hp+10); p.speed=Math.max(170,p.speed-1.5); }},
- {id:'hp2', name:'Nanoweave Lattice', desc:'+15 Max HP, heal 15, heavier', max:6, r:2, req(p){ return odFam(HP_FAM)<12; }, apply(p){ p.maxhp+=15; p.hp=Math.min(p.maxhp,p.hp+15); p.speed=Math.max(170,p.speed-2); }},
- {id:'hp', name:'Nanoweave Plating', desc:'EPIC: +25 Max HP, heal 25, heavier', max:6, r:3, req(p){ return odFam(HP_FAM)<12; }, apply(p){ p.maxhp+=25; p.hp=Math.min(p.maxhp,p.hp+25); p.speed=Math.max(170,p.speed-3); }},
- {id:'hp3', name:'Nanoweave Bastion', desc:'Bastion hull: +40 Max HP, heal 40, heavier', max:4, r:4, req(p){ return odFam(HP_FAM)<12; }, apply(p){ p.maxhp+=40; p.hp=Math.min(p.maxhp,p.hp+40); p.speed=Math.max(170,p.speed-4); }},
- {id:'hp4', name:'Nanoweave Ark', desc:'Ark hull: +60 Max HP, heal 60, heavier', max:3, r:5, req(p){ return odFam(HP_FAM)<12; }, apply(p){ p.maxhp+=60; p.hp=Math.min(p.maxhp,p.hp+60); p.speed=Math.max(170,p.speed-5); }},
+ {id:'hp0', name:'Nanoweave Mesh', desc:'+5 Max HP, heal 5, heavier (more at depth)', max:6, r:0, req(p){ return odFam(HP_FAM)<12; },
+  dyn(p){ const n=plateHp(5); return {name:'Nanoweave Mesh',desc:'+'+n+' Max HP, heal '+n+', heavier'}; },
+  apply(p){ const m0=p.maxhp; p.plateU=(p.plateU||0)+5; p.maxhp=hullMax(p); p.hp=Math.min(p.maxhp,p.hp+Math.max(0,p.maxhp-m0)); p.speed=Math.max(170,p.speed-1); }},
+ {id:'hp1', name:'Nanoweave Weave', desc:'+10 Max HP, heal 10, heavier (more at depth)', max:8, r:1, req(p){ return odFam(HP_FAM)<12; },
+  dyn(p){ const n=plateHp(10); return {name:'Nanoweave Weave',desc:'+'+n+' Max HP, heal '+n+', heavier'}; },
+  apply(p){ const m0=p.maxhp; p.plateU=(p.plateU||0)+10; p.maxhp=hullMax(p); p.hp=Math.min(p.maxhp,p.hp+Math.max(0,p.maxhp-m0)); p.speed=Math.max(170,p.speed-1.5); }},
+ {id:'hp2', name:'Nanoweave Lattice', desc:'+15 Max HP, heal 15, heavier (more at depth)', max:6, r:2, req(p){ return odFam(HP_FAM)<12; },
+  dyn(p){ const n=plateHp(15); return {name:'Nanoweave Lattice',desc:'+'+n+' Max HP, heal '+n+', heavier'}; },
+  apply(p){ const m0=p.maxhp; p.plateU=(p.plateU||0)+15; p.maxhp=hullMax(p); p.hp=Math.min(p.maxhp,p.hp+Math.max(0,p.maxhp-m0)); p.speed=Math.max(170,p.speed-2); }},
+ {id:'hp', name:'Nanoweave Plating', desc:'+25 Max HP, heal 25, heavier (more at depth)', max:6, r:3, req(p){ return odFam(HP_FAM)<12; },
+  dyn(p){ const n=plateHp(25); return {name:'Nanoweave Plating',desc:'EPIC: +'+n+' Max HP, heal '+n+', heavier'}; },
+  apply(p){ const m0=p.maxhp; p.plateU=(p.plateU||0)+25; p.maxhp=hullMax(p); p.hp=Math.min(p.maxhp,p.hp+Math.max(0,p.maxhp-m0)); p.speed=Math.max(170,p.speed-3); }},
+ {id:'hp3', name:'Nanoweave Bastion', desc:'+40 Max HP, heal 40, heavier (more at depth)', max:4, r:4, req(p){ return odFam(HP_FAM)<12; },
+  dyn(p){ const n=plateHp(40); return {name:'Nanoweave Bastion',desc:'Bastion hull: +'+n+' Max HP, heal '+n+', heavier'}; },
+  apply(p){ const m0=p.maxhp; p.plateU=(p.plateU||0)+40; p.maxhp=hullMax(p); p.hp=Math.min(p.maxhp,p.hp+Math.max(0,p.maxhp-m0)); p.speed=Math.max(170,p.speed-4); }},
+ {id:'hp4', name:'Nanoweave Ark', desc:'+60 Max HP, heal 60, heavier (more at depth)', max:3, r:5, req(p){ return odFam(HP_FAM)<12; },
+  dyn(p){ const n=plateHp(60); return {name:'Nanoweave Ark',desc:'Ark hull: +'+n+' Max HP, heal '+n+', heavier'}; },
+  apply(p){ const m0=p.maxhp; p.plateU=(p.plateU||0)+60; p.maxhp=hullMax(p); p.hp=Math.min(p.maxhp,p.hp+Math.max(0,p.maxhp-m0)); p.speed=Math.max(170,p.speed-5); }},
  {id:'spd', name:'Ion Thrusters', desc:'UNLOCK dash', max:4, dyn(p){ return p.dashUnlocked?{name:'Ion Thrusters',desc:'-20% dash cooldown'}:null; }, apply(p){ if(!p.dashUnlocked){ p.dashUnlocked=true; p.dashCd=0; } else { p.dashCdMax=Math.max(0.7,p.dashCdMax*0.8); } }},
  {id:'slip', name:'Slipstream Coils', desc:'Drive retuned for thrust: +10% speed, guns cycle -1.5% rate', max:3, r:1, req(p){ return p.dashUnlocked; }, apply(p){ p.speed*=1.1; p.fireRate*=0.985; }},
  {id:'split', name:'Split Chamber', desc:'MYTHIC: DOUBLE barrels, HALVE damage', max:1, r:5, req(p){ return p.shots>=2&&p.shots<=8; }, apply(p){ p.shots=Math.min(12,p.shots*2); p.dmgMult*=0.5; }},
@@ -680,11 +715,11 @@ const UPGRADES=[
  {id:'cryo', name:'Cryo Rounds', desc:'Coolant shroud slows what it touches; pumps cost -1.5% rate', max:2, r:1, apply(p){ p.cryo+=1; p.fireRate*=0.985; }},
  {id:'slug', name:'Slug Rounds', desc:'+45% base dmg, bigger, -12% rate', max:2, r:1, apply(p){ p.dmgMult+=0.45; p.fireRate*=0.88; p.slug+=1; }},
  {id:'aegis', name:'Aegis Pulse', desc:'Shield emitter drinks dash power; +5% dash cooldown', max:2, r:1, apply(p){ p.aegisLvl++; p.shieldCdMax=Math.max(6,12-(p.aegisLvl-1)*3); p.shieldT=0; p.dashCdMax*=1.05; }},
- {id:'ward', name:'Warding Plate', desc:'Bolted plate turns the 1st hit every round; -2 max HP', r:0, max:1, apply(p){ p.hasWard=true; p.wardUp=true; p.maxhp=Math.max(60,p.maxhp-2); p.hp=Math.min(p.hp,p.maxhp); }},
- {id:'bulwark', name:'Bulwark Matrix', desc:'Layered plate turns 2+ hits/round; -2 max HP per layer', max:3, r:1, apply(p){ p.bulMax+=(p.bulMax?1:2); p.bulwark=p.bulMax; p.maxhp=Math.max(60,p.maxhp-2); p.hp=Math.min(p.hp,p.maxhp); }},
- {id:'mirror', name:'Crit Ward', desc:'Heavy ward turns one HEAVY blow/round; -2 max HP', max:1, r:2, apply(p){ p.hasMirror=true; p.mirrorUp=true; p.maxhp=Math.max(60,p.maxhp-2); p.hp=Math.min(p.hp,p.maxhp); }},
+ {id:'ward', name:'Warding Plate', desc:'Bolted plate turns the 1st hit every round; -2 max HP', r:0, max:1, apply(p){ p.hasWard=true; p.wardUp=true; p.hullBase=Math.max(60,p.hullBase-2); p.maxhp=hullMax(p); p.hp=Math.min(p.hp,p.maxhp); }},
+ {id:'bulwark', name:'Bulwark Matrix', desc:'Layered plate turns 2+ hits/round; -2 max HP per layer', max:3, r:1, apply(p){ p.bulMax+=(p.bulMax?1:2); p.bulwark=p.bulMax; p.hullBase=Math.max(60,p.hullBase-2); p.maxhp=hullMax(p); p.hp=Math.min(p.hp,p.maxhp); }},
+ {id:'mirror', name:'Crit Ward', desc:'Heavy ward turns one HEAVY blow/round; -2 max HP', max:1, r:2, apply(p){ p.hasMirror=true; p.mirrorUp=true; p.hullBase=Math.max(60,p.hullBase-2); p.maxhp=hullMax(p); p.hp=Math.min(p.hp,p.maxhp); }},
  {id:'barrier', name:'Ablative Barrier', desc:'Capacitor holds 50 damage once; drain -1.5% rate', max:1, r:2, apply(p){ p.barrier+=50; p.fireRate*=0.985; }},
- {id:'stasis', name:'Stasis Protocol', desc:'Cold cradle cheats death; -4 max HP per tier', max:3, r:2, dyn(p){ if(p.stasisTier===1) return {name:'Stasis Protocol',desc:'Stronger revival: 25% HP + charge'}; if(p.stasisTier>=2) return {name:'Stasis Protocol',desc:'Perfect revival: FULL HP + charge'}; return null; }, apply(p){ p.stasisTier=Math.min(3,p.stasisTier+1); p.stasisN=Math.min(3,p.stasisN+1); p.maxhp=Math.max(60,p.maxhp-4); p.hp=Math.min(p.hp,p.maxhp); }},
+ {id:'stasis', name:'Stasis Protocol', desc:'Cold cradle cheats death; -4 max HP per tier', max:3, r:2, dyn(p){ if(p.stasisTier===1) return {name:'Stasis Protocol',desc:'Stronger revival: 25% HP + charge'}; if(p.stasisTier>=2) return {name:'Stasis Protocol',desc:'Perfect revival: FULL HP + charge'}; return null; }, apply(p){ p.stasisTier=Math.min(3,p.stasisTier+1); p.stasisN=Math.min(3,p.stasisN+1); p.hullBase=Math.max(60,p.hullBase-4); p.maxhp=hullMax(p); p.hp=Math.min(p.hp,p.maxhp); }},
  {id:'crit', name:'Crit Matrix', desc:'Targeting lattice: +15% crit; compute steals -1% rate', max:3, r:1, apply(p){ p.critCh=Math.min(0.5,p.critCh+0.15); p.fireRate*=0.99; }},
  {id:'surge', name:'Kill Surge', desc:'Kills surge speed and rate 2.5s; hot idle -1% base rate', max:2, r:1, apply(p){ p.surgeLvl++; p.fireRate*=0.99; }},
  {id:'tract', name:'Tractor Core', desc:'Tractor mass hauls pickups (+70% magnet, +10% XP); -1% speed', max:2, r:0, apply(p){ p.magnet*=1.7; p.xpBonus*=1.1; p.speed*=0.99; }},
@@ -697,7 +732,7 @@ const UPGRADES=[
  {id:'nova', name:'Frost Nova', desc:'Cryo pulse install; cycling it costs -1% rate', max:2, r:1, apply(p){ p.novaLvl++; p.novaT=Math.min(p.novaT||99,1.5); p.fireRate*=0.99; }},
  {id:'tesla', name:'Tesla Arc', desc:'Arc coils chain lightning; recharge -1.5% rate', max:2, r:2, apply(p){ p.teslaLvl++; p.teslaT=Math.min(p.teslaT||99,1); p.fireRate*=0.985; }},
  {id:'pierce', name:'Lance Rounds', desc:'Needle points pierce +1 foe; thinner rounds -1.5% damage', max:2, r:1, apply(p){ p.pierce+=1; p.dmgMult*=0.985; }},
- {id:'wind', name:'Second Wind', desc:'A backup heart beats once at 50%; -4 max HP', max:1, r:2, apply(p){ p.secondWind=true; p.maxhp=Math.max(60,p.maxhp-4); p.hp=Math.min(p.hp,p.maxhp); }},
+ {id:'wind', name:'Second Wind', desc:'A backup heart beats once at 50%; -4 max HP', max:1, r:2, apply(p){ p.secondWind=true; p.hullBase=Math.max(60,p.hullBase-4); p.maxhp=hullMax(p); p.hp=Math.min(p.hp,p.maxhp); }},
  // ---------- kinetic discharge line ----------
  // Charges on kills, not on a timer, so it rewards clearing packs rather than
  // hiding. The three follow-ups are req-gated: they cannot appear before the
@@ -740,7 +775,7 @@ const UPGRADES=[
 ];
 function rarityW(u){ return (RARITY[u.r]||RARITY[0]).w; }
 // Never drafted normally — only used when a capped pool has nothing left to offer.
-const REFIT={id:'refit', name:'Field Refit', desc:'+10 Max HP, full repair', r:0, apply(p){ p.maxhp+=10; p.hp=p.maxhp; }};
+const REFIT={id:'refit', name:'Field Refit', desc:'+10 Max HP, full repair', r:0, apply(p){ p.hullBase+=10; p.maxhp=hullMax(p); p.hp=p.maxhp; }};
 
 // ---------- state ----------
 let state='title', settingsFrom='title', helpFrom='title', autoPaused=false;
@@ -754,7 +789,7 @@ let strikes=[], beams=[]; // orbital cannon impacts, prism lance traces
 let spawnQueue=[], spawnT=0; // wave director: queued reinforcements stream in off-screen
 let bossWarnT=0, bossWarnTxt='', bossWarnSub=[];
 // what a nest has given up so far: the end-of-nest draft names it
-let nestTally={kinds:[],banked:0,firsts:[]};
+let nestTally={kinds:[],felled:0,firsts:[]};
 let galaxySel=0, clearedMax=-1; // level selector: highest cleared sector idx, next unlocks
 let shake=0, levelChoices=[], upgradeCounts={}, starterOffered=false;
 let sectorCleared=false; // clear bonus fires once per sector, not per empty field
@@ -773,7 +808,7 @@ let wipeArmT=0;      // Reset records asks twice: the first press arms it until 
 let nestDraftAt=0;   // set when a nest's bonus draft opens: dark ground + gold disc
 
 function newPlayer(dmgBonus){
-  return { x:480, y:(PY0+PY1)/2, r:11, hp:100, maxhp:100, speed:240, level:1, xp:0, xpNeed:xpNeedFor(1),
+  return { x:480, y:(PY0+PY1)/2, r:11, hp:100, maxhp:100, hullBase:100, plateU:0, speed:240, level:1, xp:0, xpNeed:xpNeedFor(1),
    fireRate:4.5, fireCd:0, dmgBase:12, dmgMult:dmgBonus, shots:1, critCh:0.05, critMult:2,
    dashCd:0, dashCdMax:2.5, dashT:0, dashDx:1, dashDy:0, invuln:0, magnet:90, pull:430, vamp:0,
    aim:0, face:0, autoFire:settings.autofire, projSpeed:640, flash:0, recall:null, recallCd:0,
@@ -1481,7 +1516,7 @@ function startRun(){
  bullets=[]; ebullets=[]; gems=[]; parts=[]; floaters=[]; rings=[]; hazards=[]; strikes=[]; beams=[]; portal=null; clearBossState();
  spawnQueue=[]; spawnT=0;
  upgradeCounts={};
- player=newPlayer(1+0.02*bosses);
+ player=newPlayer(1);
  starterOffered=false; pendingLevels=0; pendingNest=0; pity={spd:0,pcell:0};
  replaySnap=null; hubNote=null;
  loadArena(0); // live world behind the hub; entering S1 reloads it fresh
@@ -1521,6 +1556,7 @@ function applySnap(r){
  upgradeCounts=Object.assign({},r.upgradeCounts);
  // Merge onto fresh defaults, so a save written before a field existed still loads.
  player=Object.assign(newPlayer(1),r.player,{recall:null,channel:null,status:statusFresh()});
+ if(r.player.hullBase==null){ player.hullBase=player.maxhp; player.plateU=0; } // pre-plating save
  starterOffered=!!r.starterOffered; pendingLevels=r.pendingLevels|0; pendingNest=r.pendingNest|0;
  pity=Object.assign({spd:0,pcell:0},r.pity);
  clearedMax=Math.max(-1,r.clearedMax|0); galaxySel=clamp(r.galaxySel|0,0,clearedMax+1);
@@ -1644,6 +1680,7 @@ let draftAt=0, draftPress=-1; const DRAFT_GRACE=300; // a draft ignores the mous
 function handleRelease(x,y){ if(state!=='levelup'||draftPress<0) return; const i=draftPress; draftPress=-1; const r=draftRect(i); if(levelChoices[i]&&x>r.x&&x<r.x+r.w&&y>r.y&&y<r.y+r.h) pickUpgrade(levelChoices[i]); }
 function loadArena(i){
  arenaIdx=i;
+ hullFit(); // plating is worth more the deeper the trail runs
  const s=i, boss=isBossSector(s);
  // larger worlds deeper down the trail
  const wz=sectorWorld(s); WW=wz.w; HH=wz.h;
@@ -1690,7 +1727,7 @@ function loadArena(i){
    bossWarnTxt=lead.name+(s+1>100?' RETURNS':'');
    const ln=nestLore(s), tail=ln.indexOf(' — ')>=0?ln.slice(ln.indexOf(' — ')+3):ln;
    const sub=TIER_NAMES[lead.tier]+' · '+tail; bossWarnSub=sub.length<=86?[sub]:wrapLines(sub,Math.ceil(sub.length/2)+6).slice(0,2);
-   nestTally={kinds:kinds.slice(),banked:0,firsts:[]}; SFX.alarm(); }
+   nestTally={kinds:kinds.slice(),felled:0,firsts:[]}; SFX.alarm(); }
   setMusicCfg(g.theme);
   addFloater(player.x,player.y-30,sectorName(s)+' · '+g.theme.name.toUpperCase(),K.gold); enterT=performance.now();
 }
@@ -1753,10 +1790,9 @@ function gainXp(v){
  player.xp+=v*player.xpBonus; SFX.pickup();
  while(player.xp>=player.xpNeed){
   player.xp-=player.xpNeed; player.level++; player.xpNeed=xpNeedFor(player.level); pendingLevels++;
-  // Passive frame growth. Without it, deep sectors are only survivable by a
-  // build that spends most of its draft picks on Nanoweave, which punishes
-  // every interesting build. Enemy damage is tuned against this line.
-  player.maxhp+=3; player.hp=Math.min(player.maxhp,player.hp+3);
+  // No frame growth: every stat on this hull was drafted. Deep sectors are
+  // survivable by spending picks on hull, and enemy damage is tuned against
+  // a hull that paid for its bar.
  }
  if(pendingLevels>0&&state==='playing'){ pendingLevels--; openLevelUp(); }
  else if(pendingNest>0&&state==='playing'){ pendingNest--; openLevelUp(); nestDraftAt=performance.now(); }
@@ -3114,7 +3150,7 @@ function rvPodLive(e){ const q=e.rvPod; return q&&!q.dead&&q.hp>0?q:null; }
 // It docks beside the pod along the wall, so its labels never sit on the pod.
 function rvDockAt(e,q){ const d=e.r+q.r+6; return {x:clamp(q.x-q.ny*d,PX0+e.r,PX1-e.r),y:clamp(q.y+q.nx*d,PY0+e.r,PY1-e.r)}; }
 BOSS_KITS.revenant={
- def:{name:'REVENANT',epithet:'the Cold-Sleeper',tier:2,hp:2900,r:28,spd:0.95,shape:'pods',pt:3.4,sig:'rime',chaff:['drone','mite']},
+ def:{name:'REVENANT',epithet:'the Cold-Sleeper',tier:2,hp:3400,r:28,spd:0.95,shape:'pods',pt:3.4,sig:'rime',chaff:['drone','mite']},
  lore:'A CAPTAIN WHO SLEPT THROUGH THE COLD — REVENANT wakes for you, and only you.',
  codex:{role:'Cryo skirmisher', threat:'Sleeper Pod, once',
   tell:'Pale RIME BOLTS freeze on a hit. A ruled line of dashed circles is a FROST LANE; a ruled line off its hull, a SHATTER DASH. A ring round your hull is a COLD SNAP.',
@@ -3262,7 +3298,7 @@ function lvSwing(e,da){ const c=Math.cos(da), s=Math.sin(da); // the whole tail 
  for(const g of e.segs){ const x=g.x-e.x, y=g.y-e.y; g.x=e.x+x*c-y*s; g.y=e.y+x*s+y*c; } }
 function lvVolley(e){ if(!e.lvV&&e.segs.length) e.lvV={t:0,i:0}; }
 BOSS_KITS.leviathan={
- def:{name:'LEVIATHAN',epithet:'the Lane-Wyrm',tier:3,hp:4000,r:36,spd:0.85,shape:'serpent',pt:4.0,sig:'segments',chaff:['mite','drone']},
+ def:{name:'LEVIATHAN',epithet:'the Lane-Wyrm',tier:3,hp:3700,r:36,spd:0.85,shape:'serpent',pt:4.0,sig:'segments',chaff:['mite','drone']},
  lore:'A LORD OF THE DEEP LANE — LEVIATHAN leaves a ghost of itself in the lane.',
  codex:{role:'Serpent', threat:'Sheds once; two phases',
   tell:'It rears and a hatched red arc marks the WHIP. A dashed ring round you is the COIL; a ruled line off its jaws, the LUNGE. Its wake is a fading red copy of its tail.',
@@ -4482,7 +4518,7 @@ function pgLaunch(e,n){ // every living bay puts out n fighters
    m.spawnT=0.9; enemies.push(m); } }
  SFX.eshoot(); }
 BOSS_KITS.progenitor={
- def:{name:'PROGENITOR',epithet:'the Brood-Hall',tier:4,hp:22000,r:36,spd:0.80,shape:'hull',pt:3.6,sig:'bays',chaff:['drone','mite']},
+ def:{name:'PROGENITOR',epithet:'the Brood-Hall',tier:4,hp:26500,r:36,spd:0.80,shape:'hull',pt:3.6,sig:'bays',chaff:['drone','mite']},
  lore:'A SOVEREIGN THAT IS A HANGAR — PROGENITOR never flies alone for long.',
  codex:{role:'Carrier', threat:'Bays launch fighters; docks twice; three phases',
   tell:'Bay notches flare, then FIGHTERS streak out. Ruled lines along its flanks are the BROADSIDE; mines astern, the MINEFIELD; a red tow-line to a fighter, the RECALL.',
@@ -5198,7 +5234,7 @@ BOSS_KITS.eclipse={
 // and 35% (the rung below). No radial volleys.
 function nuMine(e,x,y){ return eraseZone(e,x,y,70,{life:5,warn:0.5}); }
 BOSS_KITS.nullifier={
- def:{name:'NULLIFIER',epithet:'the Silent',tier:4,hp:2800,r:30,spd:1.00,shape:'prism',pt:3.4,sig:'jam',chaff:['sniper','stalker']},
+ def:{name:'NULLIFIER',epithet:'the Silent',tier:4,hp:4200,r:30,spd:1.00,shape:'prism',pt:3.4,sig:'jam',chaff:['sniper','stalker']},
  lore:'A SOVEREIGN OF SILENCE — NULLIFIER needs you ordinary for four seconds.',
  codex:{role:'Disruptor', threat:'Follows in P2; Silent Step twice',
   tell:'A hatched DISRUPTOR FIELD drops on you and jams your systems. A dashed ring is the SILENCE PULSE — it jams your dash for 3 s. A thin ruled line is the NULL LANCE, eating your rounds along it (never the whole hull). Hatched NULL circles are VOID MINES, eating rounds inside.',
@@ -5443,7 +5479,7 @@ function sgConsume(e,o){ const ix=enemies.indexOf(o); if(ix<0) return false;
  rings.push({x:o.x,y:o.y,r:6,maxR:50,spd:260,dmg:0,hit:true});
  return true; }
 BOSS_KITS.singularity={
- def:{name:'SINGULARITY',epithet:'the One-Eyed',tier:5,hp:2800,r:40,spd:0.85,shape:'well',pt:4.0,sig:'wellpull',chaff:['tempest','brute']},
+ def:{name:'SINGULARITY',epithet:'the One-Eyed',tier:5,hp:2500,r:40,spd:0.85,shape:'well',pt:4.0,sig:'wellpull',chaff:['tempest','brute']},
  lore:'THE APEX — SINGULARITY, the One-Eyed. Every rank answers to it.',
  codex:{role:'Apex', threat:'Convocation; Absorption into Phase II',
   tell:'GRAVITY drags you while DEBRIS arcs out and TIDAL MARKS pull before they burst; the SPIRAL WALL keeps one gap. At half its bar the CONVOCATION lands: three SOVEREIGNS at once. At a quarter it ABSORBS the field — then Phase II: QUASAR JETS, a grinding ACCRETION DISK, bursting HAWKING SPARKS, LENSING that bends your rounds and withers homing, the EVENT HORIZON drift and the SPAGHETTIFY axis.',
@@ -5726,10 +5762,10 @@ function killEnemy(j){
  if(e.type==='boss'){
   bossDied(e); // its beams, marks, discs, zones, boulders and any tether go with it
   if(e.lead) nestLeadDown=true; // and the nest's chaff stream stops with its lead
-  // Summoned gods are somebody else's minions: they do not bank the permanent
-  // +2% damage, or an ARCHON nest would be a damage-meta farm.
-  // A replayed nest banks nothing either: the +2% is for a god felled on the trail.
-  if(!e.summoned&&!e.echo&&!replaySnap){ bosses++; saveMeta(); nestTally.banked+=2; }
+  // Summoned gods are somebody else's minions: they are not recorded as a
+  // god felled on the trail, and neither is a replayed nest. The record is a
+  // record only — a hull's stats all come from its drafted refits.
+  if(!e.summoned&&!e.echo&&!replaySnap){ bosses++; saveMeta(); nestTally.felled++; }
   if(over) return;
   player.hp=Math.min(player.maxhp,player.hp+((e.summoned||e.echo)?10:30));
   const left=enemies.filter(o=>o.type==='boss').length;
@@ -6588,7 +6624,7 @@ lore:[
 'Past S50 a called god can call one of its own; from the Apex, two deep.',
 'Kill the one giving orders and the calls stop.',
 '',
-'Lose your ship and the Wake restores you. Each god slain: +2% damage, for good.']
+'Lose your ship and the Wake restores you. Every stat on a hull is drafted: nothing carries over.']
 };
 function openHelp(from){ helpFrom=from; helpTab='controls'; helpPage=0; helpPagerRect=null; state='help'; if(from==='paused'||from==='playing-paused') setMusicCfg(PAUSE_MUS); SFX.click(); }
 function closeHelp(){ SFX.click(); if(helpFrom==='levelup'){ state='levelup'; } else if(helpFrom==='paused'){ toPaused(autoPaused); } else if(helpFrom==='playing-paused'){ toPaused(autoPaused); } else if(helpFrom==='galaxy'){ state='galaxy'; } else { state='title'; } }
@@ -7563,7 +7599,7 @@ function drawTitle(){
     entry(BTN.titleHelp,'HELP',null,saved?titleSel===4:titleSel===3);
     const pr=codexProgress();
     const introWrapS=Math.max(24,Math.min(56,Math.floor((Math.min(W-32,470)-m)/6.6)));
-    const introS=wrapLines('Fight down an endless galaxy trail — clear each sector, draft an upgrade, push on. Every 5th sector is a boss NEST. Boss kills bank +2% damage forever.',introWrapS);
+    const introS=wrapLines('Fight down an endless galaxy trail — clear each sector, draft an upgrade, push on. Every 5th sector is a boss NEST. Every stat is drafted, so no run starts ahead.',introWrapS);
     const introTopS=BTN.titleHelp.y+BTN.titleHelp.h+18;
     const introMaxS=Math.max(1,Math.floor((H-60-introTopS)/18));
     introS.slice(0,introMaxS).forEach((l,i)=>mono(l,m+2,introTopS+i*18,12,K.text));
@@ -7581,7 +7617,7 @@ function drawTitle(){
  mono('Restored from backup. Mandate unchanged.',m+2,210+shift,12,K.textDim);
  line(m+2,228+shift,Math.min(m+406,W-(W<620?tR*0.5+16:64)),228+shift,K.metalDim,1);
  const wrapN = Math.max(24, Math.min(56, Math.floor((Math.min(W-(W<620?tR*0.7+32:64), 470)-m) / 6.6)));
- const intro=wrapLines('Fight down an endless galaxy trail — clear each sector, draft an upgrade, push on. Every 5th sector is a boss NEST. Boss kills bank +2% damage forever.',wrapN);
+ const intro=wrapLines('Fight down an endless galaxy trail — clear each sector, draft an upgrade, push on. Every 5th sector is a boss NEST. Every stat is drafted, so no run starts ahead.',wrapN);
  intro.forEach((l,i)=>mono(l,m+2,250+i*18+shift,12,K.text));
  const pr=codexProgress();
  mono(W<480?'46 upgrades · 20 bosses':'46 stackable upgrades · 20 bosses in a chain of command',m+2,250+intro.length*18+8+shift,11,K.textDim);
@@ -8358,7 +8394,7 @@ function drawLevelUp(){
  try{ const L0=draftLayout(); HY=L0.headerY; SY=HY+26; KY=HY+(lead?44:28); }catch(e){}
  if(lead){ // the peak: which god fell, and what the fall is worth
   heading(nestTally.kinds.length>1?lead.name+"'S COURT FALLS":lead.name+' FALLS',W/2,HY,hSz,ink.main,'center');
-  mono(TIER_NAMES[lead.tier]+(nestTally.banked?' · +'+nestTally.banked+'% DAMAGE BANKED FOR EVERY HULL':'')+(nestTally.firsts.length?' · FIELD NOTE RECOVERED [C]':''),W/2,SY,12,ink.main,'center',600);
+  mono(TIER_NAMES[lead.tier]+(nestTally.felled?' · '+nestTally.felled+(nestTally.felled>1?' GODS':' GOD')+' RECORDED':'')+(nestTally.firsts.length?' · FIELD NOTE RECOVERED [C]':''),W/2,SY,12,ink.main,'center',600);
   mono(keysLine,W/2,KY,11,ink.dim,'center');
   } else {
    heading('CHOOSE AN UPGRADE',W/2,HY,hSz,ink.main,'center');
@@ -8458,7 +8494,7 @@ function drawPaused(){
     heading('SYSTEMS',sx,cy0,9,K.textDim); line(sx,cy0+8,sx+sw,cy0+8,K.metalFaint,1);
     const sys=[['HULL',Math.ceil(p.hp)+'/'+p.maxhp],['DMG','×'+p.dmgMult.toFixed(2)],['RATE',p.fireRate.toFixed(1)+'/s'],['SHOTS',p.shots],['CRIT',Math.round(p.critCh*100)+'%'],['SPEED',Math.round(p.speed)],['MAGNET',Math.round(p.magnet)]];
     if(p.pierce) sys.push(['PIERCE',p.pierce]); if(p.bounce) sys.push(['RICOCHET',p.bounce]); if(p.homing) sys.push(['SEEK',p.homing]);
-    sys.push(['BOSS BONUS','+'+Math.round(bosses*2)+'%']);
+    sys.push(['GODS SLAIN',String(bosses)]);
     sys.forEach(([k,v],i)=>{ const yy=cy0+30+i*20; mono(k,sx,yy,11,K.textDim); mono(String(v),sx+sw,yy,11,K.text,'right',600); });
    } else if(pauseRecord!=='none'){
    const bw = Math.min(420, W - 32), bx = Math.round((W - bw) / 2);
@@ -8469,7 +8505,7 @@ function drawPaused(){
    heading('SYSTEMS',bx,sy,9,K.textDim); line(bx,sy+8,bx+bw,sy+8,K.metalFaint,1);
    const sys=[['HULL',Math.ceil(p.hp)+'/'+p.maxhp],['DMG','×'+p.dmgMult.toFixed(2)],['RATE',p.fireRate.toFixed(1)+'/s'],['SHOTS',p.shots],['CRIT',Math.round(p.critCh*100)+'%'],['SPEED',Math.round(p.speed)],['MAGNET',Math.round(p.magnet)]];
    if(p.pierce) sys.push(['PIERCE',p.pierce]); if(p.bounce) sys.push(['RICOCHET',p.bounce]); if(p.homing) sys.push(['SEEK',p.homing]);
-   sys.push(['BOSS BONUS','+'+Math.round(bosses*2)+'%']);
+   sys.push(['GODS SLAIN',String(bosses)]);
    const per = 2, rows = Math.ceil(sys.length / per);
    sys.forEach(([k,v],i)=>{ const c=i%per, r=Math.floor(i/per), cx=bx+c*(bw/per), yy=sy+20+r*18;
     if(yy>H-50) return;
@@ -8607,7 +8643,7 @@ function drawEnd(){
  const maxTC=H<560?2:4;
  const tl=(ent?wrapPx(ent.tell,colW,12):[]).slice(0,maxTC), cl=(ent?wrapPx(ent.counter,colW,12):[]).slice(0,maxTC);
  const scLines=wrapPx('Score '+scoreCalc()+'   Best '+best+'   Kills '+kills+'   Level '+player.level+'   Time '+Math.floor(timeSec)+'s   Reached '+sectorName(arenaIdx),colW,12,600);
- const f1=wrapPx('Restored at the Wake. Boss kills stay banked: +2% damage each.',colW,12);
+ const f1=wrapPx('Restored at the Wake. Every hull starts bare: stats come from refits alone.',colW,12);
  const f2=wrapPx(nextGodLine(),colW,11);
  const nIds=Object.keys(upgradeCounts).filter(id=>upgradeCounts[id]>0).length, per=Math.max(1,Math.floor(colW/40));
  const buildH=nIds?Math.min(2,Math.ceil(nIds/per))*46:26;
@@ -8849,7 +8885,7 @@ function srSummary(){
   const nestNames=()=>{ const c=nestSummons(arenaIdx); return BOSSDEF[leadFor(arenaIdx+1)].name+(c.length?', who calls '+callNames(c):''); };
   return where+(isBossSector(arenaIdx)?' Boss nest: '+nestNames()+'.':' Hostiles inbound.')+low+coach; }
  if(state==='levelup'){
-  const head=(nestDraftAt>0&&nestTally.kinds.length?BOSSDEF[nestTally.kinds[0]].name+(nestTally.kinds.length>1?"'s court falls.":' falls.')+(nestTally.banked?' +'+nestTally.banked+'% damage banked.':''):(nestDraftAt>0?'Nest cleared.':'Level '+(player?player.level:'')+'.'))+' Choose an upgrade; C opens the codex, H help. ';
+  const head=(nestDraftAt>0&&nestTally.kinds.length?BOSSDEF[nestTally.kinds[0]].name+(nestTally.kinds.length>1?"'s court falls.":' falls.')+(nestTally.felled?' '+nestTally.felled+(nestTally.felled>1?' gods':' god')+' recorded.':''):(nestDraftAt>0?'Nest cleared.':'Level '+(player?player.level:'')+'.'))+' Choose an upgrade; C opens the codex, H help. ';
   const cards=levelChoices.map((u,i)=>{ const dn=(typeof u.dyn==='function')?u.dyn(player):null; let s=(i+1)+': '+((dn&&dn.name)||u.name)+', '+((dn&&dn.desc)||u.desc); try{ const df=statDiff(u); if(df&&df.length) s+=' Changes: '+df.join('; ')+'.'; }catch(e){} if(u===levelBack) s+=', offered again'; return s+'.'; }).join(' ');
   let build='';
   try{ const ids=Object.keys(upgradeCounts).filter(id=>upgradeCounts[id]>0); if(ids.length) build=' Build: '+ids.map(id=>{ try{ return buildTipFor(id).name+' '+buildTipFor(id).sub; }catch(e){ const u=UPGRADES.find(q=>q.id===id); return (u?u.name:id)+' ×'+upgradeCounts[id]; } }).join(', ')+'.'; }catch(e){}
@@ -8903,6 +8939,10 @@ arena={seed:1337, obs:[], theme:THEMES[0], spawns:[], port:{x:800,y:500}, valida
     get helpPage(){ return helpPage; }, get codexPage(){ return codexPage; },
     get helpPager(){ return helpPagerRect; }, get codexPager(){ return codexPagerRect; }, get codexIdxPager(){ return codexIdxPagerRect; }, get codexSummonLinks(){ return codexSummonRects; },
     codexStep, codexIdxPage, codexIdxSpan, codexDetailPages,
+    // Depth without generating a map: the harness drafts as it descends, so
+    // depth-scaled plating (plateK) is fitted the way a run really builds it.
+    get arenaIdx(){ return arenaIdx; }, setArenaIdx(n){ arenaIdx=Math.max(0,n|0); hullFit(); return arenaIdx; },
+    get plateK(){ return plateK(); }, get PLATE_K(){ return PLATE_K; },
     setViewport(w,h){ W=Math.max(280,Math.round(w)); H=Math.max(200,Math.round(h)); helpPage=0; helpPagerRect=null; codexPage=0; codexPagerRect=null; codexIdxPagerRect=null; try{ layoutButtons(); }catch(e){} },
   pool(){ return UPGRADES.filter(u=>(!u.req||u.req(player))&&(!u.max||(upgradeCounts[u.id]||0)<u.max)).map(u=>u.id); },
   get autoPaused(){ return autoPaused; }, get queue(){ return spawnQueue; }, get cam(){ return cam; },
@@ -9104,7 +9144,7 @@ try{ if(window.__KRIEFNE_DEV===true&&window.__kriefne){
   return false;
  };
  // ----- actions -----
- function setLevel(L){ if(!player) return 0; L=Math.max(1,Math.min(300,L|0)); const d=L-player.level; player.level=L; player.xp=0; player.xpNeed=xpNeedFor(L); player.maxhp=Math.max(1,player.maxhp+3*d); player.hp=player.maxhp; return L; }
+ function setLevel(L){ if(!player) return 0; L=Math.max(1,Math.min(300,L|0)); player.level=L; player.xp=0; player.xpNeed=xpNeedFor(L); player.hp=player.maxhp; return L; }
  function setHp(v){ if(!player) return 0; v=Math.max(1,Math.round(+v)||1); if(v>player.maxhp) player.maxhp=v; player.hp=v; lastHp=v; return v; }
  function jump(n,opts){
   opts=opts||{}; n=Math.max(1,Math.min(150,Math.round(+n)||1)); const i=n-1;
@@ -9120,7 +9160,7 @@ try{ if(window.__KRIEFNE_DEV===true&&window.__kriefne){
   if(!player) return {ok:false,msg:'no run'};
   map=map||{};
   const keep={x:player.x,y:player.y,level:player.level,xp:player.xp,aim:player.aim,face:player.face,invuln:player.invuln,lastSrc:player.lastSrc,lastHurt:player.lastHurt};
-  const np=Object.assign(newPlayer(1+0.02*bosses),keep); np.xpNeed=xpNeedFor(np.level); np.maxhp+=3*(np.level-1); np.hp=np.maxhp;
+  const np=Object.assign(newPlayer(1),keep); np.xpNeed=xpNeedFor(np.level); np.hp=np.maxhp;
   player=np; upgradeCounts={};
   const want={};
   for(const id in map){ const u=UPGRADES.find(x=>x.id===id), n=Math.max(0,map[id]|0); if(u&&n) want[id]=u.max?Math.min(n,u.max):n; }

@@ -382,15 +382,21 @@ const BALANCED_ORDER = ['dmg6', 'dmg5', 'dmg4', 'dmg3', 'dmg', 'dmg0', 'hp4', 'h
 // preference among the three cards actually offered. Handing the player cards
 // directly skipped level-ups entirely, which meant per-level passive growth
 // never applied and every simulated build was quietly under-statted.
-function draftBuild(api, picks, order) {
+// `upTo` models the run as it is really built: the picks are spread down the
+// trail from S1 to that sector, so a card whose value scales with depth (hull
+// plating) is drafted at the depth a player would draft it.
+function draftBuild(api, picks, order, upTo) {
  let taken = 0, guard = 0;
+ const depth0 = upTo != null ? api.arenaIdx : null;
  while (taken < picks && guard++ < 4000) {
+  if (upTo != null) api.setArenaIdx(Math.round(upTo * taken / Math.max(1, picks)));
   if (api.state !== 'levelup') api.gainXp(api.player.xpNeed + 1);
   if (api.state !== 'levelup') break;
   if (!api.choices.length) break;
   api.pickUpgrade(prefPick(api, order));
   taken++;
  }
+ if (depth0 != null) api.setArenaIdx(depth0);
  return taken;
 }
 // The highest preference among the cards actually on offer. An entry written
@@ -447,7 +453,13 @@ function effDps(p) { return gunDps(p) + abilityDps(p); }
 const HOSE_ORDER = ['spd:1', 'seek', 'array4', 'array3', 'array2', 'array1', 'array', 'dmg6', 'dmg5', 'dmg4', 'dmg3', 'dmg', 'dmg0', 'split', 'rate6', 'rate5', 'rate4', 'rate3', 'rate', 'rate0', 'minigun', 'crit', 'slug', 'overcharge',
  'pierce', 'flak', 'chain', 'corrode', 'surge', 'orbital', 'lance', 'tesla', 'inc', 'shrap', 'cryo', 'rico', 'adrenal',
  'hp4', 'hp3', 'hp', 'hp2', 'hp1', 'hp0', 'vamp', 'orbit', 'nova', 'shock'];
-const SIM_BUILDS = { hose: HOSE_ORDER, balanced: BALANCED_ORDER, greedy: GREEDY_ORDER };
+// The simulator's balanced pilot: guns first, armour once the trail pays for
+// it. Plating is live (worth more the deeper the hull flies), so front-loading
+// armour buys the least it ever will. BALANCED_ORDER stays armour-first: it
+// models the farmer the boss-damage audit is written against.
+const SIM_BALANCED = ['dmg6', 'dmg5', 'dmg4', 'dmg3', 'dmg', 'dmg0', 'rate6', 'rate5', 'rate4', 'rate3', 'rate', 'rate0',
+ 'array4', 'array3', 'array2', 'array1', 'array', 'hp4', 'hp3', 'hp', 'hp2', 'hp1', 'hp0'].concat(BALANCED_ORDER);
+const SIM_BUILDS = { hose: HOSE_ORDER, balanced: SIM_BALANCED, greedy: GREEDY_ORDER };
 const SIM_CAP = 400;           // simulated seconds before a fight is called
 const FIGHTSIM_STRICT = true; // nest bands (spec §6) asserted; flipped after the 4a-4c boss HP fit
 const FIGHTSIM_FULL = process.argv.indexOf('--full') >= 0; // every build on every nest (slow)
@@ -613,7 +625,7 @@ function simRun(s, build, seed, tune) {
  const api = boot(); seedRandom(api, seed);
  if (tune) tune(api); // fitting hook: retune pacing knobs on this boot only
  api.startRun(); api.loadSector(0); api.forceState('playing');
- draftBuild(api, simPicks(s + 1), SIM_BUILDS[build]);
+ draftBuild(api, simPicks(s + 1), SIM_BUILDS[build], s);
  const r = simFight(api, s, SIM_BUILDS[build]);
  r.build = build;
  return r;
@@ -1094,9 +1106,9 @@ function suiteCombos() {
   for (let k = 0; k < 3; k++) {
    const f = boot(); seedRandom(f, 8100 + s * 97 + k * 7919);
    f.startRun(); f.loadSector(0); f.forceState('playing');
-   draftBuild(f, Math.max(4, Math.round((s + 1) * 1.4)), BALANCED_ORDER);
-   maxhp += f.player.maxhp / 3;
+   draftBuild(f, Math.max(4, Math.round((s + 1) * 1.4)), BALANCED_ORDER, s);
    f.loadSector(s); f.forceState('playing');
+   maxhp += f.player.maxhp / 3; // the bar as it reads on arrival, plating fitted to this sector
    dmg = Math.max(dmg, bossesIn(f).reduce((m, b) => Math.max(m, b.dmg), 0));
   }
   atMost('S' + (s + 1) + ' boss hit stays under a third of a farmer\'s bar', dmg / maxhp, 0.34);
@@ -2308,12 +2320,12 @@ function suiteCards() {
  {
   // hull-weight cards cut max HP but never below the 60 floor, and never strand HP above it
   const a = boot(); a.startRun(); a.loadSector(0); a.forceState('playing');
-  const p = a.player; p.maxhp = 64; p.hp = 64;
+  const p = a.player; p.hullBase = 64; p.plateU = 0; p.maxhp = 64; p.hp = 64;
   give(a, 'wind', 1);
-  eq('max HP costs stop at the 60 floor', p.maxhp, 60);
+  eq('max HP costs stop at the 60 floor', p.hullBase, 60);
   eq('current HP is clamped to the new max', p.hp <= p.maxhp, true);
   give(a, 'ward', 1); give(a, 'mirror', 1);
-  eq('the floor holds across picks', p.maxhp, 60);
+  eq('the floor holds across picks', p.hullBase, 60);
  }
  {
   // Portal Cell: the unlock is free, repeat charges ride with a small rate tax
@@ -2447,6 +2459,29 @@ function suiteSafety() {
    for (const l of d) if (/ (\S+) → \1$/.test(l)) flat.push(u.id + ': ' + l);
   }
   ok('every card shows a gain, and leads with it', costFirst.length === 0, costFirst.join('; '));
+  // stats come from cards alone: no bank on a new hull, no HP for levelling
+  {
+   const f = boot(); f.startRun(); f.loadSector(4); f.forceState('playing');
+   let guard = 0; while (f.bosses === 0 && guard++ < 400) { const b = f.enemies.findIndex(e => e.type === 'boss'); if (b < 0) break; f.killEnemy(b); }
+   atLeast('the run records the god it felled', f.bosses, 1);
+   f.startRun(); f.loadSector(0); f.forceState('playing');
+   eq('a new hull starts at x1.00 damage however many gods are on the record', f.player.dmgMult, 1);
+   const hp0 = f.player.maxhp, lv0 = f.player.level;
+   f.gainXp(f.player.xpNeed + 1);
+   atLeast('the level still rises', f.player.level, lv0 + 1);
+   eq('but levelling adds no hull', f.player.maxhp, hp0);
+  }
+  {
+   // plating is cut for the trail it is drafted on
+   const f = boot(); f.startRun(); f.loadSector(0); f.forceState('playing');
+   const mesh = f.upgrades.find(u => u.id === 'hp0');
+   const shallow = f.statDiff(mesh)[0];
+   f.setArenaIdx(80);
+   const deep = f.statDiff(mesh)[0];
+   ok('a hull card plates more at depth', shallow !== deep, shallow + ' vs ' + deep);
+   ok('the card names the number it really gives', /\+(\d+) Max HP/.test(mesh.dyn(f.player).desc) && RegExp.$1 === String(Math.round(5 * f.plateK)), mesh.dyn(f.player).desc);
+   f.setArenaIdx(0);
+  }
   // the card has two lines: one gain, then one cost — never two costs
   const twoCosts = api.upgrades.filter(u => { const n = api.statDiffNeg(u); return n[0] && n[1]; }).map(u => u.id);
   ok('the two lines a card shows are one gain and one cost', twoCosts.length === 0, twoCosts.join('; '));
@@ -2464,7 +2499,7 @@ function suiteSafety() {
   const api = boot(); api.startRun(); api.loadSector(4); api.forceState('playing'); api.queue.length = 0;
   let g = 0; while (api.enemies.length && g++ < 900) api.killEnemy(0);
   eq('clearing the S5 nest opens the bonus draft', api.state, 'levelup');
-  ok('the draft names the god that fell and the damage banked', /OVERLORD falls\. \+2% damage banked/.test(api.srSummary()), api.srSummary());
+  ok('the draft names the god that fell and records it', /OVERLORD falls\. 1 god recorded/.test(api.srSummary()), api.srSummary());
   let threw = null; try { api.render(); } catch (e) { threw = e; }
   ok('the gold draft renders its header', !threw, threw && threw.message);
   const picks = api.choices.slice();
