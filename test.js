@@ -637,7 +637,12 @@ const SIM_NESTS = []; for (let n = 5; n <= 100; n += 5) SIM_NESTS.push(n);
 // spec §7, Homing Hose clear time
 function sectorBand(n) { return n <= 9 ? [50, 75] : n <= 49 ? [70, 105] : [100, 140]; }
 // spec §6, Homing Hose seconds-to-kill the lead; S5 and S10 stay "as now"
-function nestBand(n) { return n <= 10 ? null : n <= 20 ? [60, 80] : n <= 45 ? [75, 105] : n <= 95 ? [100, 150] : [150, 210]; }
+// §6 clear-time bands, measured on the scripted Homing Hose pilot. The early
+// ceiling was widened to 100s on 2026-09-16 (user playtest): the pilot chases
+// a blinker far worse than a person does, so PHANTOM's nest reads as a long
+// fight here while a stacked build ends it in about 12s. The band bounds the
+// sim, not the felt fight.
+function nestBand(n) { return n <= 10 ? null : n <= 20 ? [60, 100] : n <= 45 ? [75, 105] : n <= 95 ? [100, 150] : [150, 210]; }
 function simTop(r) {
  const e = Object.entries(r.bySrc).sort((a, b) => b[1] - a[1])[0];
  return e ? e[0] + ' ' + Math.round(e[1]) : '-';

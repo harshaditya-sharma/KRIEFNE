@@ -3191,7 +3191,7 @@ function phBlink(e,x,y,decoy,then){
 function phSpot(P,a,d,m){ const x=clamp(P.x+Math.cos(a)*d,PX0+m,PX1-m), y=clamp(P.y+Math.sin(a)*d,PY0+m,PY1-m);
  return pointBlocked(x,y,m,arena.obs)?nearSpot(P.x,P.y,190,300,m):{x,y}; }
 BOSS_KITS.phantom={
- def:{name:'PHANTOM',epithet:'the Undelivered',tier:2,hp:410,r:26,spd:1.35,shape:'diamond',pt:3.2,sig:'beam',chaff:['drone','mite']},
+ def:{name:'PHANTOM',epithet:'the Undelivered',tier:2,hp:500,r:26,spd:1.35,shape:'diamond',pt:3.2,sig:'beam',chaff:['drone','mite']},
  // Ghost Form, once (spec §5), the reference recovery: translucent on the
  // spot, rounds land at 30% (e.phased), knitting from its pool while the
  // escorts it raised live. Killing them breaks it; so does RELENTLESS.
